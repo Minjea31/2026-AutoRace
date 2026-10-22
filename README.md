@@ -8,30 +8,34 @@
       <a href="https://github.com/Minjea31">
         <img src="https://github.com/Minjea31.png?size=200" width="100" height="100" alt="김민재 GitHub 프로필 사진" />
       </a>
-      <br />
-      <a href="https://github.com/Minjea31">김민재</a>
     </td>
     <td align="center" width="150">
       <a href="https://github.com/ysjee0229">
         <img src="https://github.com/ysjee0229.png?size=200" width="100" height="100" alt="지연수 GitHub 프로필 사진" />
       </a>
-      <br />
-      <a href="https://github.com/ysjee0229">지연수</a>
     </td>
     <td align="center" width="150">
       <a href="https://github.com/mini0909-web">
         <img src="https://github.com/mini0909-web.png?size=200" width="100" height="100" alt="서민영 GitHub 프로필 사진" />
       </a>
-      <br />
-      <a href="https://github.com/mini0909-web">서민영</a>
     </td>
     <td align="center" width="150">
       <a href="https://github.com/ms-c-h">
         <img src="https://github.com/ms-c-h.png?size=200" width="100" height="100" alt="최민성 GitHub 프로필 사진" />
       </a>
-      <br />
-      <a href="https://github.com/ms-c-h">최민성</a>
     </td>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://github.com/Minjea31">김민재</a></td>
+    <td align="center"><a href="https://github.com/ysjee0229">지연수</a></td>
+    <td align="center"><a href="https://github.com/mini0909-web">서민영</a></td>
+    <td align="center"><a href="https://github.com/ms-c-h">최민성</a></td>
+  </tr>
+  <tr>
+    <td align="center">충북대학교</td>
+    <td align="center">충북대학교</td>
+    <td align="center">충북대학교</td>
+    <td align="center">충북대학교</td>
   </tr>
 </table>
 
