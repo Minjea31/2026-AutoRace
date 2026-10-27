@@ -47,7 +47,7 @@
 
 노드 구조와 노드 간 데이터 흐름은 [노드 구조 Flowchart (Google Drive)](https://drive.google.com/file/d/1IbPikYiX3ACrdugrASQr_ySAeMO6wz26/view?usp=sharing)에서 확인할 수 있습니다.
 
-로컬 [draw.io 도면](docs/2026_AutoRace.drawio)과 [토픽·우선순위 명세](docs/architecture.md)도 함께 관리합니다.
+로컬 [Flowchart 이미지](docs/2026_AutoRace.png)와 [토픽·우선순위 명세](docs/architecture.md)도 함께 관리합니다.
 
 ## Workspaces
 
