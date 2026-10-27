@@ -41,7 +41,11 @@
 
 ## Poster
 
-![2026 AUTO RACE 스케일카 자율주행 경진대회 포스터](info/poster.jpg)
+![2026 AUTO RACE 스케일카 자율주행 경진대회 포스터](assets/poster.jpg)
+
+## Node Flowchart
+
+노드 구조와 노드 간 데이터 흐름은 [노드 구조 Flowchart (Google Drive)](https://drive.google.com/file/d/1IbPikYiX3ACrdugrASQr_ySAeMO6wz26/view?usp=sharing)에서 확인할 수 있습니다.
 
 ## Workspaces
 
@@ -71,4 +75,6 @@
     └── init.txt
 ```
 
-대회 규정집, 미션 상세 문서 및 트랙 도면은 [info](info/) 폴더에 있습니다.
+대회 규정집, 미션 상세 문서 및 트랙 도면은 [assets](assets/) 폴더에 있습니다.
+
+지도 순서에 따른 미션 수행 내용, 판정 기준 및 표지판은 [미션별 정리](misson.md)에서 확인할 수 있습니다.
