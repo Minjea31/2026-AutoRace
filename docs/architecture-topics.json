@@ -1,0 +1,410 @@
+[
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-01",
+    "source": "sensor_camera",
+    "target": "yolo_ws",
+    "topics": [
+      {
+        "name": "/camera/image_raw/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "source_workspace": "sensor_ws",
+    "category": "camera",
+    "color": "#1976D2"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-02",
+    "source": "sensor_camera",
+    "target": "lane_ws",
+    "topics": [
+      {
+        "name": "/camera/image_raw/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "source_workspace": "sensor_ws",
+    "category": "camera",
+    "color": "#1976D2"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-03",
+    "source": "sensor_camera",
+    "target": "crosswalk_ws",
+    "topics": [
+      {
+        "name": "/camera/image_raw/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "source_workspace": "sensor_ws",
+    "category": "camera",
+    "color": "#1976D2"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-04",
+    "source": "lane_ws",
+    "target": "crosswalk_ws",
+    "topics": [
+      {
+        "name": "/mission/lane",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "lane",
+    "color": "#AD7A00"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-05",
+    "source": "crosswalk_ws",
+    "target": "mux_ws",
+    "topics": [
+      {
+        "name": "/mission/crosswalk/command_01",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "mission",
+    "color": "#238363"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-06",
+    "source": "sensor_camera",
+    "target": "signal_ws",
+    "topics": [
+      {
+        "name": "/camera/image_raw/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "source_workspace": "sensor_ws",
+    "category": "camera",
+    "color": "#1976D2"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-07",
+    "source": "yolo_ws",
+    "target": "signal_ws",
+    "topics": [
+      {
+        "name": "/yolo/signal",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "yolo",
+    "color": "#8E44AD"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-08",
+    "source": "lane_ws",
+    "target": "signal_ws",
+    "topics": [
+      {
+        "name": "/mission/lane",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "lane",
+    "color": "#AD7A00"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-09",
+    "source": "signal_ws",
+    "target": "mux_ws",
+    "topics": [
+      {
+        "name": "/mission/signal/command_02",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "mission",
+    "color": "#238363"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-10",
+    "source": "sensor_camera",
+    "target": "parking_ws",
+    "topics": [
+      {
+        "name": "/camera/image_raw/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "source_workspace": "sensor_ws",
+    "category": "camera",
+    "color": "#1976D2"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-10-lidar",
+    "source": "sensor_lidar",
+    "target": "parking_ws",
+    "topics": [
+      {
+        "name": "/scan",
+        "type": "sensor_msgs/msg/LaserScan"
+      }
+    ],
+    "source_workspace": "sensor_ws",
+    "category": "lidar",
+    "color": "#E65100"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-11",
+    "source": "yolo_ws",
+    "target": "parking_ws",
+    "topics": [
+      {
+        "name": "/yolo/parking_sign",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "yolo",
+    "color": "#8E44AD"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-12",
+    "source": "parking_ws",
+    "target": "mux_ws",
+    "topics": [
+      {
+        "name": "/mission/parking/command_03",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "mission",
+    "color": "#238363"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-13",
+    "source": "sensor_lidar",
+    "target": "cone_ws",
+    "topics": [
+      {
+        "name": "/scan",
+        "type": "sensor_msgs/msg/LaserScan"
+      }
+    ],
+    "source_workspace": "sensor_ws",
+    "category": "lidar",
+    "color": "#E65100"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-14",
+    "source": "cone_ws",
+    "target": "mux_ws",
+    "topics": [
+      {
+        "name": "/mission/cone/command_04",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "mission",
+    "color": "#238363"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-15",
+    "source": "sensor_camera",
+    "target": "objavoid_ws",
+    "topics": [
+      {
+        "name": "/camera/image_raw/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "source_workspace": "sensor_ws",
+    "category": "camera",
+    "color": "#1976D2"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-15-lidar",
+    "source": "sensor_lidar",
+    "target": "objavoid_ws",
+    "topics": [
+      {
+        "name": "/scan",
+        "type": "sensor_msgs/msg/LaserScan"
+      }
+    ],
+    "source_workspace": "sensor_ws",
+    "category": "lidar",
+    "color": "#E65100"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-16",
+    "source": "objavoid_ws",
+    "target": "mux_ws",
+    "topics": [
+      {
+        "name": "/mission/objavoid/command_05",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "mission",
+    "color": "#238363"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-20",
+    "source": "sensor_camera",
+    "target": "zigzag_ws",
+    "topics": [
+      {
+        "name": "/camera/image_raw/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "source_workspace": "sensor_ws",
+    "category": "camera",
+    "color": "#1976D2"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-21",
+    "source": "lane_ws",
+    "target": "zigzag_ws",
+    "topics": [
+      {
+        "name": "/mission/lane",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "lane",
+    "color": "#AD7A00"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-22",
+    "source": "zigzag_ws",
+    "target": "mux_ws",
+    "topics": [
+      {
+        "name": "/mission/zigzag/command_07",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "mission",
+    "color": "#238363"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-23",
+    "source": "yolo_ws",
+    "target": "slow_ws",
+    "topics": [
+      {
+        "name": "/yolo/slow_sign",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "yolo",
+    "color": "#8E44AD"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-24",
+    "source": "lane_ws",
+    "target": "slow_ws",
+    "topics": [
+      {
+        "name": "/mission/lane",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "lane",
+    "color": "#AD7A00"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-25",
+    "source": "slow_ws",
+    "target": "mux_ws",
+    "topics": [
+      {
+        "name": "/mission/slow/command_08",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "mission",
+    "color": "#238363"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-26",
+    "source": "yolo_ws",
+    "target": "lane_ws",
+    "topics": [
+      {
+        "name": "/yolo/LR_sign",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "yolo",
+    "color": "#8E44AD"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-27",
+    "source": "lane_ws",
+    "target": "mux_ws",
+    "topics": [
+      {
+        "name": "/mission/lane",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "lane",
+    "color": "#AD7A00"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-28",
+    "source": "mux_ws",
+    "target": "control_ws",
+    "topics": [
+      {
+        "name": "/cmd/selected",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "selected",
+    "color": "#00695C"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "lane-current-lane-input",
+    "source": null,
+    "target": "lane_ws",
+    "publisher_status": "unassigned",
+    "topics": [
+      {
+        "name": "/current_lane",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "lane_selection",
+    "color": "#455A64",
+    "default": false,
+    "values": {
+      "false": "left",
+      "true": "right"
+    }
+  }
+]

@@ -28,7 +28,7 @@
 | 2 | 서행 유도선 통과 — 지그재그 차선 | 미션 6 | 15점 | [zigzag_ws](zigzag_ws/) |
 | 3 | 보행자 표지판 정지 | 미션 3 | 10점 | [crosswalk_ws](crosswalk_ws/) |
 | 4 | 정적 장애물 회피 — 3차선 | 미션 7 | 10점 | [objavoid_ws](objavoid_ws/) |
-| 5 | 갈림길 경로 선택 — A/B | 미션 2 | 10점 | [LR_sign_ws](LR_sign_ws/) |
+| 5 | 갈림길 경로 선택 — A/B | 미션 2 | 10점 | [lane_ws](lane_ws/) |
 | 6 | 라바콘 회피 | 미션 8 | 15점 | [cone_ws](cone_ws/) |
 | 7 | 신호등 정지·발진 — 방해 광고판 포함 | 미션 1 | 15점 | [signal_ws](signal_ws/) |
 | 8 | T자 주차 | 미션 4 | 최대 15점 | [parking_ws](parking_ws/) |
@@ -182,6 +182,8 @@
 | 관련 표지판 | 파란 원형에 흰색 좌회전 화살표와 **A**, 또는 우회전 화살표와 **B** |
 
 **수행 흐름:** 표지판 인식 → A/좌 또는 B/우 결정 → 해당 분기 진입.
+
+**구현 담당:** `yolo_ws`가 `/yolo/LR_sign` (`std_msgs/msg/Bool`)으로 `false=좌/A`, `true=우/B`를 보내고, `lane_ws`가 경로 선택·속도·조향·구간 완료를 처리합니다. 기본 주행 명령은 `/mission/lane`으로 발행합니다.
 
 **표지판 사진**
 

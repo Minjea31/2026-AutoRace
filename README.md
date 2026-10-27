@@ -47,24 +47,26 @@
 
 노드 구조와 노드 간 데이터 흐름은 [노드 구조 Flowchart (Google Drive)](https://drive.google.com/file/d/1IbPikYiX3ACrdugrASQr_ySAeMO6wz26/view?usp=sharing)에서 확인할 수 있습니다.
 
+로컬 [draw.io 도면](docs/2026_AutoRace.drawio)과 [토픽·우선순위 명세](docs/architecture.md)도 함께 관리합니다.
+
 ## Workspaces
 
-8개 미션 워크스페이스와 4개 공통 워크스페이스로 구성합니다.
+8종 미션을 7개 미션 워크스페이스와 5개 공통 워크스페이스에서 처리합니다. 갈림길 A/B 주행은 `lane_ws`에 통합하며, `/yolo/LR_sign`의 Bool 결과로 좌·우 경로를 선택합니다.
 
 | 구분 | 워크스페이스 | 담당 기능 |
 | --- | --- | --- |
 | 미션 | [signal_ws](signal_ws/) | 신호등 정지·발진. 방해 광고판이 있는 환경에서 신호 인식 |
-| 미션 | [LR_sign_ws](LR_sign_ws/) | 좌·우 표지판 인식 및 갈림길 A/B 경로 선택 |
-| 미션 | [crosswalk_ws](crosswalk_ws/) | 보행자 표지판 인식, 횡단보도 앞 정지 및 3초 이상 대기 후 출발 |
+| 미션 | [crosswalk_ws](crosswalk_ws/) | 카메라로 횡단보도·정지선을 인식하고 lane 명령의 속도만 바꿔 정지·3초 대기·출발 |
 | 미션 | [parking_ws](parking_ws/) | 지정 주차 구역에 T자 주차 |
 | 미션 | [slow_ws](slow_ws/) | 방지턱 앞 서행 표지판 인식, 감속 및 방지턱 통과 |
 | 미션 | [zigzag_ws](zigzag_ws/) | 지그재그 서행 유도선 구간 통과 |
 | 미션 | [cone_ws](cone_ws/) | 라바콘 회피 주행 |
 | 미션 | [objavoid_ws](objavoid_ws/) | 정적 장애물 인식 및 차선 변경을 통한 회피 |
 | 공통 | [control_ws](control_ws/) | 차량 조향 및 속도 제어 |
-| 공통 | [lane_ws](lane_ws/) | 차선 인식 및 차로 유지 주행 |
-| 공통 | [mux_ws](mux_ws/) | 주행·미션별 제어 명령 선택 및 전환 |
+| 공통 | [lane_ws](lane_ws/) | 차선 인식·차로 유지 및 갈림길 A/B 주행. 기본 명령 `/mission/lane` 발행 |
+| 공통 | [mux_ws](mux_ws/) | 미션 command 우선순위 선택. 유효한 미션 command가 없으면 `/mission/lane` 선택 |
 | 공통 | [sensor_ws](sensor_ws/) | 카메라·라이다 등 센서 데이터 수집 및 처리 |
+| 공통 | [yolo_ws](yolo_ws/) | 서행·갈림길·신호등·주차 인지 결과를 Bool 토픽으로 발행 |
 
 모든 워크스페이스는 아래와 같은 폴더 구조를 사용합니다. `src/init.txt`는 빈 `src` 폴더를 Git에 유지하기 위한 파일입니다.
 
