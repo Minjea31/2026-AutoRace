@@ -6,7 +6,7 @@
     "target": "yolo_ws",
     "topics": [
       {
-        "name": "/camera/image_raw/compressed",
+        "name": "/camera/color/image_raw/compressed",
         "type": "sensor_msgs/msg/CompressedImage"
       }
     ],
@@ -21,7 +21,7 @@
     "target": "lane_ws",
     "topics": [
       {
-        "name": "/camera/image_raw/compressed",
+        "name": "/camera/color/image_raw/compressed",
         "type": "sensor_msgs/msg/CompressedImage"
       }
     ],
@@ -32,17 +32,16 @@
   {
     "page": "전체 흐름",
     "id": "전체-edge-03",
-    "source": "sensor_camera",
+    "source": "yolo_ws",
     "target": "crosswalk_ws",
     "topics": [
       {
-        "name": "/camera/image_raw/compressed",
-        "type": "sensor_msgs/msg/CompressedImage"
+        "name": "/yolo/crosswalk_sign",
+        "type": "std_msgs/msg/Bool"
       }
     ],
-    "source_workspace": "sensor_ws",
-    "category": "camera",
-    "color": "#1976D2"
+    "category": "yolo",
+    "color": "#8E44AD"
   },
   {
     "page": "전체 흐름",
@@ -79,7 +78,7 @@
     "target": "signal_ws",
     "topics": [
       {
-        "name": "/camera/image_raw/compressed",
+        "name": "/camera/color/image_raw/compressed",
         "type": "sensor_msgs/msg/CompressedImage"
       }
     ],
@@ -136,7 +135,7 @@
     "target": "parking_ws",
     "topics": [
       {
-        "name": "/camera/image_raw/compressed",
+        "name": "/camera/color/image_raw/compressed",
         "type": "sensor_msgs/msg/CompressedImage"
       }
     ],
@@ -223,7 +222,7 @@
     "target": "objavoid_ws",
     "topics": [
       {
-        "name": "/camera/image_raw/compressed",
+        "name": "/camera/color/image_raw/compressed",
         "type": "sensor_msgs/msg/CompressedImage"
       }
     ],
@@ -262,27 +261,26 @@
   },
   {
     "page": "전체 흐름",
-    "id": "전체-edge-20",
-    "source": "sensor_camera",
-    "target": "slow_ws",
-    "topics": [
-      {
-        "name": "/camera/image_raw/compressed",
-        "type": "sensor_msgs/msg/CompressedImage"
-      }
-    ],
-    "source_workspace": "sensor_ws",
-    "category": "camera",
-    "color": "#1976D2"
-  },
-  {
-    "page": "전체 흐름",
     "id": "전체-edge-23",
     "source": "yolo_ws",
     "target": "slow_ws",
     "topics": [
       {
         "name": "/yolo/slow_sign",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "yolo",
+    "color": "#8E44AD"
+  },
+  {
+    "page": "전체 흐름",
+    "id": "yolo-zigzag-to-slow",
+    "source": "yolo_ws",
+    "target": "slow_ws",
+    "topics": [
+      {
+        "name": "/yolo/zigzag",
         "type": "std_msgs/msg/Bool"
       }
     ],
@@ -349,13 +347,15 @@
     "page": "전체 흐름",
     "id": "전체-edge-28",
     "source": "mux_ws",
-    "target": "control_ws",
+    "target": null,
     "topics": [
       {
-        "name": "/cmd/selected",
-        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+        "name": "/cmd_vel",
+        "type": "geometry_msgs/msg/Twist"
       }
     ],
+    "subscriber_status": "external",
+    "target_system": "LIMO base driver",
     "category": "selected",
     "color": "#00695C"
   },
@@ -364,13 +364,13 @@
     "id": "lane-current-lane-input",
     "source": null,
     "target": "lane_ws",
-    "publisher_status": "unassigned",
     "topics": [
       {
         "name": "/current_lane",
         "type": "std_msgs/msg/Bool"
       }
     ],
+    "publisher_status": "unassigned",
     "category": "lane_selection",
     "color": "#455A64",
     "default": false,
