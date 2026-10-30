@@ -312,6 +312,17 @@
     "OrbbecSDK_ROS2/orbbec_camera_msgs/srv/GetInt32.srv": "1d18699608bc649eab26038f0197b8ccb25ead309b38a3481a68edd15d68794e"
   },
   "local_changes": {
-    "limo_ros2/limo_base/package.xml": "Declare geometry_msgs, sensor_msgs, tf2_geometry_msgs and ackermann_msgs dependencies already required by CMake."
+    "limo_ros2/limo_base/package.xml": "Declare geometry_msgs, sensor_msgs, tf2_geometry_msgs and ackermann_msgs dependencies already required by CMake.",
+    "limo_ros2/limo_description/urdf/limo_ackerman.xacro": "Official LIMO Pro sensor/body transforms by default; preserve previous local TF through tf_profile:=existing; remove geometry-less visual.",
+    "limo_ros2/limo_description/launch/load_urdf_ackerman.launch.py": "Pass tf_profile to Xacro; official LIMO Pro is default."
+  },
+  "tf_reference": {
+    "repository": "https://github.com/WeGo-Robotics/limo_pro",
+    "commit": "7ef355cd515e806b26f498d38bfe2abe4f3a9728",
+    "files": [
+      "limo_ros2/limo_description/urdf/limo_ackerman.xacro",
+      "wego/launch/camera_tilt_launch.py"
+    ],
+    "note": "User confirmed standard LIMO Pro mounting. TF only; no upstream driver or simulator replacement."
   }
 }

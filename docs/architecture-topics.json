@@ -264,7 +264,7 @@
     "page": "전체 흐름",
     "id": "전체-edge-20",
     "source": "sensor_camera",
-    "target": "zigzag_ws",
+    "target": "slow_ws",
     "topics": [
       {
         "name": "/camera/image_raw/compressed",
@@ -274,34 +274,6 @@
     "source_workspace": "sensor_ws",
     "category": "camera",
     "color": "#1976D2"
-  },
-  {
-    "page": "전체 흐름",
-    "id": "전체-edge-21",
-    "source": "lane_ws",
-    "target": "zigzag_ws",
-    "topics": [
-      {
-        "name": "/mission/lane",
-        "type": "ackermann_msgs/msg/AckermannDriveStamped"
-      }
-    ],
-    "category": "lane",
-    "color": "#AD7A00"
-  },
-  {
-    "page": "전체 흐름",
-    "id": "전체-edge-22",
-    "source": "zigzag_ws",
-    "target": "mux_ws",
-    "topics": [
-      {
-        "name": "/mission/zigzag/command_07",
-        "type": "ackermann_msgs/msg/AckermannDriveStamped"
-      }
-    ],
-    "category": "mission",
-    "color": "#238363"
   },
   {
     "page": "전체 흐름",

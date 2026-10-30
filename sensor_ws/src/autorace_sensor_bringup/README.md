@@ -32,7 +32,9 @@ ros2 launch autorace_sensor_bringup sensors.launch.py
 | ekf_params | 패키지 config/limo_ekf.yaml | 파라미터 파일 절대 경로 |
 | camera_name | camera | 카메라 토픽 접두사·루트 TF |
 | camera_launch | astra_stereo_u3.launch.py | 기존 Orbbec launch 파일명 |
-| degree | 0.0 | 기존 카메라 pitch 보정, TF 단위는 라디안 |
+| camera_tf_publish_rate | 0.0 | 카메라 내부 TF를 /tf_static으로 발행. 양수는 동적 발행 Hz |
+| degree | 0.0 | 카메라 pitch 보정, TF 단위는 라디안 |
+| tf_profile | wego_limo_pro | 공식 기본 장착 위치. existing은 이전 로컬 보정 |
 | startup_timeout | 15.0 | 첫 메시지 제한 시간(초) |
 | stale_timeout | 5.0 | 수신 중단 제한 시간(초), 확인 간격 1초 |
 
@@ -52,9 +54,12 @@ EKF 활성화 시 base pub_odom_tf=false, 비활성화 시 true로 odom→base_l
 외부 TF 발행자가 있다면 해당 기능을 비활성화해야 한다. 사용자 지정 EKF 설정도 TF 소유권을 지켜야 한다.
 
 limo_description/load_urdf_ackerman.launch.py가 Ackermann 모델 및 레이저·IMU TF를 발행한다.
-카메라 장착 TF는 기존 wego/launch/camera_tilt_launch.py의 값을 재사용한다:
-base_link→camera_mount (0.2,0.1,0.06), camera_mount→camera_rotate (pitch=degree),
+기본 TF는 공식 WeGo LIMO Pro 소스의 기본 장착 위치를 사용한다:
+base_link→camera_mount (0.103,0,0.06), camera_mount→camera_rotate (pitch=degree),
 camera_rotate→camera_link (0.03,-0.05,0).
+LiDAR는 base_link 기준 (0.103,0,-0.034), IMU는 (0,0,-0.1)이다.
+기존 보정은 `tf_profile:=existing`으로 선택한다.
+프레임별 토픽·좌표·출처와 검증 명령은 [FRAMES.md](FRAMES.md)를 참고한다.
 Orbbec이 camera_link 아래 내부·광학 TF를 발행한다. camera_name 변경 시 루트 이름도 반영한다.
 YDLIDAR YAML은 기존 ydlidar_ros2_driver/params/ydlidar.yaml,
 EKF YAML은 robot_localization/params/limo_ekf.yaml과 동일하다.
@@ -75,6 +80,9 @@ ROS_LOG_DIR을 실행 전에 지정하면 그 루트 아래 생성한다.
 PROCESS_START는 센서 데이터 수신 성공이 아니다. READY를 별도로 확인한다.
 활성 기능에 따라 /imu, /odom, /limo_status, /scan, /camera/color/image_raw,
 /camera/depth/image_raw, /odometry/filtered를 best-effort/volatile QoS로 구독한다.
+압축 컬러 영상 토픽은 `/camera/color/image_raw/compressed` (`sensor_msgs/msg/CompressedImage`)이며,
+image_transport의 compressed 플러그인이 필요하다. 현재 PC에는 설치되어 있다.
+센서 모니터는 압축 영상이 아니라 원본 컬러·깊이 영상의 수신을 확인한다.
 카메라 component들은 container PID와 출력 파일을 공유한다.
 다른 camera_launch를 선택하면 영상 토픽 계약을 확인해야 한다.
 LAUNCH_SHUTDOWN은 종료 요청 시각이며 그 이후 PROCESS_EXIT가 기록될 수 있다.
@@ -111,8 +119,8 @@ ROS_DOMAIN_ID=179 ROS_LOCALHOST_ONLY=1 ROS_LOG_DIR="$PWD/log/verification" \
   /usr/bin/python3 src/autorace_sensor_bringup/tests/hardware_free_check.py
 ```
 
-기존 설정에서 관찰되는 경고: Ackermann Xacro의 base_link에 geometry 없는 visual이 있고
-laser/imu material 정의가 없어 URDF 파서 경고가 나온다. 프레임 로딩은 성공한다.
+geometry 없는 visual은 TF 구성 정리 과정에서 제거했다.
+기존 laser/imu material 표현에 대한 URDF 경고는 남아 있으나 프레임 로딩은 성공한다.
 기존 EKF YAML은 odom0_differential와 odom0_relative가 모두 true여서
 EKF가 differential 모드를 선택한다는 오류 수준 메시지를 출력한다.
 이 패키지는 기존 보정·설정을 우선 재사용하므로 이 원본 동작을 유지한다.
@@ -148,7 +156,8 @@ Orbbec SDK는 소스의 SDK 디렉터리에 포함되며 함께 설치된다.
 udev 규칙 설치는 시스템 관리자 작업이며 이번 이전에서 시스템 설정은 변경하지 않았다.
 
 로컬 변경은 limo_base/package.xml의 누락된 geometry_msgs, sensor_msgs,
-tf2_geometry_msgs, ackermann_msgs 의존성 선언 보완뿐이며, 드라이버 C++와 센서 보정은 유지한다.
+tf2_geometry_msgs, ackermann_msgs 의존성 선언과 LIMO 모델의 TF 프로파일 선택이다.
+드라이버 C++와 Ackermann 수정은 유지하며, 센서 장착 TF는 FRAMES.md의 공식 기본값을 적용한다.
 
 독립 빌드 결과: 8 packages finished. 원본의 obsolete header·unused parameter 경고와
 일부 패키지가 사용하지 않는 CMake PYTHON_EXECUTABLE 인자 경고는 있으나 빌드 오류는 없다.
@@ -165,3 +174,39 @@ source install/setup.bash
 8개 패키지가 모두 sensor_ws/install로 검색되고 LIMO·YDLIDAR·EKF 실행 파일 및
 Orbbec 라이브러리의 의존성에 wego_ws 경로와 누락된 라이브러리가 없는지 검사한다.
 Orbbec 공유 라이브러리를 로드하되 카메라 노드는 생성하지 않는다.
+
+## RViz에서 로봇 이동과 LiDAR 점 보기
+
+```bash
+source /home/wego/2026-AutoRace/sensor_ws/install/setup.bash
+# 센서 실행 터미널과 ROS_DOMAIN_ID / ROS_LOCALHOST_ONLY 값을 동일하게 맞춘다.
+export ROS_LOCALHOST_ONLY=1
+rviz2 -d /home/wego/2026-AutoRace/sensors.rviz
+```
+
+제공한 설정은 Fixed Frame=odom, View Target Frame=odom,
+LaserScan=/scan, Reliability=Best Effort, Durability=Volatile을 사용한다.
+/scan 발행자가 Best Effort이면 RViz를 Reliable로 구독할 경우 데이터가 전달되지 않는다.
+변경 후에도 예전 구독 상태가 남으면 LaserScan Display를 제거하고 다시 추가한다.
+
+Decay Time=0.2는 최근 스캔을 표시한다. 이동 중 점을 잠시 누적해서 보려면
+LaserScan의 Decay Time을 5~10초로 늘린다. 이는 SLAM 지도가 아니라 odom 기준의 시각화 잔상이다.
+정적인 벽은 odom 화면에서 제자리에 남고, 로봇과 새 스캔의 측정 위치가 이동하는 것이 정상이다.
+TF·QoS가 정상이어도 ranges가 모두 0이면 표시 가능한 점이 없으므로 데이터도 별도로 확인한다.
+
+
+RViz 설정의 카메라 창은 `rviz_default_plugins/Image`로 압축 영상만 표시한다.
+`Camera` Display는 카메라 모델에 3D 장면을 겹쳐 표시하고 영상 시각의 TF도 요구한다.
+단순 영상 확인에는 Image를 사용하면 LiDAR 점이 영상 위에 겹치지 않는다.
+현재 Humble RViz는 Transport Hint 속성 대신 토픽 이름의 `/compressed` 접미사에서
+전송 방식을 선택하므로, Image의 Topic 값에 `/camera/color/image_raw/compressed`를 직접 입력한다.
+타입으로 필터링된 드롭다운 목록에는 이 항목이 빠질 수 있다.
+
+LiDAR는 Color Transformer=Intensity, Channel Name=intensity,
+Autocompute Intensity Bounds=true로 저장했다. 기존 /scan의 ranges와 intensities를 그대로 사용한다.
+
+카메라 내부 extrinsics는 고정 보정이므로 통합 launch의 `camera_tf_publish_rate=0.0`은
+기존 Orbbec 구현의 /tf_static 경로를 선택한다. 동적 TF 지연 때문에 Camera Display의
+메시지 필터 큐가 차는 상황을 줄이며, 내부 보정값이나 영상 타임스탬프를 수정하지 않는다.
+이 launch 설정은 센서 launch를 재실행해야 적용된다. RViz 설정 파일 변경만 적용하려면
+RViz만 위의 `-d .../sensors.rviz` 명령으로 다시 열면 된다.

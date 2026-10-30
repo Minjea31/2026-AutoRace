@@ -27,6 +27,9 @@ def _setup(context):
             raise ValueError(f'{name} must be true or false')
         return text == 'true'
 
+    if value('tf_profile') not in ('existing', 'wego_limo_pro'):
+        raise ValueError('tf_profile must be existing or wego_limo_pro')
+
     log_dir = Path(launch_config.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     raw_dir = log_dir / 'process_output'
@@ -34,7 +37,8 @@ def _setup(context):
     options = {key: value(key) for key in (
         'enable_base', 'enable_lidar', 'enable_camera', 'enable_description',
         'enable_camera_tf', 'enable_ekf', 'port_name', 'lidar_params', 'ekf_params',
-        'camera_name', 'camera_launch', 'degree', 'startup_timeout', 'stale_timeout',
+        'camera_name', 'camera_launch', 'degree', 'startup_timeout', 'stale_timeout', 'tf_profile',
+        'camera_tf_publish_rate',
     )}
     (log_dir / 'session.json').write_text(json.dumps({
         'started_at': datetime.now(timezone.utc).isoformat(), 'options': options,
@@ -109,15 +113,20 @@ def _setup(context):
     if enabled('enable_camera'):
         actions.append(include('orbbec_camera', value('camera_launch'), {
             'camera_name': value('camera_name'),
+            # Rigid camera internal geometry belongs on /tf_static.
+            'tf_publish_rate': value('camera_tf_publish_rate'),
         }))
         camera = '/' + value('camera_name').strip('/')
         watch(camera + '/color/image_raw', 'sensor_msgs/msg/Image')
         watch(camera + '/depth/image_raw', 'sensor_msgs/msg/Image')
     if enabled('enable_description'):
-        actions.append(include('limo_description', 'load_urdf_ackerman.launch.py'))
+        actions.append(include('limo_description', 'load_urdf_ackerman.launch.py', {
+            'tf_profile': value('tf_profile'),
+        }))
     if enabled('enable_camera_tf'):
         actions.append(include('autorace_sensor_bringup', 'camera_tf.launch.py', {
             'degree': value('degree'), 'camera_name': value('camera_name'),
+            'tf_profile': value('tf_profile'),
         }))
     if enabled('enable_ekf'):
         actions.append(Node(
@@ -147,6 +156,8 @@ def generate_launch_description():
         'ekf_params': str(share / 'config' / 'limo_ekf.yaml'),
         'camera_name': 'camera', 'camera_launch': 'astra_stereo_u3.launch.py',
         'degree': '0.0', 'startup_timeout': '15.0', 'stale_timeout': '5.0',
+        'tf_profile': 'wego_limo_pro',
+        'camera_tf_publish_rate': '0.0',
     }
     return LaunchDescription([
         *[DeclareLaunchArgument(name, default_value=default) for name, default in defaults.items()],

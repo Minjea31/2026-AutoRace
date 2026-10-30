@@ -1,8 +1,14 @@
 <?xml version="1.0"?>
 
-<robot name="limo_four_diff" xmlns:xacro="http://ros.org/wiki/xacro">
+<robot name="limo_ackerman" xmlns:xacro="http://ros.org/wiki/xacro">
 
     <xacro:include filename="$(find limo_description)/urdf/limo_xacro.xacro" />
+
+    <!-- Official LIMO Pro sensor geometry by default; legacy calibration is optional. -->
+    <xacro:arg name="tf_profile" default="wego_limo_pro" />
+    <xacro:property name="official_tf" value="${'$(arg tf_profile)' == 'wego_limo_pro'}" />
+    <xacro:property name="body_frame" value="${'base_link' if official_tf else 'base_footprint'}" />
+    <xacro:property name="empty_frame" value="${'base_footprint' if official_tf else 'base_link'}" />
 
     <!-- Variables -->
     <xacro:property name="M_PI" value="3.14159"/>
@@ -20,20 +26,18 @@
     <xacro:property name="wheel_length" value="0.045" />
     <xacro:property name="wheel_radius" value="0.045" />
     
-    <link name="base_link">
-        <visual>
-            <origin xyz="0 0 0" rpy="0 0 0"/>
-        </visual>
-    </link>
+    <link name="${empty_frame}"/>
 
     <joint name="base_link_to_base_footprint" type="fixed">
-        <origin xyz="${wheelbase/2} 0 ${-wheel_vertical_offset}" rpy="0 0 0" />
+        <!-- Official footprint is 0.15 m below base_link. The inverse edge
+             keeps base_link as the root used by limo_base and the EKF. -->
+        <origin xyz="${0.0 if official_tf else wheelbase/2} 0 ${-0.15 if official_tf else -wheel_vertical_offset}" rpy="0 0 0" />
         <parent link="base_link" />
         <child link="base_footprint" />
     </joint>
 
-    <!-- Base foot print -->
-    <link name="base_footprint">
+    <!-- Body frame: base_link in the official profile. -->
+    <link name="${body_frame}">
         <visual>
             <origin xyz="0 0 -0.15" rpy="0 0 1.57" />
             <geometry>
@@ -61,32 +65,32 @@
 
     <joint name="inertial_joint" type="fixed">
         <origin xyz="0 0 0" rpy="0 0 0" />
-        <parent link="base_footprint" />
+        <parent link="${body_frame}" />
         <child link="inertial_link" />
     </joint>
 
-    <xacro:limo_laser parent_prefix="base_footprint" frame_prefix="laser">
+    <xacro:limo_laser parent_prefix="${body_frame}" frame_prefix="laser">
         <origin xyz="0.103 0 -0.034" rpy="0 0 0"/>
     </xacro:limo_laser>
 
     
-    <xacro:limo_imu parent_prefix="base_footprint" frame_prefix="imu">
+    <xacro:limo_imu parent_prefix="${body_frame}" frame_prefix="imu">
         <origin xyz="0.0 0 -0.1" rpy="0 0 0"/>
     </xacro:limo_imu>
 
-    <xacro:limo_wheel parent_prefix="base_footprint" wheel_prefix="front_left" reflect="1">
+    <xacro:limo_wheel parent_prefix="${body_frame}" wheel_prefix="front_left" reflect="1">
         <origin xyz="${wheelbase/2} ${track/2} ${wheel_vertical_offset}" rpy="0 0  0" />
     </xacro:limo_wheel>
 
-    <xacro:limo_wheel parent_prefix="base_footprint" wheel_prefix="front_right" reflect="-1">
+    <xacro:limo_wheel parent_prefix="${body_frame}" wheel_prefix="front_right" reflect="-1">
         <origin xyz="${wheelbase/2} ${-track/2} ${wheel_vertical_offset}" rpy="${M_PI} 0 0" />
     </xacro:limo_wheel>
 
-    <xacro:limo_wheel parent_prefix="base_footprint" wheel_prefix="rear_left" reflect="1">
+    <xacro:limo_wheel parent_prefix="${body_frame}" wheel_prefix="rear_left" reflect="1">
         <origin xyz="${-wheelbase/2} ${track/2} ${wheel_vertical_offset}" rpy="0 0 0" />
     </xacro:limo_wheel>
 
-    <xacro:limo_wheel parent_prefix="base_footprint" wheel_prefix="rear_right" reflect="-1">
+    <xacro:limo_wheel parent_prefix="${body_frame}" wheel_prefix="rear_right" reflect="-1">
         <origin xyz="${-wheelbase/2} ${-track/2} ${wheel_vertical_offset}" rpy="${M_PI} 0 0" />
     </xacro:limo_wheel>
 </robot>

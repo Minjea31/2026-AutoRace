@@ -1,6 +1,6 @@
 # yolo_ws
 
-`/camera/image_raw/compressed` (`sensor_msgs/msg/CompressedImage`)를 구독하고 다음 Bool 인지 결과를 발행합니다.
+`/camera/color/image_raw/compressed` (`sensor_msgs/msg/CompressedImage`)를 구독하고 다음 Bool 인지 결과를 발행합니다.
 
 | 토픽 | 구독 ws | false / true |
 | --- | --- | --- |

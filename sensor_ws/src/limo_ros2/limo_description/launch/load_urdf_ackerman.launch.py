@@ -14,7 +14,7 @@ def generate_launch_description():
     model_arg = DeclareLaunchArgument(name='model', default_value=str(default_model_path),
                                       description='Absolute path to robot urdf file')
 
-    robot_description = ParameterValue(Command(['xacro ', LaunchConfiguration('model')]),
+    robot_description = ParameterValue(Command(['xacro ', LaunchConfiguration('model'), ' tf_profile:=', LaunchConfiguration('tf_profile')]),
                                        value_type=str)
 
     robot_state_publisher_node = Node(
@@ -30,6 +30,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         model_arg,
+        DeclareLaunchArgument("tf_profile", default_value="wego_limo_pro"),
         joint_state_publisher_node,
         robot_state_publisher_node,
     ])
