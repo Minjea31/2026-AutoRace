@@ -210,3 +210,30 @@ Autocompute Intensity Bounds=true로 저장했다. 기존 /scan의 ranges와 int
 메시지 필터 큐가 차는 상황을 줄이며, 내부 보정값이나 영상 타임스탬프를 수정하지 않는다.
 이 launch 설정은 센서 launch를 재실행해야 적용된다. RViz 설정 파일 변경만 적용하려면
 RViz만 위의 `-d .../sensors.rviz` 명령으로 다시 열면 된다.
+
+## /scan 수신과 유효 거리 구분
+
+`READY: /scan`은 첫 메시지 수신만 의미하며, ranges가 유효하다는 뜻은 아니다.
+QoS 불일치는 구독 전달을 막지만 수신된 ranges를 0으로 바꾸지는 않는다.
+SDK→ROS 변환에 읽기 전용 진단을 추가했다. 모든 거리가 무효이면 5초 간격으로
+`[SCAN_EMPTY] sdk_points=... sdk_valid=... sdk_intensity_nonzero=... mapped_points=... ros_bins=... ros_valid=0`
+을 기록하고 정상 거리 복구 시 `[SCAN_RECOVERED]`를 기록한다.
+SDK 출력도 이미 비어 있는지, ROS binning에서 유효점이 사라졌는지 구분하기 위한 로그다.
+SDK 출력은 디코딩·SDK 필터 후의 점이며 센서 원시 직렬 패킷과 동일하지 않다.
+진단 로그는 측정값, intensity bit, 센서 설정을 변경하지 않는다.
+새 실행 파일의 로그는 해당 드라이버 프로세스를 다음에 실행할 때부터 적용된다.
+
+
+빈 스캔이 지속될 때 사용자가 정지 상태에서 수동 비교할 수 있는 기존 서비스:
+
+```bash
+ros2 service call /stop_scan std_srvs/srv/Empty '{}'
+ros2 service call /start_scan std_srvs/srv/Empty '{}'
+```
+
+측정이 잠시 중단되므로 LiDAR 데이터에 의존하는 주행 중에는 사용하지 않는다.
+2026-10-31 진단에서 같은 PID·설정으로 이 서비스만 실행했을 때,
+이전 41개 스캔은 유효점 0개였고 이후 15초의 152개 스캔은 모두 유효점을 포함했다.
+RViz 종료만으로는 회복되지 않았다. 이는 스캔 상태 재시작으로 복구됨을 확인한 결과이며,
+SDK 버그·장치 펌웨어·전원 중 어느 것이 최초 원인인지는 아직 분리되지 않았다.
+자동 재시작이나 측정값 보정은 추가하지 않았다.
