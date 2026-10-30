@@ -14,7 +14,7 @@ from launch.event_handlers import OnProcessExit, OnProcessIO, OnProcessStart, On
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.logging import launch_config
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, LifecycleNode
 
 
 def _setup(context):
@@ -104,9 +104,10 @@ def _setup(context):
         watch('/odom', 'nav_msgs/msg/Odometry')
         watch('/limo_status', 'limo_msgs/msg/LimoStatus')
     if enabled('enable_lidar'):
-        actions.append(Node(
+        actions.append(LifecycleNode(
             package='ydlidar_ros2_driver', executable='ydlidar_ros2_driver_node',
-            name='ydlidar_ros2_driver_node', output='both',
+            name='ydlidar_ros2_driver_node', namespace='/',
+            output='both', emulate_tty=True,
             parameters=[value('lidar_params')],
         ))
         watch('/scan', 'sensor_msgs/msg/LaserScan')

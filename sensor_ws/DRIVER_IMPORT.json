@@ -314,8 +314,7 @@
   "local_changes": {
     "limo_ros2/limo_base/package.xml": "Declare geometry_msgs, sensor_msgs, tf2_geometry_msgs and ackermann_msgs dependencies already required by CMake.",
     "limo_ros2/limo_description/urdf/limo_ackerman.xacro": "Official LIMO Pro sensor/body transforms by default; preserve previous local TF through tf_profile:=existing; remove geometry-less visual.",
-    "limo_ros2/limo_description/launch/load_urdf_ackerman.launch.py": "Pass tf_profile to Xacro; official LIMO Pro is default.",
-    "ydlidar_ros2_driver/src/ydlidar_ros2_driver_node.cpp": "Read-only SCAN_EMPTY/SCAN_RECOVERED diagnostics count SDK valid points and ROS bins independently; no sample, sensor parameter or SDK setting changes."
+    "limo_ros2/limo_description/launch/load_urdf_ackerman.launch.py": "Pass tf_profile to Xacro; official LIMO Pro is default."
   },
   "tf_reference": {
     "repository": "https://github.com/WeGo-Robotics/limo_pro",
@@ -325,5 +324,10 @@
       "wego/launch/camera_tilt_launch.py"
     ],
     "note": "User confirmed standard LIMO Pro mounting. TF only; no upstream driver or simulator replacement."
+  },
+  "lidar_baseline_restore": {
+    "date": "2026-10-31T00:47:08.328974",
+    "source": "/home/wego/wego_ws/src/ydlidar_ros2_driver",
+    "note": "Restored identical driver source and YAML; LifecycleNode namespace=/ emulate_tty=true; rebuild without Release optimization as in wego_ws. Diagnostic source archived under log/lidar_diagnostics/restore_wego_baseline."
   }
 }

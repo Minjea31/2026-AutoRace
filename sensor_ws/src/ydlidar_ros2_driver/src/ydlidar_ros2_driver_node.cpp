@@ -15,7 +15,6 @@
 
 #include "src/CYdLidar.h"
 #include <math.h>
-#include <cmath>
 #include <chrono>
 #include <iostream>
 #include <memory>
@@ -181,7 +180,6 @@ int main(int argc, char *argv[]) {
   auto start_service = node->create_service<std_srvs::srv::Empty>("start_scan",start_scan_service);
 
   rclcpp::WallRate loop_rate(20);
-  bool scan_was_empty = false;
 
   while (ret && rclcpp::ok()) {
 
@@ -205,47 +203,14 @@ int main(int argc, char *argv[]) {
       int size = (scan.config.max_angle - scan.config.min_angle)/ scan.config.angle_increment + 1;
       scan_msg->ranges.resize(size);
       scan_msg->intensities.resize(size);
-      // Observe SDK output separately from ROS binning; do not alter samples.
-      size_t sdk_valid = 0;
-      size_t sdk_intensity_nonzero = 0;
-      size_t mapped_points = 0;
       for(size_t i=0; i < scan.points.size(); i++) {
-        if (std::isfinite(scan.points[i].range) &&
-            scan.points[i].range >= scan.config.min_range &&
-            scan.points[i].range <= scan.config.max_range) {
-          ++sdk_valid;
-        }
-        if (scan.points[i].intensity != 0.0f) {
-          ++sdk_intensity_nonzero;
-        }
         int index = std::ceil((scan.points[i].angle - scan.config.min_angle)/scan.config.angle_increment);
         if(index >=0 && index < size) {
-          ++mapped_points;
           scan_msg->ranges[index] = scan.points[i].range;
           scan_msg->intensities[index] = scan.points[i].intensity;
         }
       }
 
-      size_t ros_valid = 0;
-      for (float range : scan_msg->ranges) {
-        if (std::isfinite(range) && range >= scan_msg->range_min &&
-            range <= scan_msg->range_max) {
-          ++ros_valid;
-        }
-      }
-      if (ros_valid == 0) {
-        RCLCPP_WARN_THROTTLE(node->get_logger(), *node->get_clock(), 5000,
-          "[SCAN_EMPTY] sdk_points=%zu sdk_valid=%zu sdk_intensity_nonzero=%zu "
-          "mapped_points=%zu ros_bins=%zu ros_valid=%zu",
-          scan.points.size(), sdk_valid, sdk_intensity_nonzero,
-          mapped_points, scan_msg->ranges.size(), ros_valid);
-        scan_was_empty = true;
-      } else if (scan_was_empty) {
-        RCLCPP_INFO(node->get_logger(),
-          "[SCAN_RECOVERED] sdk_points=%zu sdk_valid=%zu ros_valid=%zu",
-          scan.points.size(), sdk_valid, ros_valid);
-        scan_was_empty = false;
-      }
       laser_pub->publish(*scan_msg);
 
 

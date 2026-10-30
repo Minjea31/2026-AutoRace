@@ -215,13 +215,20 @@ RViz만 위의 `-d .../sensors.rviz` 명령으로 다시 열면 된다.
 
 `READY: /scan`은 첫 메시지 수신만 의미하며, ranges가 유효하다는 뜻은 아니다.
 QoS 불일치는 구독 전달을 막지만 수신된 ranges를 0으로 바꾸지는 않는다.
-SDK→ROS 변환에 읽기 전용 진단을 추가했다. 모든 거리가 무효이면 5초 간격으로
-`[SCAN_EMPTY] sdk_points=... sdk_valid=... sdk_intensity_nonzero=... mapped_points=... ros_bins=... ros_valid=0`
-을 기록하고 정상 거리 복구 시 `[SCAN_RECOVERED]`를 기록한다.
-SDK 출력도 이미 비어 있는지, ROS binning에서 유효점이 사라졌는지 구분하기 위한 로그다.
-SDK 출력은 디코딩·SDK 필터 후의 점이며 센서 원시 직렬 패킷과 동일하지 않다.
-진단 로그는 측정값, intensity bit, 센서 설정을 변경하지 않는다.
-새 실행 파일의 로그는 해당 드라이버 프로세스를 다음에 실행할 때부터 적용된다.
+현재 LiDAR 소스와 설정은 `/home/wego/wego_ws/src/ydlidar_ros2_driver`와 동일하게 복원했다.
+추가했던 SCAN_EMPTY/SCAN_RECOVERED 및 sdk_debug 코드는 제거했다.
+통합 launch도 기존과 같은 LifecycleNode, namespace=/, emulate_tty=true를 사용한다.
+프로세스 출력 저장을 위한 output=both는 유지한다.
+기존 wego_ws와 같은 최적화 없는 빌드는 다음 명령으로 수행한다:
+
+```bash
+cd /home/wego/2026-AutoRace/sensor_ws
+source /opt/ros/humble/setup.bash
+colcon build --packages-select ydlidar_ros2_driver autorace_sensor_bringup --symlink-install --cmake-args -DCMAKE_BUILD_TYPE:STRING= -DBUILD_TESTING=OFF
+```
+
+`build_standalone.sh`도 마지막에 LiDAR를 기존과 같은 최적화 없는 빌드로 다시 맞춘다.
+이전 진단 소스는 log/lidar_diagnostics/restore_wego_baseline에 보관했다.
 
 
 빈 스캔이 지속될 때 사용자가 정지 상태에서 수동 비교할 수 있는 기존 서비스:
@@ -237,3 +244,27 @@ ros2 service call /start_scan std_srvs/srv/Empty '{}'
 RViz 종료만으로는 회복되지 않았다. 이는 스캔 상태 재시작으로 복구됨을 확인한 결과이며,
 SDK 버그·장치 펌웨어·전원 중 어느 것이 최초 원인인지는 아직 분리되지 않았다.
 자동 재시작이나 측정값 보정은 추가하지 않았다.
+
+
+LiDAR 단독 수신 시험(실제 LiDAR를 켜므로 다른 드라이버를 먼저 종료):
+
+```bash
+source /home/wego/2026-AutoRace/sensor_ws/install/setup.bash
+/usr/bin/python3 /home/wego/2026-AutoRace/sensor_ws/src/autorace_sensor_bringup/tests/lidar_isolated_check.py --duration 240
+```
+
+같은 포트를 사용하는 프로세스가 있으면 실행을 거부한다. 차체·카메라 노드를 실행하지 않고
+격리 도메인 187에서 LiDAR만 켜며, 시간 종료 후 SIGINT로 정상 종료하고 결과를
+sensor_ws/log/lidar_diagnostics/<시각>_isolated에 저장한다.
+
+직렬 포트를 열지 않는 오프라인 패킷 분석:
+
+```bash
+/usr/bin/python3 src/autorace_sensor_bringup/tests/analyze_lidar_packets.py <시험폴더>/stdout.log
+```
+
+SDK 1.2.17의 삼각 프로토콜 + intensity 3바이트 패킷을 체크섬까지 독립 검증한다.
+2026-10-31 단독 시험에서도 약 100초 뒤 정상 체크섬 아래 거리·강도가 전부 0으로 바뀌었다.
+관련 FINDINGS.md에 관찰 사실과 아직 분리하지 못한 장치·펌웨어·전원 원인을 구분해 기록했다.
+
+과거 원시 패킷 기록은 당시 진단용 실행 파일로 수집한 결과이다. 현재 복원한 기존 드라이버는 sdk_debug 원시 패킷 기록을 지원하지 않는다.
