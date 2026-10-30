@@ -1,0 +1,167 @@
+# autorace_sensor_bringup
+
+ROS 2 Humble 센서 통합 패키지. 작업 위치: `/home/wego/2026-AutoRace/sensor_ws/src/autorace_sensor_bringup`.
+
+## 빌드·실행·종료
+
+```bash
+source /opt/ros/humble/setup.bash
+cd /home/wego/2026-AutoRace/sensor_ws
+./build_standalone.sh
+source install/setup.bash
+ros2 launch autorace_sensor_bringup sensors.launch.py
+```
+
+종료는 실행 터미널에서 Ctrl+C. 다른 터미널도 같은 순서로 source한다.
+기존 teleop_launch.py와 동시에 실행하면 드라이버·TF가 중복된다.
+이 패키지는 teleop, navigation, /cmd_vel 발행 노드를 포함하지 않는다.
+기존 limo_base는 /cmd_vel을 구독하며 시작 시 commanded mode를 설정하므로 하드웨어 없는 검증에서는 enable_base:=false를 사용한다.
+
+## 실행 인자
+
+| 인자 | 기본값 | 의미 |
+|---|---|---|
+| enable_base | true | limo_base: IMU, Odometry, 상태 |
+| enable_lidar | true | YDLIDAR |
+| enable_camera | true | Orbbec Astra |
+| enable_description | true | Ackermann 모델·레이저·IMU TF |
+| enable_camera_tf | true | 카메라 장착 TF, 카메라 드라이버와 독립 제어 |
+| enable_ekf | true | robot_localization EKF |
+| port_name | ttylimo | 기존 드라이버가 /dev/ 접두사 추가 |
+| lidar_params | 패키지 config/ydlidar.yaml | 파라미터 파일 절대 경로 |
+| ekf_params | 패키지 config/limo_ekf.yaml | 파라미터 파일 절대 경로 |
+| camera_name | camera | 카메라 토픽 접두사·루트 TF |
+| camera_launch | astra_stereo_u3.launch.py | 기존 Orbbec launch 파일명 |
+| degree | 0.0 | 기존 카메라 pitch 보정, TF 단위는 라디안 |
+| startup_timeout | 15.0 | 첫 메시지 제한 시간(초) |
+| stale_timeout | 5.0 | 수신 중단 제한 시간(초), 확인 간격 1초 |
+
+```bash
+# 하드웨어 접근 없이 모델/TF/EKF만 실행
+ros2 launch autorace_sensor_bringup sensors.launch.py enable_base:=false enable_lidar:=false enable_camera:=false
+# 모든 항목 비활성화
+ros2 launch autorace_sensor_bringup sensors.launch.py enable_base:=false enable_lidar:=false enable_camera:=false enable_description:=false enable_camera_tf:=false enable_ekf:=false
+```
+
+## 기존 설정과 TF
+
+wego/launch/teleop_launch.py와 관련 드라이버를 분석하고 이전 패키지를 재사용했다.
+limo_base 실행 파일, use_mcnamu=false, /cmd_vel 구독 계약을 유지한다.
+limo_driver.cpp publishOdometry()의 기존 MODE_ACKERMANN 수정은 그대로 복사하여 이 워크스페이스에서 빌드한다.
+EKF 활성화 시 base pub_odom_tf=false, 비활성화 시 true로 odom→base_link 중복을 방지한다.
+외부 TF 발행자가 있다면 해당 기능을 비활성화해야 한다. 사용자 지정 EKF 설정도 TF 소유권을 지켜야 한다.
+
+limo_description/load_urdf_ackerman.launch.py가 Ackermann 모델 및 레이저·IMU TF를 발행한다.
+카메라 장착 TF는 기존 wego/launch/camera_tilt_launch.py의 값을 재사용한다:
+base_link→camera_mount (0.2,0.1,0.06), camera_mount→camera_rotate (pitch=degree),
+camera_rotate→camera_link (0.03,-0.05,0).
+Orbbec이 camera_link 아래 내부·광학 TF를 발행한다. camera_name 변경 시 루트 이름도 반영한다.
+YDLIDAR YAML은 기존 ydlidar_ros2_driver/params/ydlidar.yaml,
+EKF YAML은 robot_localization/params/limo_ekf.yaml과 동일하다.
+Orbbec 해상도와 내부 보정은 기존 Astra launch 및 장치 보정을 사용한다.
+
+## 로그
+
+매 실행 ROS launch 고유 로그 폴더를 사용한다(기본 ~/.ros/log/<시간-호스트-PID>).
+ROS_LOG_DIR을 실행 전에 지정하면 그 루트 아래 생성한다.
+화면의 `Sensor session logs:` 경로를 확인한다.
+
+- session.json: UTC 시작 시각, 실행 인자, base 실행 파일·고정 설정.
+- process_events.jsonl: PROCESS_START/PROCESS_EXIT, 프로세스명, PID, 명령, 종료 코드 및 LAUNCH_SHUTDOWN 시각.
+- process_output/<프로세스명>.stdout.log 및 .stderr.log: 프로세스별 원본 출력. 빈 스트림도 파일 생성.
+- sensor_events.jsonl: WAITING, READY(첫 메시지), NO_DATA(처음부터 수신 없음), STALE(중단), RECOVERED(재수신).
+- launch.log 및 ROS 기본 노드 로그.
+
+PROCESS_START는 센서 데이터 수신 성공이 아니다. READY를 별도로 확인한다.
+활성 기능에 따라 /imu, /odom, /limo_status, /scan, /camera/color/image_raw,
+/camera/depth/image_raw, /odometry/filtered를 best-effort/volatile QoS로 구독한다.
+카메라 component들은 container PID와 출력 파일을 공유한다.
+다른 camera_launch를 선택하면 영상 토픽 계약을 확인해야 한다.
+LAUNCH_SHUTDOWN은 종료 요청 시각이며 그 이후 PROCESS_EXIT가 기록될 수 있다.
+SIGKILL·전원 차단 시 종료 기록은 보장되지 않는다.
+
+```bash
+ls -td ~/.ros/log/*/ | head
+# 실제 실행 로그 경로를 대입
+cat <로그폴더>/session.json
+cat <로그폴더>/process_events.jsonl
+cat <로그폴더>/sensor_events.jsonl
+tail -f <로그폴더>/process_output/*.stderr.log
+```
+
+## 의존성
+
+ament_cmake, launch, launch_ros, ros2launch, ament_index_python, rclpy,
+rosidl_runtime_py, sensor_msgs, nav_msgs, limo_msgs, limo_base,
+ydlidar_ros2_driver, orbbec_camera, limo_description, robot_state_publisher,
+joint_state_publisher, xacro, tf2_ros, robot_localization.
+package.xml에 의존성을 선언했다. 드라이버·메시지 패키지는 이제 이 sensor_ws 안에서 함께 빌드된다.
+USB 권한·udev와 시스템 의존성은 아래 독립 빌드 안내를 참고한다.
+
+## 하드웨어 없는 검증
+
+빌드와 launch 인자 조회, 전체 비활성화 실행 및 모델·TF·EKF 실행을 확인했다.
+격리 도메인에서 가상 Odometry만 발행하여 NO_DATA → READY → STALE → RECOVERED,
+7개 프로세스의 시작/종료 PID 대응, 종료 코드 및 14개 stdout/stderr 파일 생성을 검증했다.
+실제 센서 데이터 수신과 로봇 동작은 이번 검증 범위에 포함하지 않았다.
+
+```bash
+# 위 source 순서 적용 후 sensor_ws에서 실행
+ROS_DOMAIN_ID=179 ROS_LOCALHOST_ONLY=1 ROS_LOG_DIR="$PWD/log/verification" \
+  /usr/bin/python3 src/autorace_sensor_bringup/tests/hardware_free_check.py
+```
+
+기존 설정에서 관찰되는 경고: Ackermann Xacro의 base_link에 geometry 없는 visual이 있고
+laser/imu material 정의가 없어 URDF 파서 경고가 나온다. 프레임 로딩은 성공한다.
+기존 EKF YAML은 odom0_differential와 odom0_relative가 모두 true여서
+EKF가 differential 모드를 선택한다는 오류 수준 메시지를 출력한다.
+이 패키지는 기존 보정·설정을 우선 재사용하므로 이 원본 동작을 유지한다.
+Ctrl+C 시 종료 코드 -2(SIGINT)가 기록될 수 있다.
+
+
+## 드라이버 포함 독립 워크스페이스
+
+`wego_ws` source 없이 `/opt/ros/humble`과 이 워크스페이스만 사용한다.
+기존 원본은 삭제하지 않았다. 복사한 파일의 원본 경로·SHA256은 `sensor_ws/DRIVER_IMPORT.json`에 기록했다.
+
+- src/limo_ros2/limo_base: 기존 Ackermann 수정 포함, 실행 파일은 limo_base 유지.
+- src/limo_ros2/limo_msgs, src/limo_ros2/limo_description: 메시지·모델·센서 TF.
+- src/ydlidar_ros2_driver: YDLIDAR ROS 드라이버.
+- src/OrbbecSDK_ROS2/orbbec_camera: Astra 드라이버 및 SDK(arm64 포함).
+- src/OrbbecSDK_ROS2/orbbec_camera_msgs: 카메라 메시지.
+- src/robot_localization: 기존 EKF 구현과 설정.
+
+새 터미널에서 빌드/실행한다. `.bashrc`가 wego_ws를 자동 source하더라도
+`./build_standalone.sh`는 깨끗한 환경에서 `/opt/ros/humble`만 source하고 전체 의존 패키지를 빌드한다.
+이전에 overlay로 빌드한 build/install 캐시는 재사용하지 않았다.
+빌드 후에는 `source /home/wego/2026-AutoRace/sensor_ws/install/setup.bash`와 launch 명령만 필요하다.
+`local_setup.bash`를 사용한다면 `/opt/ros/humble/setup.bash`를 먼저 source해야 한다.
+
+ROS 드라이버 소스 이동과 OS 라이브러리 설치는 별개다. 현재 머신의 시스템 의존성:
+YDLIDAR SDK 1.2.17 (`/usr/local/lib/libydlidar_sdk.a`, `/usr/local/include`,
+`/usr/local/lib/cmake/ydlidar_sdk`), OpenCV, Eigen3, Boost, GeographicLib,
+libusb, gflags, glog, nlohmann-json 및 package.xml에 나열된 ROS 패키지.
+Orbbec SDK는 소스의 SDK 디렉터리에 포함되며 함께 설치된다.
+다른 PC에서는 ROS Humble 설치 후 `rosdep install --from-paths src --ignore-src -r -y`로
+선언된 의존성을 설치하고, 별도로 YDLIDAR SDK 및 USB udev 규칙을 준비한다.
+기존 규칙 참고 위치: ydlidar_ros2_driver/startup 및 orbbec_camera/scripts/99-obsensor-libusb.rules.
+udev 규칙 설치는 시스템 관리자 작업이며 이번 이전에서 시스템 설정은 변경하지 않았다.
+
+로컬 변경은 limo_base/package.xml의 누락된 geometry_msgs, sensor_msgs,
+tf2_geometry_msgs, ackermann_msgs 의존성 선언 보완뿐이며, 드라이버 C++와 센서 보정은 유지한다.
+
+독립 빌드 결과: 8 packages finished. 원본의 obsolete header·unused parameter 경고와
+일부 패키지가 사용하지 않는 CMake PYTHON_EXECUTABLE 인자 경고는 있으나 빌드 오류는 없다.
+빌드 스크립트는 vendor 자체 테스트를 BUILD_TESTING=OFF로 끄며 통합 기능은 별도로 검증한다.
+
+하드웨어 접근 없이 패키지·동적 라이브러리 경로 확인:
+
+```bash
+# 새 터미널에서 sensor_ws 기준
+source install/setup.bash
+/usr/bin/python3 src/autorace_sensor_bringup/tests/verify_independent.py
+```
+
+8개 패키지가 모두 sensor_ws/install로 검색되고 LIMO·YDLIDAR·EKF 실행 파일 및
+Orbbec 라이브러리의 의존성에 wego_ws 경로와 누락된 라이브러리가 없는지 검사한다.
+Orbbec 공유 라이브러리를 로드하되 카메라 노드는 생성하지 않는다.
