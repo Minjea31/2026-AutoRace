@@ -1,0 +1,13 @@
+name: autorace-simul
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy=1.26
+  - pyyaml
+  - pillow
+  - pip
+  - setuptools<81
+  - pytest
+  - pip:
+      - panda3d==1.10.16

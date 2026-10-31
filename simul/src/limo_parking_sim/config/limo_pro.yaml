@@ -1,0 +1,104 @@
+# All distances: metres, angles: radians unless named *_deg. See simul/docs/SOURCES.md.
+simulation:
+  physics_hz: 120
+  telemetry_hz: 50
+  status_hz: 5
+  real_time_factor: 1.0
+  command_timeout: 0.5
+  seed: 2026
+  spawn: [5.50, 4.84, 0.0]  # map x/y/yaw; approaching parking from the signal
+vehicle:
+  name: LIMO Pro
+  body_model: limo_pro_body.bam
+  wheel_model: limo_pro_wheel.bam
+  length: 0.322
+  width: 0.220
+  height: 0.251
+  wheelbase: 0.200
+  wheel_track: 0.175  # manufacturer tread; visual wheel centre spacing
+  driver_track: 0.172  # limo_driver.h steering conversion uses this value
+  wheel_radius: 0.045  # nominal URDF value
+  wheel_width: 0.045
+  ground_clearance: 0.024
+  base_link_height: 0.150
+  mass: 4.8
+  max_speed: 1.0
+  min_turn_radius: 0.4
+  max_inner_steering: 0.48869  # current sensor_ws limo_driver.h, 28 deg
+  max_acceleration: 1.0  # simulation assumption; not a measured actuator parameter
+  max_steering_rate: 1.5  # simulation assumption, rad/s
+display:
+  show_parking_goal: false
+  show_lidar: false  # S toggles observer rays; /scan always stays active
+  show_camera: false  # V toggles the inset; ROS images always stay active
+lidar:
+  frequency: 10.0
+  sample_rate: 4000
+  angle_min_deg: -110.0  # sensor_ws/config/ydlidar.yaml masks the rear sector
+  angle_max_deg: 110.0
+  range_min: 0.01  # ROS driver reported limits
+  range_max: 64.0
+  physical_range_min: 0.02  # T-mini Pro physical envelope
+  physical_range_max: 12.0
+  invalid_range_is_inf: false
+  xyz: [0.103, 0.0, -0.034]  # relative to base_link; ground height 0.116
+  yaw: 0.0
+  noise_stddev: 0.0  # ideal by default; optional Gaussian range noise, m
+  dropout_probability: 0.0
+camera:
+  mount_xyz: [0.103, 0.0, 0.060]
+  pitch: 0.0  # sensor_ws camera_tf.launch.py degree argument is in RADIANS
+  link_xyz: [0.030, -0.050, 0.0]  # relative to camera_rotate
+  near: 0.02
+  far: 20.0
+  jpeg_quality: 90
+  color:
+    width: 640
+    height: 480
+    fps: 30.0
+    hfov_deg: 71.0  # manufacturer quotes 1920x1080; 640x480 mode needs calibration
+    vfov_deg: 43.7
+    xyz: [0.0, 0.0, 0.0]  # relative to camera_link; nominal, SDK calibration unknown
+    rpy: [0.0, 0.0, 0.0]
+    intrinsics: null  # set [fx, fy, cx, cy] from real /camera/color/camera_info
+  depth:
+    width: 640
+    height: 400
+    fps: 30.0
+    hfov_deg: 67.9
+    vfov_deg: 45.3
+    xyz: [0.0, 0.0, 0.0]  # unregistered ideal sensor; set real RGB/depth extrinsics
+    rpy: [0.0, 0.0, 0.0]
+    intrinsics: null
+    range_min: 0.3
+    range_max: 3.0
+imu:
+  xyz: [0.0, 0.0, -0.10]
+topics:
+  cmd_vel: /cmd_vel
+  compressed: /camera/color/image_raw/compressed
+  color: /camera/color/image_raw
+  color_info: /camera/color/camera_info
+  depth: /camera/depth/image_raw
+  depth_info: /camera/depth/camera_info
+  scan: /scan
+  imu: /imu
+  odom: /odom
+  clock: /clock
+  ground_truth: /sim/ground_truth
+  status: /sim/parking_status
+  parking_command: /mission/parking/command_03
+frames:
+  map: map
+  odom: odom
+  base: base_link
+  footprint: base_footprint
+  laser: laser_link
+  imu: imu_link
+  camera_mount: camera_mount
+  camera_rotate: camera_rotate
+  camera_link: camera_link
+  color: camera_color_frame
+  color_optical: camera_color_optical_frame
+  depth: camera_depth_frame
+  depth_optical: camera_depth_optical_frame

@@ -1,0 +1,19 @@
+{
+  "forward_reverse_left_right": "PASS",
+  "collision_stop_and_reverse_escape": "PASS",
+  "reset": "PASS",
+  "ninety_degree_manoeuvre": {
+    "result": "PASS",
+    "pose": [
+      6.876323345567582,
+      4.264824888396272,
+      -1.6004285722048035
+    ]
+  },
+  "render_pose_matches_model": "PASS",
+  "camera_pixels_change_with_motion": "PASS",
+  "physics_ticks": 2717,
+  "video_frames": 285,
+  "simulated_seconds": 22.641666666666023,
+  "result": "PASS"
+}
