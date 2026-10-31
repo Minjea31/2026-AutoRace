@@ -268,15 +268,3 @@ SDK 1.2.17의 삼각 프로토콜 + intensity 3바이트 패킷을 체크섬까�
 관련 FINDINGS.md에 관찰 사실과 아직 분리하지 못한 장치·펌웨어·전원 원인을 구분해 기록했다.
 
 과거 원시 패킷 기록은 당시 진단용 실행 파일로 수집한 결과이다. 현재 복원한 기존 드라이버는 sdk_debug 원시 패킷 기록을 지원하지 않는다.
-
-## RViz와 센서 함께 실행
-
-```bash
-source /home/wego/2026-AutoRace/sensor_ws/install/setup.bash
-ros2 launch autorace_sensor_bringup sensors.launch.py viz:=true
-```
-
-`viz` 기본값은 false이며 true이면 패키지의 `config/sensors.rviz`를 명시적으로 로드한다.
-Fixed Frame=odom, 카메라=Image(compressed), LiDAR=Best Effort 설정이다.
-`rviz_config:=/절대/경로/파일.rviz`로 다른 설정을 선택할 수 있다.
-기존에 따로 실행한 RViz 창에는 이 설정이 적용되지 않는다.
