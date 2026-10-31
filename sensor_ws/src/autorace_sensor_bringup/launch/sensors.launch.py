@@ -38,7 +38,7 @@ def _setup(context):
         'enable_base', 'enable_lidar', 'enable_camera', 'enable_description',
         'enable_camera_tf', 'enable_ekf', 'port_name', 'lidar_params', 'ekf_params',
         'camera_name', 'camera_launch', 'degree', 'startup_timeout', 'stale_timeout', 'tf_profile',
-        'camera_tf_publish_rate',
+        'camera_tf_publish_rate', 'viz', 'rviz_config',
     )}
     (log_dir / 'session.json').write_text(json.dumps({
         'started_at': datetime.now(timezone.utc).isoformat(), 'options': options,
@@ -144,6 +144,11 @@ def _setup(context):
                 'stale_timeout': float(value('stale_timeout')),
             }],
         ))
+    if enabled('viz'):
+        actions.append(Node(
+            package='rviz2', executable='rviz2', name='rviz2',
+            output='both', arguments=['-d', value('rviz_config')],
+        ))
     return actions
 
 
@@ -159,6 +164,8 @@ def generate_launch_description():
         'degree': '0.0', 'startup_timeout': '15.0', 'stale_timeout': '5.0',
         'tf_profile': 'wego_limo_pro',
         'camera_tf_publish_rate': '0.0',
+        'viz': 'false',
+        'rviz_config': str(share / 'config' / 'sensors.rviz'),
     }
     return LaunchDescription([
         *[DeclareLaunchArgument(name, default_value=default) for name, default in defaults.items()],
