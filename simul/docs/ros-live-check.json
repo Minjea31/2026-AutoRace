@@ -1,0 +1,43 @@
+{
+  "result": "PASS",
+  "checked_at": "2026-11-01T01:09:56.754398+09:00",
+  "mode": "read-only: no commands or service calls sent to the running GUI simulator",
+  "ros_domain_id": 42,
+  "ros_localhost_only": 1,
+  "received_messages": {
+    "/camera/color/camera_info": 17,
+    "/camera/color/image_raw/compressed": 17,
+    "/camera/depth/image_raw": 17,
+    "/camera/depth/camera_info": 17,
+    "/imu": 28,
+    "/odom": 28,
+    "/scan": 6,
+    "/camera/color/image_raw": 2
+  },
+  "all_sensor_stamps_advancing": true,
+  "jpeg": {
+    "bytes": 25457,
+    "frame_id": "camera_color_optical_frame"
+  },
+  "color": {
+    "width": 640,
+    "height": 480,
+    "encoding": "rgb8"
+  },
+  "depth": {
+    "width": 640,
+    "height": 400,
+    "encoding": "16UC1"
+  },
+  "lidar": {
+    "samples": 245,
+    "valid_samples": 55,
+    "min_m": 1.6888189315795898,
+    "max_m": 8.08013916015625,
+    "frame_id": "laser_link"
+  },
+  "odom": {
+    "frame_id": "odom",
+    "child_frame_id": "base_link"
+  }
+}

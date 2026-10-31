@@ -1,0 +1,53 @@
+{
+  "vehicles": 12,
+  "avoidance_vehicles": 7,
+  "parking_vehicles": 5,
+  "cones": 48,
+  "cone_course": {
+    "s_waves": 2,
+    "interior_bends": 4,
+    "bend_order": [
+      "right",
+      "left",
+      "right",
+      "left"
+    ],
+    "phase_deg": -90,
+    "cone_peak_to_peak_m": 0.4,
+    "reference_peak_to_peak_m": 0.096,
+    "horizontal_row_separation_m": 0.64,
+    "reference_min_turn_radius_m": 0.5172129796242458,
+    "vehicle_min_turn_radius_m": 0.46214728084800616,
+    "painted_edge_crossing_allowed": true
+  },
+  "s-cone-mission": {
+    "result": "PASS",
+    "physics_ticks": 2389,
+    "final_pose": [
+      0.7083488984564917,
+      3.847102792567529,
+      1.2754461629295448
+    ],
+    "collisions": 0
+  },
+  "seven-vehicle-avoidance": {
+    "result": "PASS",
+    "physics_ticks": 3818,
+    "final_pose": [
+      4.484109742875013,
+      0.6800000000005135,
+      -3.141592653578526
+    ],
+    "collisions": 0
+  },
+  "fork_camera_switch": {
+    "result": "PASS",
+    "changed_pixels": 870
+  },
+  "traffic_camera_switch": {
+    "result": "PASS",
+    "changed_pixels": 816
+  },
+  "result": "PASS",
+  "video_frames": 418
+}

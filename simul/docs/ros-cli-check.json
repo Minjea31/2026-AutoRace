@@ -1,0 +1,59 @@
+{
+  "result": "PASS",
+  "ros_domain_id": 144,
+  "command_source": "simul/ros2.sh topic pub -r 20",
+  "forward_distance_m": 0.2745902612415323,
+  "yaw_radians": 0.16486545916957696,
+  "stopped_after_publisher_exit": true,
+  "topics": [
+    "/camera/color/camera_info",
+    "/camera/color/image_raw",
+    "/camera/color/image_raw/compressed",
+    "/camera/depth/camera_info",
+    "/camera/depth/image_raw",
+    "/clock",
+    "/imu",
+    "/odom",
+    "/scan",
+    "/sim/ground_truth",
+    "/sim/parking_status"
+  ],
+  "received_messages": {
+    "clock": 267,
+    "color_info": 72,
+    "compressed": 72,
+    "depth": 72,
+    "depth_info": 72,
+    "imu": 114,
+    "odom": 115,
+    "ground_truth": 115,
+    "scan": 24,
+    "color": 24,
+    "status": 12
+  },
+  "tf_children": [
+    "base_footprint",
+    "base_link",
+    "camera_color_frame",
+    "camera_color_optical_frame",
+    "camera_depth_frame",
+    "camera_depth_optical_frame",
+    "camera_link",
+    "camera_mount",
+    "camera_rotate",
+    "imu_link",
+    "laser_link",
+    "odom"
+  ],
+  "checks": [
+    "JPEG decode",
+    "raw RGB and 16UC1 depth",
+    "CameraInfo",
+    "LaserScan angle/range/frame",
+    "IMU/odometry",
+    "static/dynamic TF",
+    "Twist motion/turn and changing camera pixels",
+    "command watchdog",
+    "pause/reset services"
+  ]
+}
