@@ -87,14 +87,16 @@ class Arbitrator:
             reason = 'non-finite command'
         elif speed < 0 and source != 'parking':
             reason = 'reverse is allowed only for parking'
-        elif stamp_ns < 0 or not self._stamp_valid(stamp_ns, ros_now_ns):
-            reason = 'missing, stale, or future header stamp'
         if reason:
             self.discard(source)
             return False, reason
         previous = self._candidates.get(source)
-        if previous and stamp_ns and previous.stamp_ns > stamp_ns:
+        # Delayed commands must not erase a newer candidate, even if already stale.
+        if previous and 0 < stamp_ns < previous.stamp_ns:
             return False, 'out-of-order stamp'
+        if stamp_ns < 0 or not self._stamp_valid(stamp_ns, ros_now_ns):
+            self.discard(source)
+            return False, 'missing, stale, or future header stamp'
         self._candidates[source] = Candidate(
             source, speed, steering_angle, stamp_ns, received_at)
         return True, ''

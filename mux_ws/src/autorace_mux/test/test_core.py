@@ -89,6 +89,31 @@ def test_out_of_order_message_keeps_newer_candidate():
     assert select(mux, 0.12).speed == 0.4
 
 
+def test_stale_out_of_order_message_preserves_stop_without_refreshing_timeout():
+    mux = Arbitrator(Config())
+    receive(mux, 'lane', at=0.3)
+    receive(mux, 'crosswalk', speed=0.0, at=0.3)
+    stop = select(mux, 0.31)
+    assert stop.source == 'crosswalk'
+
+    accepted, reason = receive(mux, 'crosswalk', at=0.32, stamp=EPOCH)
+    assert not accepted
+    assert reason == 'out-of-order stamp'
+    assert select(mux, 0.33) is stop
+
+    receive(mux, 'lane', at=0.5)
+    assert select(mux, 0.54) is stop
+    assert select(mux, 0.56).source == 'lane'
+
+
+@pytest.mark.parametrize('stamp', [0, -1, EPOCH + 1_000_000_000])
+def test_invalid_stamp_still_removes_previous_candidate(stamp):
+    mux = Arbitrator(Config())
+    receive(mux, 'lane', at=0.3)
+    assert not receive(mux, 'lane', at=0.32, stamp=stamp)[0]
+    assert select(mux, 0.33) is None
+
+
 @pytest.mark.parametrize('value', [math.nan, math.inf, -math.inf])
 @pytest.mark.parametrize('field', ['speed', 'angle'])
 def test_invalid_command_removes_previous_candidate(value, field):

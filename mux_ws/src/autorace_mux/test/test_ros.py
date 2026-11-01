@@ -105,6 +105,53 @@ def test_real_ros_lane_mission_preemption_reverse_and_timeout():
         h.close()
 
 
+def test_real_ros_every_priority_preempts_and_releases_in_order():
+    h = Harness()
+    try:
+        speeds = {
+            'crosswalk': 0.11, 'signal': 0.12, 'parking': 0.13,
+            'cone': 0.14, 'objavoid': 0.15, 'slow': 0.18, 'lane': 0.4,
+        }
+        commands = {'lane': (speeds['lane'], 0.1)}
+        h.output(speeds['lane'], speeds['lane'] * math.tan(0.1) / 0.2, commands)
+        # Add inputs from lowest to highest priority; each must take control.
+        for source, _ in reversed(INPUTS[:-1]):
+            commands[source] = (speeds[source], 0.1)
+            h.output(speeds[source], speeds[source] * math.tan(0.1) / 0.2, commands)
+        # Stop each winner while continuing all lower-priority inputs.
+        for index, (source, _) in enumerate(INPUTS[:-1]):
+            del commands[source]
+            next_source = INPUTS[index + 1][0]
+            speed = speeds[next_source]
+            h.output(speed, speed * math.tan(0.1) / 0.2, commands)
+        h.output(0.0, 0.0)  # Lane also expires.
+    finally:
+        h.close()
+
+
+def test_real_ros_stale_out_of_order_message_does_not_cancel_stop():
+    h = Harness()
+    try:
+        lane = {'lane': (0.4, 0.1)}
+        h.output(0.4, 0.4 * math.tan(0.1) / 0.2, lane)
+        h.output(0.0, 0.0, {**lane, 'crosswalk': (0.0, 0.1)})
+
+        old_message = AckermannDriveStamped()
+        old_message.header.stamp = h.mux.get_clock().now().to_msg()
+        old_message.header.stamp.sec -= 1
+        old_message.drive.speed = 0.4
+        h.publishers['crosswalk'].publish(old_message)
+        h.until(lambda: 'crosswalk' in h.mux._last_warning, lane)
+
+        h.samples.clear()
+        h.until(lambda: len(h.samples) >= 3, lane)
+        assert all(sample == (0.0, 0.0) for sample in h.samples)
+        # The ignored packet must not prevent normal timeout and lane fallback.
+        h.output(0.4, 0.4 * math.tan(0.1) / 0.2, lane)
+    finally:
+        h.close()
+
+
 def test_watchdog_keeps_running_without_simulated_clock_messages():
     h = Harness(simulated=True)
     try:
