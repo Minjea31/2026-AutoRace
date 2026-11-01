@@ -23,6 +23,11 @@ def load_config(vehicle=None, world=None):
     cfg = copy.deepcopy(cfg)
     from .world import expand_vehicle_layout
     expand_vehicle_layout(cfg['world'])
+    layout_path = Path(world or share / 'config/parking_map.yaml').resolve().with_suffix('.obstacles.yaml')
+    cfg['_obstacle_layout_path'] = str(layout_path)
+    if layout_path.exists():
+        from .obstacle_editor import read_layout
+        cfg['world']['obstacles'] = read_layout(layout_path, cfg)
     validate(cfg)
     return cfg
 

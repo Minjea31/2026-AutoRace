@@ -109,8 +109,9 @@ class Scene:
         self.ego, self.wheels = self._vehicle(cfg['vehicle']['name'], (0, 0, 0), (1, 1, 1, 1))
         self.ego.hide(BitMask32.bit(1))  # physical sensors exclude ego surfaces
         self.base.cam.node().setCameraMask(BitMask32.bit(0))
-        for obstacle in cfg['world']['obstacles']:
-            self._vehicle(obstacle['name'], obstacle['pose'], (.82, .84, .87, 1))
+        self.obstacle_nodes = []
+        self.refresh_obstacles()
+        self.editor = None
         self.sign_faces={}
         self._sign()
         self.fork_direction=cfg['world'].get('fork',{}).get('default','left')
@@ -134,6 +135,22 @@ class Scene:
         node.setScale(*size)
         node.setColor(*color)
         return node
+
+    def refresh_obstacles(self):
+        for node in self.obstacle_nodes:
+            node.removeNode()
+        self.obstacle_nodes = [self._vehicle(o['name'], o['pose'], (.82,.84,.87,1))[0]
+                               for o in self.cfg['world']['obstacles']]
+
+    def toggle_editor(self):
+        if self.editor is not None and not self.editor.closed:
+            self.editor.close()
+            return
+        from .obstacle_editor import ObstacleEditor
+        try:
+            self.editor = ObstacleEditor(self.cfg, self.model, self.refresh_obstacles)
+        except (ImportError, RuntimeError) as exc:
+            print(f'Obstacle editor unavailable: {exc}')
 
     def _ground(self):
         w, h = self.cfg['world']['size']
@@ -355,7 +372,7 @@ class Scene:
         self.help = OnscreenText(text='K: keyboard   W/UP: forward   DOWN: reverse   A/D: steer   SPACE: stop\n'
             'Left drag: pan   Right drag: orbit   Wheel: zoom   V: camera   S: laser\n'
             'L/R: fork left/right   T/G/Y: light red/green/yellow   F5: reset\n'
-            '1: parking   2: whole track   3: follow   4: camera   P: pause   ESC: quit',
+            '1: parking   2: whole track   3: follow   4: camera   E: obstacle editor   P: pause   ESC: quit',
             pos=(-1.52,-.85),scale=.029,align=TextNode.ALeft,fg=(.8,.86,.92,1))
         self.preview = OnscreenImage(image=self.sensors['color']['rgb'],pos=(1.19,0,.66),
             scale=(.36,1,.36*self.cfg['camera']['color']['height']/self.cfg['camera']['color']['width']))
@@ -375,6 +392,7 @@ class Scene:
         self.base.accept('g',self.set_traffic,['green'])
         self.base.accept('y',self.set_traffic,['yellow'])
         self.base.accept('v',self._preview_toggle)
+        self.base.accept('e',self.toggle_editor)
         self.base.accept('mouse1',self._begin_drag,['pan'])
         self.base.accept('mouse1-up',self._end_drag,['pan'])
         self.base.accept('mouse3',self._begin_drag,['orbit'])
@@ -524,6 +542,8 @@ class Scene:
         self.scan_node.hide(BitMask32.bit(1))
 
     def render_frame(self,streams=()):
+        if self.editor is not None and not self.editor.closed:
+            self.editor.poll()
         # Only refresh the camera buffers at their configured sensor rates.
         for stream,data in self.sensors.items():
             data['buffer'].setActive(stream in streams)
@@ -575,4 +595,6 @@ class Scene:
         Image.fromarray(self.depth_image()).save(target/'depth_mm.png')
 
     def close(self):
+        if self.editor is not None:
+            self.editor.close()
         self.base.destroy()

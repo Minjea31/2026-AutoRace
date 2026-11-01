@@ -13,6 +13,8 @@ def setup(context):
     args = ['--config',value('config'),'--map',value('map'),'--view',value('view'),'--mission',value('mission')]
     if value('headless').lower() == 'true':
         args.append('--headless')
+    if value('editor').lower() == 'true':
+        args.append('--editor')
     nodes = [Node(package='limo_parking_sim',executable='limo_parking_sim',
                   name='limo_parking_sim',output='screen',arguments=args)]
     if value('parking_adapter').lower() == 'true':
@@ -27,6 +29,7 @@ def generate_launch_description():
         DeclareLaunchArgument('config',default_value=str(share/'config/limo_pro.yaml')),
         DeclareLaunchArgument('map',default_value=str(share/'config/parking_map.yaml')),
         DeclareLaunchArgument('headless',default_value='false'),
+        DeclareLaunchArgument('editor',default_value='false'),
         DeclareLaunchArgument('parking_adapter',default_value='false'),
         DeclareLaunchArgument('view',default_value='parking'),
         DeclareLaunchArgument('mission',default_value='parking'),
