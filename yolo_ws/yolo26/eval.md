@@ -1,6 +1,6 @@
 # yolo26/eval.py
 
-**[`.pt` vs TensorRT 엔진 — 정확도/속도 비교]** 같은 데이터셋(`dataset.yaml`)의 한 split
+**[`.pt` vs TensorRT 엔진 — 정확도/속도 비교]** 같은 데이터셋(`train/dataset.yaml`)의 한 split
 (기본 `test`)을 **batch=1** 로 돌려 원본 `model/best.pt` 와 **이미 빌드된** TensorRT 엔진
 `model/best.engine` 을 Ultralytics `val` 로 나란히 평가한다 → `eval_pt_vs_trt.md` (repo 루트).
 
@@ -19,7 +19,7 @@
   **완전히 같은 인자**(`data` / `split` / `imgsz` / `batch` / `workers`)로 호출한다.
 - 엔진 로딩·추론은 Ultralytics `AutoBackend` 가 TensorRT 런타임으로 처리한다.
   `best.engine` 은 `build_trt_engine.py` 가 raw TensorRT API 로 만든 것이라
-  Ultralytics 메타데이터 헤더가 없지만, `val` 은 클래스 이름을 `dataset.yaml` 에서
+  Ultralytics 메타데이터 헤더가 없지만, `val` 은 클래스 이름을 `train/dataset.yaml` 에서
   읽으므로 문제 없다 (엔진의 `names` 는 무시됨).
 - `best.engine` 은 **정적 batch=1** (입력 `images (1,3,640,640)`) 로 빌드돼 있어
   다른 batch 로는 추론이 안 된다 → `--batch` 기본값 1, 바꾸면 경고를 찍는다.
@@ -42,7 +42,7 @@
   ```bash
   python TensorRT/build_trt_engine.py
   ```
-- `dataset.yaml` + `dataset/<split>/` — Roboflow `crash_test` (nc=1, `CAR`)
+- `train/dataset.yaml` + `train/dataset/<split>/` — Roboflow `crash_test` (nc=1, `CAR`)
 
 ## 사용법
 
@@ -62,7 +62,7 @@ python yolo26/eval.py --no-plots          # PR curve 등 플롯 생략
 |---|---|---|
 | `--pt` | `model/best.pt` | 원본 가중치 (.pt) |
 | `--engine` | `model/best.engine` | **기존** TensorRT 엔진 (.engine) |
-| `--data` | `dataset.yaml` | 데이터셋 yaml |
+| `--data` | `train/dataset.yaml` | 데이터셋 yaml |
 | `--split` | `test` | `train` / `val` / `test` |
 | `--imgsz` | `640` | 입력 해상도 |
 | `--batch` | `1` | 배치 크기 (정적 엔진은 1 고정) |

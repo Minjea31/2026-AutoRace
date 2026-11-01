@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
                    help="원본 가중치 (.pt) — repo 루트 기준 상대경로")
     p.add_argument("--engine", default="model/best.engine",
                    help="TensorRT 엔진 (.engine) — repo 루트 기준 상대경로")
-    p.add_argument("--data", default="dataset.yaml", help="데이터셋 yaml")
+    p.add_argument("--data", default="train/dataset.yaml", help="데이터셋 yaml")
     p.add_argument("--split", default="test", choices=["train", "val", "test"],
                    help="평가에 쓸 split")
     p.add_argument("--imgsz", type=int, default=640, help="입력 해상도")
