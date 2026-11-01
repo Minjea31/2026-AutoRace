@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
-from .world import cones, signs
+from .world import boundary_walls, cones, signs
 
 
 def wrap(angle):
@@ -87,6 +87,10 @@ def make_obstacles(cfg):
     v, world = cfg['vehicle'], cfg['world']
     boxes = [Box(o['name'], *o['pose'], v['length'], v['width'],
                  v['ground_clearance'], v['height']) for o in world['obstacles']]
+    for wall in boundary_walls(world):
+        x, y, z = wall['center']
+        length, width, height = wall['size']
+        boxes.append(Box(wall['name'], x, y, 0, length, width, z-height/2, z+height/2))
     for sign in signs(world):
         x,y,yaw=sign['pose']
         top=sign['panel_center_height']+sign['panel_height']/2
@@ -229,7 +233,7 @@ class Simulation:
         """Horizontal first-return ray/OBB intersection, respecting obstacle height.
 
         The stationary scene is sampled instantaneously, with time_increment=0.
-        Painted lines and the outer map border have no reflective wall geometry.
+        Painted lines have no reflective geometry; configured walls do.
         """
         cfg, v = self.cfg['lidar'], self.cfg['vehicle']
         c, s = math.cos(self.yaw), math.sin(self.yaw)

@@ -14,7 +14,7 @@ from panda3d.core import (
 from .config import share_directory
 from .model import camera_mount, intrinsics
 from .view_controls import OrbitView
-from .world import signs
+from .world import boundary_walls, signs
 
 
 def mesh(name, faces):
@@ -144,8 +144,9 @@ class Scene:
         texture.setAnisotropicDegree(16)
         node.setTexture(texture)
         node.setLightOff()
-        # Outside the printed mat is just a floor, not a fictitious lidar wall.
         self.box(self.render, 'floor', (w/2,h/2,-.03), (w+4,h+4,.05), (.15,.17,.19,1))
+        for wall in boundary_walls(self.cfg['world']):
+            self.box(self.render, wall['name'], wall['center'], wall['size'], wall['color'])
         if not self.cfg.get('display',{}).get('show_parking_goal',False):
             return
         x0,x1,y0,y1 = self.cfg['world']['parking']['goal']

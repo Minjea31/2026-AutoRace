@@ -151,5 +151,17 @@ def test_rendered_depth_rgb_orientation_and_camera_frame():
         assert model.speed<0
         scene.base.messenger.send('arrow_down-up')
         scene.base.messenger.send('k')
+        # The real perimeter is black, 30 cm tall, and visible to RGB/depth.
+        for side in ('west', 'east', 'south', 'north'):
+            wall = scene.render.find('**/boundary_wall_'+side)
+            lo,hi = wall.getTightBounds(scene.render)
+            assert lo.z == pytest.approx(0, abs=1e-6)
+            assert hi.z == pytest.approx(.30, abs=1e-6)
+            assert tuple(wall.getColor()) == pytest.approx((.015,.015,.015,1), abs=1/1024)
+        model.x,model.y,model.yaw = 9.4,3.,0.
+        for _ in range(2):
+            scene.render_frame({'color','depth'})
+        assert np.median(scene.depth_image()[190:210,310:330]) == pytest.approx(467, abs=2)
+        assert np.max(scene.color_image()[230:250,310:330]) < 20
     finally:
         scene.close()
