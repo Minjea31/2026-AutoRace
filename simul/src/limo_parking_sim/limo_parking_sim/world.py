@@ -4,6 +4,25 @@ import math
 import numpy as np
 
 
+def boundary_walls(world):
+    """Four solid walls outside the mat, shared by sensors and collision."""
+    spec = world.get('boundary_wall')
+    if not spec:
+        return []
+    w, h = world['size']
+    t, z = spec['thickness'], spec['height']
+    return [
+        {'name': 'boundary_wall_'+side, 'center': center, 'size': size,
+         'color': spec['color']}
+        for side, center, size in (
+            ('west', (-t/2, h/2, z/2), (t, h+2*t, z)),
+            ('east', (w+t/2, h/2, z/2), (t, h+2*t, z)),
+            ('south', (w/2, -t/2, z/2), (w, t, z)),
+            ('north', (w/2, h+t/2, z/2), (w, t, z)),
+        )
+    ]
+
+
 def signs(world):
     dimensions=world.get('sign_geometry',{})
     diameter=dimensions.get('diameter',.09)

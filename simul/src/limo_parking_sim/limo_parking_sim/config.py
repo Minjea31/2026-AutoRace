@@ -59,6 +59,14 @@ def validate(cfg):
             raise ValueError('Camera fps cannot exceed physics_hz')
     if not 0 < cfg['camera']['near'] < cfg['camera']['far']:
         raise ValueError('Camera near/far planes are invalid')
+    wall = cfg['world'].get('boundary_wall')
+    if wall:
+        for name in ('height', 'thickness'):
+            value = wall[name]
+            if not isinstance(value, (float, int)) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f'world.boundary_wall.{name} must be positive and finite')
+        if len(wall['color']) != 4 or any(not math.isfinite(c) or not 0 <= c <= 1 for c in wall['color']):
+            raise ValueError('Boundary wall color must contain four RGBA values in [0, 1]')
     x0, x1, y0, y1 = cfg['world']['parking']['goal']
     if not 0 <= x0 < x1 <= cfg['world']['size'][0] or not 0 <= y0 < y1 <= cfg['world']['size'][1]:
         raise ValueError('Parking goal must be a positive rectangle inside the map')

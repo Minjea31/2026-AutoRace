@@ -83,7 +83,7 @@ def test_sat_corners_height_and_boundary(cfg):
     assert not overlaps(a,Box('b',0,0,0,.322,.22,.3,.5))
     assert not overlaps(a,Box('b',1,0,0,.322,.22,0,.25))
     m = Simulation(cfg)
-    assert m.collisions_at(.05,3,0) == ['map_boundary']
+    assert set(m.collisions_at(.05,3,0)) == {'boundary_wall_west', 'map_boundary'}
     assert not m.collisions_at(3,3,0)
 
 
@@ -104,7 +104,37 @@ def test_lidar_metric_range_frame_and_height(cfg):
     m.obstacles = [Box('too_far',16,2,0,.2,1,0,.3)]
     assert m.scan()[mid] == 0  # 64 m ROS metadata does not invent a 64 m T-mini Pro
     m.obstacles = []
-    assert np.all(m.scan() == 0)  # paint/map border is not a lidar wall
+    assert np.all(m.scan() == 0)  # no geometry remains after clearing obstacles
+
+
+@pytest.mark.parametrize('yaw,side,distance', [
+    (0., 'east', 5.), (math.pi, 'west', 5.),
+    (math.pi/2, 'north', 3.), (-math.pi/2, 'south', 3.),
+])
+def test_boundary_wall_scan_collision_and_escape(cfg, yaw, side, distance):
+    cfg['simulation']['spawn'] = [5., 3., yaw]
+    m = Simulation(cfg)
+    m.obstacles = [b for b in m.obstacles if b.name.startswith('boundary_wall_')]
+    m.cones = []
+    mid = len(m.angles)//2
+    assert m.scan()[mid] == pytest.approx(distance-cfg['lidar']['xyz'][0], abs=1e-6)
+    # A raised scan plane sees over the 30 cm wall.
+    cfg['lidar']['xyz'][2] = .31-cfg['vehicle']['base_link_height']
+    assert m.scan()[mid] == 0
+    # Approach each edge from inside; collision stops motion, reverse escapes.
+    m.x += (distance-.25)*math.cos(yaw)
+    m.y += (distance-.25)*math.sin(yaw)
+    advance(m, 1., .2, 0)
+    assert m.collision and m.speed == 0
+    assert 'boundary_wall_'+side in m.collision_names
+    advance(m, .5, -.2, 0)
+    assert not m.collision and m.speed < 0
+
+
+def test_boundary_walls_can_be_disabled(cfg):
+    cfg['world'].pop('boundary_wall')
+    m = Simulation(cfg)
+    assert not any(b.name.startswith('boundary_wall_') for b in m.obstacles)
 
 
 def test_noise_seed_and_inf_profile(cfg):

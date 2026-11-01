@@ -2,6 +2,10 @@
 # 3 columns x 2 rows. Clear spaces are 500 x 600 mm; overall 1580 x 1240 mm.
 size: [10.0, 6.0]
 texture: track.png
+boundary_wall:
+  height: 0.30
+  thickness: 0.05  # Extends outward; the inside faces follow the mat edges.
+  color: [0.015, 0.015, 0.015, 1.0]
 parking:
   columns: 3
   rows: 2
