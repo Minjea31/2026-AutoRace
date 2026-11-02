@@ -27,27 +27,6 @@ obstacles:
   - 1.5707963267948966
 - name: obstacle_001
   pose:
-  - 7.794874999999999
-  - 0.42
-  - 3.141592653589793
-  grid_row: lower
-  grid_column: 8
-- name: obstacle_002
-  pose:
-  - 6.854374999999999
-  - 1.46
-  - 3.141592653589793
-  grid_row: upper
-  grid_column: 6
-- name: obstacle_003
-  pose:
-  - 6.854374999999999
-  - 0.42
-  - 3.141592653589793
-  grid_row: lower
-  grid_column: 6
-- name: obstacle_004
-  pose:
   - 5.443625
   - 0.94
   - 3.141592653589793
@@ -55,22 +34,43 @@ obstacles:
   grid_column: 3
 - name: obstacle_005
   pose:
-  - 4.973375
+  - 6.384124999999999
+  - 0.42
+  - 3.141592653589793
+  grid_row: lower
+  grid_column: 5
+- name: obstacle_006
+  pose:
+  - 6.854374999999999
+  - 0.42
+  - 3.141592653589793
+  grid_row: lower
+  grid_column: 6
+- name: obstacle_002
+  pose:
+  - 5.913874999999999
   - 0.94
   - 3.141592653589793
   grid_row: middle
-  grid_column: 2
-- name: obstacle_006
+  grid_column: 4
+- name: obstacle_003
   pose:
-  - 5.443625
+  - 7.324624999999999
+  - 0.42
+  - 3.141592653589793
+  grid_row: lower
+  grid_column: 7
+- name: obstacle_004
+  pose:
+  - 7.324624999999999
   - 1.46
   - 3.141592653589793
   grid_row: upper
-  grid_column: 3
-- name: obstacle_007
-  pose:
-  - 7.324624999999999
-  - 0.94
-  - 3.141592653589793
-  grid_row: middle
   grid_column: 7
+- name: obstacle_008
+  pose:
+  - 7.794874999999999
+  - 1.46
+  - 3.141592653589793
+  grid_row: upper
+  grid_column: 8
