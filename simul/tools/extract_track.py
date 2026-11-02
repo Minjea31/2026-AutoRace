@@ -21,6 +21,13 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / 'simul/src/limo_parking_sim/assets'
 RESAMPLE = getattr(Image,'Resampling',Image)
+ROAD_COLOR = (51, 50, 44)
+WHITE_PAINT = (239, 237, 218)
+YELLOW_PAINT = (245, 190, 35)
+# The PDF is monochrome. Match the supplied reference map's road boundaries,
+# parking outside edges and fork island; keep parking divisions/markings white.
+# CAD indices are stable under the 277-path source check below.
+YELLOW_PATH_INDICES = set(range(129)) | set(range(149, 173))
 
 
 def extract():
@@ -77,15 +84,21 @@ def extract():
     OUT.mkdir(parents=True, exist_ok=True)
     # Work at 400 pixels/m for a compact texture (2.5 mm/texel).
     ppm = 400
-    image = Image.new('RGB', (10*ppm, 6*ppm), (51, 50, 44))
+    image = Image.new('RGB', (10*ppm, 6*ppm), ROAD_COLOR)
     draw = ImageDraw.Draw(image)
-    for xy in polylines:
+    yellow_mask = Image.new('L', image.size)
+    white_mask = Image.new('L', image.size)
+    yellow_draw, white_draw = ImageDraw.Draw(yellow_mask), ImageDraw.Draw(white_mask)
+    for index, xy in enumerate(polylines):
         uv = [(x*ppm, (6-y)*ppm) for x, y in xy]
+        colour_draw = yellow_draw if index in YELLOW_PATH_INDICES else white_draw
         area = abs(np.dot(xy[:, 0], np.roll(xy[:, 1], 1))
                    - np.dot(xy[:, 1], np.roll(xy[:, 0], 1))) / 2
         if np.linalg.norm(xy[0]-xy[-1]) < 0.002 and area < 0.2:
-            draw.polygon(uv, fill=(239, 237, 218))
-        draw.line(uv, fill=(239, 237, 218), width=1)
+            draw.polygon(uv, fill=WHITE_PAINT)
+            colour_draw.polygon(uv, fill=255)
+        draw.line(uv, fill=WHITE_PAINT, width=1)
+        colour_draw.line(uv, fill=255, width=1)
     # CAD tape is represented by two outlines. Fill only narrow enclosed
     # components, leaving road surfaces and the parking interiors untouched.
     pixels = np.array(image)
@@ -101,7 +114,13 @@ def extract():
     np.maximum.at(radii, labels.ravel(), distance.ravel())
     narrow = radii < 0.023*ppm
     narrow[np.unique(np.concatenate((labels[0], labels[-1], labels[:, 0], labels[:, -1])))] = False
-    pixels[(ink > 0) | narrow[labels]] = (239, 237, 218)
+    painted = (ink > 0) | narrow[labels]
+    pixels[painted] = WHITE_PAINT
+    # Fill paired CAD outlines without changing the tape footprint. Nearest
+    # source outlines preserve the white stop lines where they meet a boundary.
+    yellow_distance = cv2.distanceTransform((np.array(yellow_mask) == 0).astype(np.uint8), cv2.DIST_L2, 3)
+    white_distance = cv2.distanceTransform((np.array(white_mask) == 0).astype(np.uint8), cv2.DIST_L2, 3)
+    pixels[painted & (yellow_distance < white_distance)] = YELLOW_PAINT
     image = Image.fromarray(pixels).resize((8000,4800),RESAMPLE.NEAREST)
     # Morphological filling is appropriate for paired lane edges, but merges
     # closely spaced zebra bars and fills holes in Korean glyphs/diamonds.
@@ -109,7 +128,7 @@ def extract():
     # bounds and stripe coordinates. Runtime needs no Korean font installation.
     marking_ppm = 800
     draw = ImageDraw.Draw(image)
-    road,paint = (51,50,44),(239,237,218)
+    road,paint = ROAD_COLOR,WHITE_PAINT
     def uv(x,y):
         return (round(x*marking_ppm),round((6-y)*marking_ppm))
     def clear(bounds,pad=0):
@@ -164,6 +183,9 @@ def extract():
             'size_m': [10.0, 6.0], 'origin': 'bottom-left, x right, y up',
             'polylines_m': [np.round(xy, 6).tolist() for xy in polylines],
             'texture_size_px':[8000,4800],
+            'lane_paint':{'yellow_rgb':list(YELLOW_PAINT),'white_rgb':list(WHITE_PAINT),
+                          'yellow_path_indices':sorted(YELLOW_PATH_INDICES),
+                          'color_reference':'assets/KakaoTalk_20261023_032834501.png'},
             'markings':{'font':font_path.name,'zebra_stripes':16,'zebra_border_strips':4,'slow_text':'천천히',
                         'hollow_diamonds':3,'start_checker':True}}
     (OUT / 'track_geometry.json').write_text(json.dumps(data, separators=(',', ':'))+'\n')
