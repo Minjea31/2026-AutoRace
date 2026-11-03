@@ -28,7 +28,7 @@ python simul/tools/check_environment.py
 
 `source simul/env.sh`는 시스템 ROS 환경과 Python 경로를 연결하고, `ROS_DOMAIN_ID`가 없거나 기본 도메인 `0`이면 시뮬레이터용 `42`로 맞춥니다. `144`처럼 0이 아닌 사용자 지정 도메인은 유지합니다. 의도적으로 도메인 0을 사용하려면 `AUTORACE_SIM_DOMAIN_ID=0`을 설정하고, 다른 도메인도 이 변수로 명시할 수 있습니다. **`ROS_LOCALHOST_ONLY=1`은 항상 적용**하여 같은 PC 안에서 통신합니다. 부모 터미널에 `0`이 설정되어 있어도 `1`로 바꿉니다. **시뮬레이터와 토픽을 받는 터미널마다 같은 환경을 적용**합니다. 실차 드라이버와 시뮬레이터가 같은 토픽에 동시에 발행되지 않도록 실차와 다른 도메인을 사용하세요.
 
-ROS 명령만 쓰는 터미널은 **base 그대로 `./simul/ros2.sh ...`를 사용해도 됩니다.** 이 파일은 시뮬레이터와 같은 `ros_env.sh`를 읽고 시스템 ROS CLI를 실행합니다. 기본 도메인 0은 42로 맞추고, localhost 설정은 `1`로 맞춥니다. `topic list/info/echo/type/find`는 기존 ROS CLI 데몬의 발견 결과 대신 현재 프로세스로 직접 DDS를 조회합니다. 기본 발견 대기 시간은 2초이며 `--spin-time`으로 변경할 수 있습니다. 시뮬레이터 시작 로그와 화면 왼쪽에 실제 `ROS domain`을 표시하며, `--no-ros`로 실행하면 화면에 `ROS OFF`로 표시합니다. 설정 변경 전에 켜 둔 프로세스에는 새 환경이 적용되지 않으므로 시뮬레이터를 재실행합니다.
+ROS 명령만 쓰는 터미널은 **base 그대로 `./simul/ros2.sh ...`를 사용해도 됩니다.** 이 파일은 시뮬레이터와 같은 `ros_env.sh`를 읽고 시스템 ROS CLI를 실행합니다. 기본 도메인 0은 42로 맞추고, localhost 설정은 `1`로 맞춥니다. `topic list/info/echo/type/find`는 기존 ROS CLI 데몬의 발견 결과 대신 현재 프로세스로 직접 DDS를 조회합니다. **`source simul/env.sh` 또는 `source simul/ros_env.sh`를 적용하면 일반 `ros2 topic list`에도 같은 조회 방식을 자동 적용합니다.** Bash `ros2` 함수가 조회 명령에만 옵션을 추가하며, `run`, `launch`, `topic pub`는 시스템 ROS CLI로 그대로 전달합니다. 기본 발견 대기 시간은 2초이며 `--spin-time`으로 변경할 수 있습니다. 시뮬레이터 시작 로그와 화면 왼쪽에 실제 `ROS domain`을 표시하며, `--no-ros`로 실행하면 화면에 `ROS OFF`로 표시합니다. 설정 변경 전에 켜 둔 프로세스에는 새 환경이 적용되지 않으므로 시뮬레이터를 재실행합니다.
 
 ## 2. 실행
 
@@ -179,6 +179,8 @@ ros2 topic echo /scan --qos-reliability best_effort --once
 ```
 
 `requesting incompatible QoS ... RELIABILITY`는 특정 구독자의 신뢰성 요구가 발행자와 다르다는 경고이며, 모든 토픽이 사라지는 원인은 아닙니다. 현재 `/scan` 발행자와 주차 노드·RViz 구독자는 모두 Best Effort임을 확인했습니다. 구독자별 설정은 `./simul/ros2.sh topic info /scan --verbose`로 확인할 수 있습니다.
+
+**일반 `ros2 topic list`에는 두 기본 토픽만 보이고 `--no-daemon`으로는 센서가 모두 보일 때:** 시뮬레이터 발행은 정상이며 기존 데몬의 그래프 상태가 원인입니다. 수정된 환경 파일을 `source simul/env.sh`로 다시 읽으면 `ros2 topic list`만 입력해도 직접 조회합니다. `parking_ws/env.sh`도 같은 공통 설정을 읽습니다. 기존 터미널에는 파일 수정이 자동 반영되지 않습니다.
 
 일반 ROS 터미널에서도 같은 로컬 설정을 사용하려면:
 
