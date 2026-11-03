@@ -7,6 +7,7 @@ dependencies:
   - pyyaml
   - pillow
   - tk
+  - pyqt=5.15
   - pip
   - setuptools<81
   - pytest
