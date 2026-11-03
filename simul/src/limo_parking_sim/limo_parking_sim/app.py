@@ -15,7 +15,7 @@ def parser():
     p.add_argument('--map',dest='world',help='World/parking YAML')
     p.add_argument('--headless',action='store_true',help='Offscreen EGL rendering; sensor topics still work')
     p.add_argument('--no-ros',action='store_true',help='Interactive Panda3D only')
-    p.add_argument('--editor',action='store_true',help='Open a separate live obstacle editor window')
+    p.add_argument('--editor',action='store_true',help='Open the live cone, parking and obstacle placement window')
     p.add_argument('--duration',type=float,default=0,help='Exit after N simulated seconds; 0 means unlimited')
     p.add_argument('--fast',action='store_true',help='Disable wall-clock pacing')
     p.add_argument('--view',choices=('parking','overview','follow','camera'),default='parking')

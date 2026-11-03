@@ -89,7 +89,7 @@ class Scene:
         self.orbit = OrbitView()
         self.drag_mode = None
         self.last_mouse = None
-        self.keys = dict.fromkeys(('w','arrow_up','arrow_down','a','d','arrow_left','arrow_right','space'),False)
+        self.keys = dict.fromkeys(('w','s','arrow_up','arrow_down','a','d','arrow_left','arrow_right','space'),False)
         self.closed = self.paused = self.keyboard_enabled = False
         self.ros_domain = None
         self.scan_visible = cfg.get('display',{}).get('show_lidar',False)
@@ -110,12 +110,12 @@ class Scene:
         self.ego.hide(BitMask32.bit(1))  # physical sensors exclude ego surfaces
         self.base.cam.node().setCameraMask(BitMask32.bit(0))
         self.obstacle_nodes = []
+        self.cone_nodes = []
         self.refresh_obstacles()
         self.editor = None
         self.sign_faces={}
         self._sign()
         self.fork_direction=cfg['world'].get('fork',{}).get('default','left')
-        self._cones()
         self._speed_bump()
         self._traffic_light()
         self.sensors = {stream: self._sensor(stream) for stream in ('color', 'depth')}
@@ -141,6 +141,15 @@ class Scene:
             node.removeNode()
         self.obstacle_nodes = [self._vehicle(o['name'], o['pose'], (.82,.84,.87,1))[0]
                                for o in self.cfg['world']['obstacles']]
+        self._cones()
+
+    def focus_editor_region(self, region):
+        from .obstacle_editor import region_bounds
+        x0, x1, y0, y1 = region_bounds(self.cfg, region)
+        x, y = (x0+x1)/2, (y0+y1)/2
+        self.set_view('free')
+        self.orbit.set_pose((x, y-.4, max(2., (x1-x0)*1.4, (y1-y0)*1.4)), (x, y, 0))
+        self.update_view()
 
     def toggle_editor(self):
         if self.editor is not None and not self.editor.closed:
@@ -148,7 +157,7 @@ class Scene:
             return
         from .obstacle_editor import ObstacleEditor
         try:
-            self.editor = ObstacleEditor(self.cfg, self.model, self.refresh_obstacles)
+            self.editor = ObstacleEditor(self.cfg, self.model, self.refresh_obstacles, self.focus_editor_region)
         except (ImportError, RuntimeError) as exc:
             print(f'Obstacle editor unavailable: {exc}')
 
@@ -246,8 +255,12 @@ class Scene:
             self.sign_faces['fork_sign'].setTexture(self._sign_texture(name))
 
     def _cones(self):
+        for node in self.cone_nodes:
+            node.removeNode()
+        self.cone_nodes = []
         for cone in self.model.cones:
             root=self.render.attachNewNode(cone.name)
+            self.cone_nodes.append(root)
             root.setPos(cone.x,cone.y,0)
             self.box(root,'base',(0,0,cone.base_height/2),
                      (cone.base_size,cone.base_size,cone.base_height),(1,.28,.02,1))
@@ -369,10 +382,10 @@ class Scene:
                                   align=TextNode.ALeft,fg=(.5,.9,1,1),mayChange=False)
         self.hud = OnscreenText(text='',pos=(-1.52,.80),scale=.037,align=TextNode.ALeft,
                                 fg=(.94,.97,1,1),mayChange=True)
-        self.help = OnscreenText(text='K: keyboard   W/UP: forward   DOWN: reverse   A/D: steer   SPACE: stop\n'
-            'Left drag: pan   Right drag: orbit   Wheel: zoom   V: camera   S: laser\n'
+        self.help = OnscreenText(text='K: keyboard   W/UP: forward   S/DOWN: reverse (1 m/s)   A/D: steer   SPACE: stop\n'
+            'Left drag: pan   Right drag: orbit   Wheel: zoom   V: camera   I: laser\n'
             'L/R: fork left/right   T/G/Y: light red/green/yellow   F5: reset\n'
-            '1: parking   2: whole track   3: follow   4: camera   E: obstacle editor   P: pause   ESC: quit',
+            '1: parking   2: whole track   3: follow   4: camera   E: placement editor   P: pause   ESC: quit',
             pos=(-1.52,-.85),scale=.029,align=TextNode.ALeft,fg=(.8,.86,.92,1))
         self.preview = OnscreenImage(image=self.sensors['color']['rgb'],pos=(1.19,0,.66),
             scale=(.36,1,.36*self.cfg['camera']['color']['height']/self.cfg['camera']['color']['width']))
@@ -387,7 +400,7 @@ class Scene:
         self.base.accept('f5',self.reset)
         self.base.accept('l',self.set_fork,['left'])
         self.base.accept('r',self.set_fork,['right'])
-        self.base.accept('s',self._scan_toggle)
+        self.base.accept('i',self._scan_toggle)
         self.base.accept('t',self.set_traffic,['red'])
         self.base.accept('g',self.set_traffic,['green'])
         self.base.accept('y',self.set_traffic,['yellow'])
@@ -488,7 +501,7 @@ class Scene:
     def keyboard_command(self):
         if not self.keyboard_enabled:
             return
-        speed=.25*(int(self.keys['w'] or self.keys['arrow_up'])-int(self.keys['arrow_down']))
+        speed=1.0*(int(self.keys['w'] or self.keys['arrow_up'])-int(self.keys['s'] or self.keys['arrow_down']))
         steer=self.model.max_steering*(int(self.keys['a'] or self.keys['arrow_left'])
                                       -int(self.keys['d'] or self.keys['arrow_right']))
         if self.keys['space']:
