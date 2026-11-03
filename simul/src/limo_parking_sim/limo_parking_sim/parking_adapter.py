@@ -22,6 +22,7 @@ def drive_to_twist(speed, steering, wheelbase, max_speed, max_steering):
 
 def main(args=None):
     import rclpy
+    from rclpy.executors import ExternalShutdownException
     from rclpy.node import Node
     from rclpy.qos import QoSProfile
     from rclpy.utilities import remove_ros_args
@@ -75,7 +76,7 @@ def main(args=None):
     node = Adapter()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()

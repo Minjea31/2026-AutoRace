@@ -40,7 +40,7 @@
 
 사용자가 실행 중인 GUI 시뮬레이터의 **도메인 42**에도 별도 구독자를 연결했다. 카메라 JPEG·raw RGB·Depth·두 CameraInfo·라이다·IMU·odom을 반복 수신하고 센서 stamp가 진행하는 것을 확인했다. raw RGB는 640×480 `rgb8`, Depth는 640×400 `16UC1`, 라이다는 245샘플이었다. 이 확인에서는 GUI 시뮬레이터에 제어·리셋·일시정지 명령을 보내지 않았다. [실행 중 센서 수신 결과](ros-live-check.json)
 
-동시에 base 터미널의 도메인 0에는 `/cmd_vel` 발행자만 있고 센서 토픽이 없음을 확인했다. 실제 원인은 시뮬레이터와 ROS CLI 터미널의 도메인 불일치였다. 이를 맞추기 위해 Conda가 필요 없는 `simul/ros2.sh`를 추가하고, 시뮬레이터와 CLI가 같은 `ros_env.sh`를 사용하도록 했다. 도메인은 시작 로그와 화면에도 표시한다. 명시적으로 지정된 도메인은 유지한다.
+동시에 base 터미널의 도메인 0에는 `/cmd_vel` 발행자만 있고 센서 토픽이 없음을 확인했다. 실제 원인은 시뮬레이터와 ROS CLI 터미널의 도메인 불일치였다. 이를 맞추기 위해 Conda가 필요 없는 `simul/ros2.sh`를 추가하고, 시뮬레이터와 CLI가 같은 `ros_env.sh`를 사용하도록 했다. 도메인은 시작 로그와 화면에도 표시한다. 이후 기본 터미널의 도메인 0이 그대로 유지되는 재발을 확인하여, 현재는 기본값 0을 시뮬레이터용 42로 맞춘다. 0이 아닌 사용자 지정 도메인은 유지하고, 의도적인 도메인 0은 AUTORACE_SIM_DOMAIN_ID=0으로 선택한다. 기존 CLI 데몬의 발견 결과가 실제 DDS와 다른 현상도 확인하여 ros2.sh의 토픽 조회는 직접 DDS를 사용한다.
 
 `ROS_DOMAIN_ID=144 ROS_LOCALHOST_ONLY=1 python simul/tools/check_ros_topics.py --cli-command`로 실제 `simul/ros2.sh topic pub -r 20` 명령을 사용하는 별도 오프스크린 검증도 수행했다. [CLI 주행·센서 검증 결과](ros-cli-check.json)
 
