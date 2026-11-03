@@ -3,7 +3,8 @@ from dataclasses import replace
 import math
 import time
 
-from .core import CollisionChecker, Gap, cluster_points, find_gaps, plan_path, wrap
+from .core import (CollisionChecker, Gap, cluster_points, find_gaps, plan_path,
+                   sample_candidate, straight_turn_candidates, wrap)
 from .tracking import compose, inverse
 
 
@@ -12,36 +13,44 @@ def local_goal(goal, pose):
     return replace(goal, x=x, y=y, yaw=yaw)
 
 
-def build_plan(scan, cfg, goal=None):
+def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.)):
     """Return (final goal, path, final approach).
 
-    If occluded, stop before the row and observe again. Never mark a staging
-    endpoint as parking completion or extend the path into unobserved space.
+    Prefer driving straight along the row before turning into the bay. If
+    occluded, advance only through the observed prefix and then observe again.
+    New bays must lie to the right of the mission-start pose, not necessarily
+    to the right of the current vehicle after it has turned.
     """
     goals = [goal] if goal is not None else find_gaps(
-        cluster_points(scan.points, cfg.cluster_distance, cfg.cluster_min_points), cfg)
+        cluster_points(scan.points, cfg.cluster_distance, cfg.cluster_min_points), cfg, origin)
+    checker = CollisionChecker(scan, cfg)
     for target in goals:
+        partial, progress = [], 0.
+        for _, parts in straight_turn_candidates(target, cfg):
+            path, complete = sample_candidate(checker, parts, cfg)
+            if complete:
+                return target, path, True
+            length = sum(math.hypot(b[0]-a[0], b[1]-a[1]) for a, b in zip(path, path[1:]))
+            if length > max(.15, progress) and math.hypot(*path[-1][:2]) > .13:
+                partial, progress = path, length
+        if partial:
+            return target, partial, False
         path = plan_path(scan, target, cfg)
         if path:
             return target, path, True
-        for offset in (0.28, 0.38, 0.48):
-            staging = replace(target, x=target.x - offset * math.cos(target.yaw),
-                              y=target.y - offset * math.sin(target.yaw))
-            # No repeated approach to a staging pose already reached.
-            if math.hypot(staging.x, staging.y) < 0.13:
-                continue
-            path = plan_path(scan, staging, cfg)
-            if path:
-                return target, path, False
     return None, [], False
 
 
 class Follower:
     def __init__(self, cfg, speed=1.0, lookahead=0.18, hold_seconds=3.0, deceleration=1.0,
-                 max_yaw_rate=1.0):
+                 max_yaw_rate=1.0, exit_heading_tolerance=0.05):
         self.cfg, self.speed, self.lookahead = cfg, speed, lookahead
         self.hold_seconds, self.deceleration = hold_seconds, deceleration
         self.max_yaw_rate = max_yaw_rate
+        if not math.isfinite(exit_heading_tolerance) or not 0 < exit_heading_tolerance < math.pi/2:
+            raise ValueError('exit_heading_tolerance must be between zero and pi/2')
+        self.exit_heading_tolerance = exit_heading_tolerance
+        self.exit_path_length = 0.
         self.goal = None
         self.path = []
         self.index = 0
@@ -90,11 +99,24 @@ class Follower:
 
     def prepare_exit(self, pose, now):
         # Keep vehicle headings unchanged: reverse waypoint order and velocity,
-        # rather than turning the vehicle by pi. Preserve all staging segments.
+        # rather than turning the vehicle by pi. Stop at the last recorded
+        # lane-aligned pose: reverse the entry turn, not the earlier straight.
         self.parked, self.parked_since = True, now
-        self.path = [pose] + list(reversed(self.entry_trace))
+        self.path = [pose]
+        lane_yaw = self.entry_trace[0][2] if self.entry_trace else pose[2]
+        if abs(wrap(pose[2]-lane_yaw)) > self.exit_heading_tolerance:
+            for point in reversed(self.entry_trace):
+                previous = self.path[-1]
+                if math.hypot(point[0]-previous[0], point[1]-previous[1]) <= 1e-9:
+                    continue
+                # Keep an actual recorded footprint, including at the endpoint.
+                self.path.append(point)
+                if abs(wrap(point[2]-lane_yaw)) <= self.exit_heading_tolerance:
+                    break
+        self.exit_path_length = sum(math.hypot(b[0]-a[0], b[1]-a[1])
+                                    for a,b in zip(self.path, self.path[1:]))
         self.index = self.arrival_count = 0
-        x, y, yaw = self.entry_trace[0]
+        x, y, yaw = self.path[-1]
         self.goal = replace(self.goal, x=x, y=y, yaw=yaw)
 
     def command(self, scan, pose, new_scan=False, now=None):
@@ -107,13 +129,15 @@ class Follower:
                 return 0.0, 0.0, 'PARKED'
             self.exiting = True
         if not self.path or self.goal is None:
-            return 0.0, 0.0, 'EXIT_BLOCKED' if self.exiting else 'PLANNING'
-        transform = inverse(pose)
-        known = [compose(transform, p) for p in self.entry_trace] if self.exiting else ()
-        checker = CollisionChecker(scan, self.cfg, known)
+            return 0.0, 0.0, 'EXIT_PATH_ERROR' if self.exiting else 'PLANNING'
         goal = local_goal(self.goal, pose)
-        arrived = (math.hypot(goal.x, goal.y) <= 0.07 and abs(goal.yaw) <= 0.20
-                   and checker.free((0.0, 0.0, 0.0)))
+        # The fallback planner may legally end within its configured goal
+        # tolerances. A stricter controller used to reject that endpoint and
+        # discard the path, leaving a forward-only replan with no solution.
+        position_tolerance = .07 if self.exiting else max(.07, self.cfg.goal_tolerance)
+        yaw_tolerance = .20 if self.exiting else max(.20, self.cfg.goal_yaw_tolerance)
+        arrived = ((self.exiting or self.final_approach)
+                   and math.hypot(goal.x, goal.y) <= position_tolerance and abs(goal.yaw) <= yaw_tolerance)
         if new_scan:
             self.arrival_count = self.arrival_count + 1 if arrived and self.measured_speed < .03 else 0
         if arrived:
@@ -132,19 +156,11 @@ class Follower:
         path = self.local_path(pose)
         if not path or math.hypot(path[-1][0], path[-1][1]) < 0.065:
             if self.exiting:
-                return 0.0, 0.0, 'EXIT_BLOCKED'
+                return 0.0, 0.0, 'EXIT_PATH_ERROR'
             self.path = []
             return 0.0, 0.0, 'REOBSERVE'
-        # Cover braking distance and scan/control latency at the configured speed.
-        horizon = max(.35, self.measured_speed ** 2 / (2 * self.deceleration) + self.measured_speed * .2 + .1)
-        for point in path:
-            if not checker.free(point):
-                if self.exiting:
-                    return 0.0, 0.0, 'EXIT_BLOCKED'
-                self.path = []
-                return 0.0, 0.0, 'BLOCKED'
-            if math.hypot(point[0], point[1]) > horizon:
-                break
+        # Follow the accepted path. Obstacle returns do not stop motion or
+        # discard this route; the operator decides when to reset a failed run.
         aim = path[-1]
         lookahead = self.lookahead + min(.15, self.measured_speed * .2)
         for point in path:
@@ -154,7 +170,7 @@ class Follower:
         direction = -1 if self.exiting else 1
         if direction * aim[0] <= 0.005:
             if self.exiting:
-                return 0.0, 0.0, 'EXIT_BLOCKED'
+                return 0.0, 0.0, 'EXIT_PATH_ERROR'
             self.path = []
             return 0.0, 0.0, 'REPLAN'
         distance2 = aim[0] ** 2 + aim[1] ** 2

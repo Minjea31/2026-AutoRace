@@ -21,6 +21,8 @@ from .core import Activation, Scan, Settings, cluster_points
 from .control import Follower, build_plan, local_goal
 from .tracking import ScanTracker
 
+SCAN_FUTURE_TOLERANCE = .1
+
 
 class ParkingNode(Node):
     def __init__(self, **kwargs):
@@ -49,15 +51,16 @@ class ParkingNode(Node):
         self.plan_period = parameter('plan_period', 1.5)
         self.speed = parameter('parking_speed', 1.0)
         self.hold_seconds = parameter('parking_hold_seconds', 3.0)
+        self.exit_heading_tolerance = parameter('exit_heading_tolerance', 0.05)
         self.deceleration = parameter('max_deceleration', 1.0)
         self.max_yaw_rate = parameter('max_yaw_rate', 1.0)
         self.lookahead = parameter('lookahead', 0.18)
         self.control_hz = parameter('control_hz', 20.0)
         if (required < 1 or not all(math.isfinite(v) for v in
                 (self.sign_timeout, self.scan_timeout, self.plan_period, self.speed,
-                 self.lookahead, self.control_hz, self.hold_seconds, self.deceleration, self.max_yaw_rate)) or
+                 self.lookahead, self.control_hz, self.hold_seconds, self.exit_heading_tolerance, self.deceleration, self.max_yaw_rate)) or
                 min(self.sign_timeout, self.scan_timeout, self.plan_period, self.speed,
-                    self.lookahead, self.control_hz, self.deceleration, self.max_yaw_rate) <= 0 or self.hold_seconds < 0):
+                    self.lookahead, self.control_hz, self.exit_heading_tolerance, self.deceleration, self.max_yaw_rate) <= 0 or self.hold_seconds < 0):
             raise ValueError('Frame count, timeouts, speed and control rate must be positive')
         self.activation = Activation(required, self.sign_timeout)
         self.follower = self.new_follower()
@@ -73,6 +76,7 @@ class ParkingNode(Node):
         self.epoch = 0
         self.last_plan_wall = -math.inf
         self.last_status_wall = -math.inf
+        self.reported_state = 'WAITING_SIGN'
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix='parking_planner')
         self.pending = None
         self.obstacles_pub = self.create_publisher(MarkerArray, '/parking/obstacles', 1)
@@ -93,7 +97,8 @@ class ParkingNode(Node):
         return self.get_clock().now().nanoseconds * 1e-9
 
     def new_follower(self):
-        return Follower(self.cfg, self.speed, self.lookahead, self.hold_seconds, self.deceleration, self.max_yaw_rate)
+        return Follower(self.cfg, self.speed, self.lookahead, self.hold_seconds, self.deceleration,
+                        self.max_yaw_rate, self.exit_heading_tolerance)
 
     def new_tracker(self):
         return ScanTracker(self.speed, self.speed * math.tan(self.cfg.max_steering) / self.cfg.wheelbase,
@@ -157,7 +162,7 @@ class ParkingNode(Node):
                           and math.isfinite(msg.angle_increment) and msg.angle_increment != 0
                           and math.isfinite(msg.range_min) and math.isfinite(msg.range_max)
                           and 0 <= msg.range_min < msg.range_max)
-        if not valid_geometry or not -0.1 <= now - stamp <= self.scan_timeout:
+        if not valid_geometry or not -SCAN_FUTURE_TOLERANCE <= now - stamp <= self.scan_timeout:
             self.scan = None
             self.reason = 'Invalid scan geometry/frame or stale timestamp'
             self.clear_visuals()
@@ -169,6 +174,8 @@ class ParkingNode(Node):
         self.scan = Scan(msg.ranges, msg.angle_min, msg.angle_increment, msg.range_min,
                          msg.range_max, sensor_pose, self.cfg.max_range)
         self.scan_time, self.scan_header = stamp, msg.header
+        if self.reason in ('Waiting for a fresh scan', 'Invalid scan geometry/frame or stale timestamp'):
+            self.reason = ''
         self.scan_sequence += 1
         clusters = cluster_points(self.scan.points, self.cfg.cluster_distance, self.cfg.cluster_min_points)
         self.publish_obstacles(clusters)
@@ -249,10 +256,11 @@ class ParkingNode(Node):
             self.get_logger().error(f'Parking planner failed: {exc}')
             self.reason = 'Planner failure'
             return
-        if epoch != self.epoch or not self.activation.active or not self.tracker.valid or self.follower.parked:
+        if (epoch != self.epoch or not self.activation.active or not self.tracker.valid
+                or self.follower.parked or (self.follower.final_approach and self.follower.path)):
             return
-        # Plans are transformed from their captured scan frame to the mission
-        # origin; the latest scan still checks the immediate swept path.
+        # Transform the captured scan frame to the mission origin. Once the
+        # final entry path is accepted, keep it through arrival confirmation.
         if self.now_seconds() - started > self.scan_timeout + self.cfg.planning_timeout:
             return
         if path:
@@ -273,30 +281,46 @@ class ParkingNode(Node):
         speed, steering = 0.0, 0.0
         if not self.activation.active:
             self.state = 'WAITING_SIGN'
-        elif self.scan is None or self.scan_time is None or not 0 <= now - self.scan_time <= self.scan_timeout:
+        # /scan and /clock may be delivered in either order. Match on_scan's
+        # accepted time window instead of discarding an already accepted scan.
+        elif (self.scan is None or self.scan_time is None
+              or not -SCAN_FUTURE_TOLERANCE <= now-self.scan_time <= self.scan_timeout):
             self.state = 'WAITING_SCAN'
+            self.reason = 'Waiting for a fresh scan'
             # Preserve the recorded departure route across a sensor interruption.
             if not self.follower.parked:
                 self.follower.path = []
             self.clear_visuals()
         elif not self.tracker.valid:
             self.state = 'TRACKING_LOST'
+            self.reason = self.tracker.reason
         else:
             speed, steering, self.state = self.follower.command(
                 self.scan, self.tracker.pose, self.controlled_sequence != self.scan_sequence, now=now)
+            if self.state in ('APPROACHING', 'PARKING', 'CONFIRMING', 'PARKED',
+                              'EXITING', 'EXIT_CONFIRMING', 'EXITED'):
+                self.reason = ''
             self.controlled_sequence = self.scan_sequence
             wall_now = time.monotonic()
-            if not self.follower.parked and self.pending is None and wall_now - self.last_plan_wall >= self.plan_period:
+            if (not self.follower.parked and self.pending is None
+                    and not (self.follower.final_approach and self.follower.path)
+                    and wall_now-self.last_plan_wall >= self.plan_period):
                 cfg = replace(self.cfg, row_yaw=self.cfg.row_yaw - self.tracker.pose[2])
                 goal = local_goal(self.follower.goal, self.tracker.pose) if self.follower.goal else None
-                self.pending = (self.worker.submit(build_plan, self.scan, cfg, goal),
+                self.pending = (self.worker.submit(build_plan, self.scan, cfg, goal, self.tracker.pose),
                                 self.epoch, self.tracker.pose, now)
                 self.last_plan_wall = wall_now
             self.path_pub.publish(self.path_message(self.follower.local_path(self.tracker.pose)))
             self.publish_target()
         if self.activation.active:
             self.publish_command(speed, steering)
+        if self.state != self.reported_state:
+            self.get_logger().info(f'Parking state: {self.reported_state} -> {self.state} '
+                                   f'(attempt {self.attempt})'+(f'; {self.reason}' if self.reason else ''))
+            self.reported_state = self.state
         if time.monotonic() - self.last_status_wall >= .2:
+            goal_error = (local_goal(self.follower.goal, self.tracker.pose)
+                          if self.follower.goal is not None and self.tracker.valid else None)
             self.active_pub.publish(Bool(data=self.activation.active))
             self.status_pub.publish(String(data=json.dumps({
                 'state': self.state, 'active': self.activation.active,
@@ -305,6 +329,11 @@ class ParkingNode(Node):
                 'path_poses': len(self.follower.path), 'scan_match_error_m': self.tracker.error,
                 'speed': speed, 'steering_angle': steering,
                 'parking_completed': self.follower.parked, 'exit_completed': self.follower.exited,
+                'exit_heading_tolerance_rad': self.exit_heading_tolerance,
+                'exit_path_length_m': self.follower.exit_path_length,
+                'entry_trace_poses': len(self.follower.entry_trace),
+                'goal_error': ({'x': goal_error.x, 'y': goal_error.y, 'yaw': goal_error.yaw}
+                               if goal_error is not None else None),
                 'hold_remaining_seconds': (max(0., self.hold_seconds - (now - self.follower.parked_since))
                                            if self.follower.parked_since is not None else 0.),
             }, allow_nan=False)))

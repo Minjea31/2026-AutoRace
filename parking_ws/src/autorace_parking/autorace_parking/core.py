@@ -156,15 +156,21 @@ class Gap:
     right: int
 
 
-def find_gaps(clusters, cfg):
-    """Adjacent car-sized groups on the configured parking-row direction.
+def find_gaps(clusters, cfg, origin=(0., 0., 0.)):
+    """Adjacent car-sized groups on the mission's initial right side.
 
     A gap is a local LiDAR candidate, not recognition of a painted parking bay.
     Long walls remain collision obstacles but cannot form parking candidates.
+    origin is the current base pose in the mission-start frame. Keep the side
+    fixed in that frame even after translating or turning into the parking row.
     """
     c, s = math.cos(cfg.row_yaw), math.sin(cfg.row_yaw)
+    origin_c, origin_s = math.cos(origin[2]), math.sin(origin[2])
     projected = []
     for i, cluster in enumerate(clusters):
+        x, y = cluster.center
+        if origin[1] + origin_s * x + origin_c * y >= 0:
+            continue
         pts = [(c * x + s * y, -s * x + c * y) for x, y in cluster.points]
         xs, ys = zip(*pts)
         bounds = min(xs), max(xs), min(ys), max(ys)
@@ -186,7 +192,7 @@ def find_gaps(clusters, cfg):
                    for n, d in projected if n not in (i, j)):
                 continue
             u, v = (a[1] + b[0]) / 2, (va + vb) / 2
-            yaw = cfg.row_yaw + (math.pi / 2 if v >= 0 else -math.pi / 2)
+            yaw = cfg.row_yaw - math.pi / 2
             gaps.append(Gap(c * u - s * v, s * u + c * v, wrap(yaw), width, i, j))
     return sorted(gaps, key=lambda g: math.hypot(g.x, g.y))
 
@@ -254,6 +260,51 @@ def advance(pose, distance, curvature):
             y + (math.cos(yaw) - math.cos(new_yaw)) / curvature, wrap(new_yaw))
 
 
+def straight_turn_candidates(goal, cfg):
+    """Straight, one turn toward the bay, then straight along its heading."""
+    theta = wrap(goal.yaw)
+    if abs(theta) < 1e-4:
+        return [(goal.x, [(goal.x, 0.)])] if goal.x > 0 and abs(goal.y) < 1e-4 else []
+    if abs(theta) >= math.pi - .05:
+        return []
+    direction = 1 if theta > 0 else -1
+    minimum_radius = cfg.wheelbase / math.tan(cfg.max_steering)
+    candidates = []
+    for factor in (1., 1.05, 1.1, 1.25, 1.5):
+        radius = minimum_radius * factor
+        turn_x = direction * radius * math.sin(theta)
+        turn_y = direction * radius * (1 - math.cos(theta))
+        suffix = (goal.y - turn_y) / math.sin(theta)
+        prefix = goal.x - turn_x - suffix * math.cos(theta)
+        if prefix < -1e-6 or suffix < -1e-6:
+            continue
+        parts = [(max(0., prefix), 0.), (radius * abs(theta), direction / radius),
+                 (max(0., suffix), 0.)]
+        candidates.append((sum(length for length, _ in parts), parts))
+    return sorted(candidates, key=lambda item: item[0])
+
+
+def sample_candidate(checker, parts, cfg):
+    """Return only the collision-checked, observed prefix of an arc sequence."""
+    pose = (0., 0., 0.)
+    if not checker.free(pose):
+        return [], False
+    path = [pose]
+    for length, curvature in parts:
+        if length > cfg.max_range * 3:
+            return path, False
+        if length <= 1e-9:
+            continue
+        count = max(1, math.ceil(length / cfg.collision_step))
+        for i in range(1, count + 1):
+            point = advance(pose, length * i / count, curvature)
+            if not checker.free(point):
+                return path, False
+            path.append(point)
+        pose = path[-1]
+    return path, True
+
+
 def arc_candidates(goal, cfg):
     """Forward CSC Dubins candidates from common signed-circle tangents.
 
@@ -296,22 +347,8 @@ def plan_path(scan, goal, cfg):
     if not checker.free(start) or not checker.free((goal.x, goal.y, goal.yaw)):
         return []
     deadline = time.monotonic() + cfg.planning_timeout
-    for _, parts in arc_candidates(goal, cfg):
-        pose, path, valid = start, [start], True
-        for length, curvature in parts:
-            count = max(1, math.ceil(length / cfg.collision_step))
-            if length > cfg.max_range * 3:
-                valid = False
-                break
-            for i in range(1, count + 1):
-                point = advance(pose, length * i / count, curvature)
-                if not checker.free(point):
-                    valid = False
-                    break
-                path.append(point)
-            if not valid:
-                break
-            pose = path[-1]
+    for _, parts in straight_turn_candidates(goal, cfg) + arc_candidates(goal, cfg):
+        path, valid = sample_candidate(checker, parts, cfg)
         if valid:
             return path
         if time.monotonic() > deadline:

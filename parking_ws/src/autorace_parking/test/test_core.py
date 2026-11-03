@@ -4,7 +4,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from autorace_parking.core import Activation, Cluster, CollisionChecker, Gap, Scan, Settings, advance, cluster_points, find_gaps, plan_path
+from autorace_parking.core import Activation, Cluster, CollisionChecker, Gap, Scan, Settings, advance, cluster_points, find_gaps, plan_path, wrap
 from autorace_parking.control import Follower, build_plan, local_goal
 from autorace_parking.tracking import ScanTracker, compose, inverse
 
@@ -65,6 +65,28 @@ def test_gap_width_neighbour_filter_and_walls():
     assert not find_gaps([rectangle(1., 1., width=3.), rectangle(1., -.6)], cfg)
 
 
+def test_parking_candidates_ignore_closer_left_row():
+    left = [rectangle(.4, .4), rectangle(.95, .4)]
+    right = [rectangle(.8, -.8), rectangle(1.8, -.8)]
+    assert not find_gaps(left, Settings())
+    gaps = find_gaps(left + right, Settings())
+    assert len(gaps) == 1
+    assert (gaps[0].x, gaps[0].y, gaps[0].yaw) == pytest.approx((1.3, -.8, -math.pi / 2))
+
+
+@pytest.mark.parametrize('origin', [(0., 0., 0.), (.4, -1.2, 0.),
+                                        (.4, -.2, -math.pi / 2), (.4, -.7, math.pi - .01)])
+def test_right_row_remains_relative_to_start_after_translation_and_turn(origin):
+    groups = [rectangle(.8, -.6), rectangle(1.8, -.6),
+              rectangle(.8, .4), rectangle(1.8, .4)]
+    local = [Cluster([compose(inverse(origin), (x, y, 0.))[:2] for x, y in group.points])
+             for group in groups]
+    gaps = find_gaps(local, replace(Settings(), row_yaw=-origin[2]), origin)
+    assert len(gaps) == 1
+    goal = compose(origin, (gaps[0].x, gaps[0].y, gaps[0].yaw))
+    assert goal == pytest.approx((1.3, -.6, -math.pi / 2))
+
+
 def test_arc_path_footprint_curvature_and_unknown_space():
     cfg = Settings()
     scan = Scan([10.] * 361, -math.pi, math.pi / 180, .01, 12., (0., 0., 0.))
@@ -82,16 +104,17 @@ def test_arc_path_footprint_curvature_and_unknown_space():
     assert plan_path(unknown, goal, cfg) == []
 
 
-def test_follower_stops_for_new_obstacle_and_requires_three_arrival_scans():
+def test_follower_keeps_path_with_obstacle_returns_and_requires_three_arrival_scans():
     cfg = Settings()
     scan = Scan([10.] * 361, -math.pi, math.pi / 180, .01, 12., (0., 0., 0.))
     goal = Gap(.8, 0., 0., .8, 0, 1)
     follower = Follower(cfg)
     follower.accept(goal, [(i / 100, 0., 0.) for i in range(81)], True, (0., 0., 0.))
     assert follower.command(scan, (0., 0., 0.))[0] > 0
-    scan.points = [(.28, 0.)]  # single return still blocks the swept body
-    assert follower.command(scan, (0., 0., 0.))[:2] == (0., 0.)
-    assert not follower.path
+    route = follower.path.copy()
+    scan.points = [(.28, 0.), (0., 0.)]
+    assert follower.command(scan, (0., 0., 0.))[0] > 0.
+    assert follower.path == route
     scan.points = []
     follower.accept(goal, [(.8, 0., 0.)], True, (0., 0., 0.))
     for _ in range(2):
@@ -133,38 +156,47 @@ def test_scan_registration_scales_prediction_and_limits_for_missed_frames(direct
     assert 'interval' in tracker.reason
 
 
-def test_reverse_departure_retraces_all_stages_after_three_seconds():
+def entry_turn_trace(direction=-1):
+    straight = [(i/100, 0., 0.) for i in range(101)]
+    turn = [advance(straight[-1], i/100, direction*2.) for i in range(1, 81)]
+    finish = [advance(turn[-1], i/100, 0.) for i in range(1, 11)]
+    return straight+turn+finish
+
+
+def test_reverse_departure_replays_entry_turn_despite_obstacle_returns():
     cfg = Settings()
-    scan = Scan([10.] * 361, -math.pi, math.pi / 180, .01, 12., (0., 0., 0.))
+    scan = Scan([10.]*361, -math.pi, math.pi/180, .01, 12., (0., 0., 0.))
     follower = Follower(cfg)
-    goal = Gap(1., 0., 0., .8, 0, 1)
-    follower.accept(goal, [(i / 100, 0., 0.) for i in range(101)], False, (0., 0., 0.))
-    assert follower.command(scan, (0., 0., 0.), True, now=0.)[0] == 1.
-    follower.command(scan, (.4, 0., 0.), True, now=1.)
-    follower.accept(goal, [(i / 100, 0., 0.) for i in range(40, 101)], True, (0., 0., 0.))
-    follower.command(scan, (1., 0., 0.), True, now=2.)
-    for now in (2.1, 2.2, 2.3):
-        result = follower.command(scan, (1., 0., 0.), True, now=now)
+    trace = entry_turn_trace()
+    parked_pose = trace[-1]
+    goal = Gap(*parked_pose, .8, 0, 1)
+    follower.accept(goal, trace, True, (0., 0., 0.))
+    for i, pose in enumerate(trace):
+        follower.observe_pose(pose, i*.01, True)
+    now = len(trace)*.01
+    for i in range(4):
+        result = follower.command(scan, parked_pose, True, now=now+i*.1)
     assert result == (0., 0., 'PARKED')
     route = follower.path.copy()
-    assert route[-1] == (0., 0., 0.)  # includes movement before the latest plan
-    assert all(a[0] >= b[0] and a[2] == b[2] == 0. for a, b in zip(route, route[1:]))
-    assert follower.local_path((1., 0., 0.))[-1][0] == -1.
-    follower.accept(goal, [(9., 9., 0.)], True, (0., 0., 0.))  # a late planner result
+    exit_goal = route[-1]
+    assert exit_goal[0] == pytest.approx(1., abs=.03)
+    assert abs(exit_goal[1]) < .01
+    assert abs(exit_goal[2]) <= follower.exit_heading_tolerance
+    follower.accept(goal, [(9., 9., 0.)], True, (0., 0., 0.))
     assert follower.path == route
-    assert follower.command(scan, (1., 0., 0.), True, now=5.29) == (0., 0., 'PARKED')
-    speed, steering, state = follower.command(scan, (1., 0., 0.), True, now=5.3)
-    assert speed == -1. and steering == 0. and state == 'EXITING'
+    start_exit = follower.parked_since+follower.hold_seconds
+    assert follower.command(scan, parked_pose, True, now=start_exit-.01) == (0., 0., 'PARKED')
+    speed, steering, state = follower.command(scan, parked_pose, True, now=start_exit)
+    assert -1. <= speed < 0. and abs(steering) <= cfg.max_steering and state == 'EXITING'
     scan.points = [(-.28, 0.)]
-    assert follower.command(scan, (1., 0., 0.), True, now=5.4) == (0., 0., 'EXIT_BLOCKED')
+    assert follower.command(scan, parked_pose, True, now=start_exit+.1)[0] < 0.
     assert follower.path == route
     scan.points = []
-    assert follower.command(scan, (1., 0., 0.), True, now=5.5)[0] < 0.
-    follower.command(scan, (0., 0., 0.), True, now=7.)
-    for now in (7.1, 7.2, 7.3):
-        result = follower.command(scan, (0., 0., 0.), True, now=now)
+    assert follower.command(scan, parked_pose, True, now=start_exit+.2)[0] < 0.
+    for i in range(4):
+        result = follower.command(scan, exit_goal, True, now=start_exit+1+i*.1)
     assert result == (0., 0., 'EXITED') and follower.exited and not follower.path
-    assert follower.command(scan, (0., 0., 0.), now=20.) == (0., 0., 'EXITED')
+    assert follower.command(scan, exit_goal, now=20.) == (0., 0., 'EXITED')
 
 
 def test_departure_corridor_covers_only_the_travelled_area_and_live_obstacles_win():
@@ -178,7 +210,96 @@ def test_departure_corridor_covers_only_the_travelled_area_and_live_obstacles_wi
     assert not CollisionChecker(unknown, cfg, route).free((-.5, 0., 0.))
 
 
-def test_simulator_parks_holds_and_reverses_to_start_without_collision():
+def test_occluded_bay_approach_starts_straight_then_turns_right():
+    from limo_parking_sim.config import load_config
+    from limo_parking_sim.model import Simulation
+    sim = Simulation(load_config())
+    cfg = Settings()
+    scan = Scan(sim.scan(), sim.angles[0], sim.angles[1]-sim.angles[0], .01, 64.)
+    goal, path, final = build_plan(scan, cfg)
+    assert goal.y < 0 and path and not final
+    first_turn = next(p for p in path if abs(p[2]) > .01)
+    assert first_turn[0] > .4
+    assert max(p[1] for p in path) <= 1e-9
+    assert all(p[2] <= 1e-9 for p in path)
+    checker = CollisionChecker(scan, cfg)
+    assert all(checker.free(p) for p in path)
+    assert not checker.free((goal.x, goal.y, goal.yaw))
+
+
+@pytest.mark.parametrize('direction', [-1, 1])
+@pytest.mark.parametrize('origin_yaw', [0., math.pi-.01])
+def test_reverse_turn_ends_on_recorded_lane_pose_and_omits_initial_straight(direction, origin_yaw):
+    cfg = Settings()
+    route = [compose((0., 0., origin_yaw), p) for p in entry_turn_trace(direction)]
+    follower = Follower(cfg)
+    follower.goal = Gap(*route[-1], .8, 0, 1)
+    follower.entry_trace = route.copy()
+    follower.prepare_exit(route[-1], 0.)
+    assert follower.path[-1] in route
+    endpoint = compose(inverse((0., 0., origin_yaw)), follower.path[-1])
+    assert endpoint[0] == pytest.approx(1., abs=.03)
+    assert abs(endpoint[2]) <= follower.exit_heading_tolerance
+    assert follower.exit_path_length > .8  # no former fixed 0.5 m cutoff
+    transform = inverse(route[-1])
+    known = [compose(transform, p) for p in route]
+    unknown = Scan([0.]*361, -math.pi, math.pi/180, .01, 12., (0., 0., 0.))
+    checker = CollisionChecker(unknown, cfg, known)
+    assert all(checker.free(p) for p in follower.local_path(route[-1]))
+
+
+def test_no_turn_does_not_reverse_the_straight_approach():
+    follower = Follower(Settings())
+    follower.entry_trace = [(i/100, 0., 0.) for i in range(101)]
+    follower.goal = Gap(1., 0., 0., .8, 0, 1)
+    follower.prepare_exit((1., 0., 0.), 0.)
+    assert follower.path == [(1., 0., 0.)]
+    assert follower.exit_path_length == 0.
+
+
+def test_planner_accepted_terminal_pose_can_complete_and_reverse():
+    cfg = Settings()
+    scan = Scan([10.]*361, -math.pi, math.pi/180, .01, 12., (0., 0., 0.))
+    trace = entry_turn_trace()
+    endpoint = trace[-1]
+    goal = Gap(endpoint[0]+.08, endpoint[1], wrap(endpoint[2]+.25), .8, 0, 1)
+    follower = Follower(cfg)
+    follower.accept(goal, trace, True, (0., 0., 0.))
+    follower.entry_trace = trace.copy()
+    for i in range(3):
+        result = follower.command(scan, endpoint, True, now=i*.1)
+    assert result == (0., 0., 'PARKED')
+    assert follower.command(scan, endpoint, True, now=3.2)[0] < 0.
+
+
+def test_partial_path_endpoint_is_not_parking_completion():
+    cfg = Settings()
+    scan = Scan([10.]*361, -math.pi, math.pi/180, .01, 12., (0., 0., 0.))
+    follower = Follower(cfg)
+    follower.accept(Gap(1., 0., 0., .8, 0, 1), [(0., 0., 0.), (1., 0., 0.)], False, (0., 0., 0.))
+    for i in range(4):
+        follower.command(scan, (1., 0., 0.), True, now=i*.1)
+    assert not follower.parked and follower.parked_since is None
+
+
+def test_obstacle_returns_during_confirmation_do_not_interrupt_reverse():
+    cfg = Settings()
+    scan = Scan([10.]*361, -math.pi, math.pi/180, .01, 12., (0., 0., 0.))
+    route = entry_turn_trace()
+    pose = route[-1]
+    follower = Follower(cfg)
+    follower.accept(Gap(*pose, .8, 0, 1), route, True, (0., 0., 0.))
+    follower.entry_trace = route.copy()
+    assert follower.command(scan, pose, True, now=0.)[2] == 'CONFIRMING'
+    scan.points = [(0., 0.), (-.15, 0.), (.1, .1)]
+    assert follower.command(scan, pose, True, now=.1)[2] == 'CONFIRMING'
+    assert follower.command(scan, pose, True, now=.2)[2] == 'PARKED'
+    reverse = follower.path.copy()
+    assert follower.command(scan, pose, True, now=3.2)[0] < 0.
+    assert follower.path == reverse
+
+
+def test_simulator_straight_right_entry_and_turn_reverse_without_collision():
     from limo_parking_sim.config import load_config
     from limo_parking_sim.model import Simulation
     sim = Simulation(load_config())
@@ -187,6 +308,8 @@ def test_simulator_parks_holds_and_reverses_to_start_without_collision():
     start = sim.x, sim.y, sim.yaw
     parked_at = exiting_at = None
     previous_parked = False
+    entry_left_excursion = 0.
+    exit_goal = None
     xmin, xmax, ymin, ymax = sim.cfg['world']['parking']['goal']
     for tick in range(600):
         now, new_scan = tick / 20, tick % 2 == 0
@@ -195,7 +318,7 @@ def test_simulator_parks_holds_and_reverses_to_start_without_collision():
             assert tracker.update(scan.points), f'tracking lost at tick {tick}'
         if not follower.parked and (not follower.path or tick % 30 == 0):
             goal = local_goal(follower.goal, tracker.pose) if follower.goal else None
-            result = build_plan(scan, replace(cfg, row_yaw=-tracker.pose[2]), goal)
+            result = build_plan(scan, replace(cfg, row_yaw=-tracker.pose[2]), goal, tracker.pose)
             if result[1]:
                 follower.accept(*result, tracker.pose)
         speed, steering, state = follower.command(scan, tracker.pose, new_scan=new_scan, now=now)
@@ -204,6 +327,13 @@ def test_simulator_parks_holds_and_reverses_to_start_without_collision():
             parked_at = now
             assert abs(sim.speed) < .03
             assert all(xmin <= x <= xmax and ymin <= y <= ymax for x, y in sim.body().corners())
+            exit_goal = follower.path[-1]
+            reverse_length = sum(math.hypot(b[0]-a[0], b[1]-a[1]) for a,b in zip(follower.path, follower.path[1:]))
+            assert reverse_length > .5
+            assert abs(exit_goal[2]) <= follower.exit_heading_tolerance
+            assert exit_goal[0] > .4
+        if not follower.parked:
+            entry_left_excursion = max(entry_left_excursion, sim.y-start[1])
         previous_parked = follower.parked
         if state == 'PARKED':
             assert speed == 0. and abs(sim.speed) < .03
@@ -218,6 +348,8 @@ def test_simulator_parks_holds_and_reverses_to_start_without_collision():
             sim.step(1 / 120)
             assert not sim.collision, sim.collision_names
     assert follower.exited and exiting_at is not None
-    assert math.hypot(sim.x - start[0], sim.y - start[1]) < .09
-    assert abs(sim.yaw - start[2]) < .20
+    assert math.hypot(sim.x-start[0]-exit_goal[0], sim.y-start[1]-exit_goal[1]) < .09
+    assert math.hypot(sim.x-start[0], sim.y-start[1]) > .5
+    assert abs(math.atan2(math.sin(sim.yaw-exit_goal[2]), math.cos(sim.yaw-exit_goal[2]))) < .20
+    assert entry_left_excursion < .05
     assert abs(sim.speed) < .03

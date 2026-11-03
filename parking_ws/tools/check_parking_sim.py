@@ -28,11 +28,13 @@ from limo_parking_sim.model import Simulation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / 'parking_ws/captures/validation')
+    parser.add_argument('--exit-heading-tolerance', type=float, default=.05,
+                        help='Heading tolerance for the recorded entry-turn boundary, in radians')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     sim = Simulation(load_config())
     cfg = Settings()
-    tracker, follower, activation = ScanTracker(), Follower(cfg), Activation()
+    tracker, follower, activation = ScanTracker(), Follower(cfg, exit_heading_tolerance=args.exit_heading_tolerance), Activation()
     for frame in range(3):
         activation.update(True, frame / 30)
     assert activation.active
@@ -50,7 +52,7 @@ def main():
                 first_clusters = cluster_points(scan.points)
         if not follower.parked and (not follower.path or tick % 30 == 0):
             goal = local_goal(follower.goal, tracker.pose) if follower.goal else None
-            result = build_plan(scan, replace(cfg, row_yaw=-tracker.pose[2]), goal)
+            result = build_plan(scan, replace(cfg, row_yaw=-tracker.pose[2]), goal, tracker.pose)
             if result[1]:
                 follower.accept(*result, tracker.pose)
                 if not first_path:
@@ -77,15 +79,31 @@ def main():
             sim.step(1 / 120)
             assert not sim.collision, sim.collision_names
     assert follower.exited, 'Did not complete parking and departure within 30 seconds'
-    exit_error = math.hypot(sim.x - start[0], sim.y - start[1])
-    assert exit_error < .09 and abs(sim.yaw) < .2 and abs(sim.speed) < .03
+    exit_goal = exit_path[-1]
+    exit_error = math.hypot(sim.x - start[0] - exit_goal[0], sim.y - start[1] - exit_goal[1])
+    exit_length = sum(math.hypot(b[0]-a[0], b[1]-a[1]) for a, b in zip(exit_path, exit_path[1:]))
+    assert exit_error < .09 and abs(sim.speed) < .03
+    assert abs(math.atan2(math.sin(sim.yaw-exit_goal[2]), math.cos(sim.yaw-exit_goal[2]))) < .2
+    assert abs(exit_goal[2]) <= follower.exit_heading_tolerance
+    assert exit_goal[0] > .4, 'Exit must stop at the entry turn, not at the mission start'
+    assert max(t['pose'][1] for t in trace[:round(parked_at*20)+1]) < .05, 'Wide left swing on entry'
+    reverse_trace = [t for t in trace if t['time'] >= exiting_at]
+    reverse_distance = sum(math.hypot(b['pose'][0]-a['pose'][0], b['pose'][1]-a['pose'][1])
+                           for a,b in zip(reverse_trace, reverse_trace[1:]))
     report = {
         'parked': follower.parked, 'exited': follower.exited, 'collision_count': sim.collisions,
         'whole_vehicle_inside_bay_at_parking': True, 'duration_seconds': trace[-1]['time'],
         'parking_completed_seconds': parked_at, 'hold_duration_seconds': exiting_at - parked_at,
         'configured_speed_mps': follower.speed,
         'peak_actual_speed_mps': max(abs(t['actual_speed']) for t in trace),
-        'exit_position_error_m': exit_error,
+        'exit_mode': 'reverse_entry_turn',
+        'exit_heading_tolerance_rad': follower.exit_heading_tolerance,
+        'exit_goal': list(exit_goal),
+        'reverse_path_length_m': exit_length,
+        'actual_reverse_distance_m': reverse_distance,
+        'exit_goal_error_m': exit_error,
+        'distance_from_start_after_exit_m': math.hypot(sim.x-start[0], sim.y-start[1]),
+        'max_left_excursion_m': max(t['pose'][1] for t in trace[:round(parked_at*20)+1]),
         'final_map_pose': [sim.x, sim.y, sim.yaw],
         'max_tracking_position_error_m': max(math.hypot(t['pose'][0] - t['estimate'][0],
                                                        t['pose'][1] - t['estimate'][1]) for t in trace),
@@ -125,7 +143,7 @@ def main():
     ax.scatter([0], [0], marker='o', color='#147fce', zorder=5)
     ax.set(xlim=(-.35, 2.3), ylim=(-1.5, 1.35), aspect='equal',
            xlabel='Initial base frame x [m]', ylabel='Initial base frame y [m]',
-           title=f'Parking + 3 s hold + reverse exit: {trace[-1]["time"]:.1f} s, no collisions')
+           title='Straight + right-turn parking, 3 s hold, reverse entry turn only: no collisions')
     ax.xaxis.set_major_locator(MultipleLocator(.2))
     ax.yaxis.set_major_locator(MultipleLocator(.2))
     ax.grid(alpha=.25)

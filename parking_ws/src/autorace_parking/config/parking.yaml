@@ -13,7 +13,8 @@ parking_node:
     max_range: 3.0
     min_cluster_size: 0.08
     max_cluster_size: 0.70
-    # Parking row runs along the vehicle's initial forward axis (radians).
+    # Parking row runs along the initial forward axis; bays are on its right.
+    # Right/left is fixed at mission start, including after the vehicle turns.
     row_yaw: 0.0
     row_tolerance: 0.16
     max_gap: 1.10
@@ -29,6 +30,8 @@ parking_node:
     # Cruise speed magnitude; departure uses negative speed along the inbound trace.
     parking_speed: 1.0
     parking_hold_seconds: 3.0
+    # Reverse the recorded entry turn until aligned with the approach lane.
+    exit_heading_tolerance: 0.05
     max_deceleration: 1.0
     max_yaw_rate: 1.0
     lookahead: 0.18
