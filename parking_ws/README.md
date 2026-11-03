@@ -15,7 +15,7 @@
 # 터미널 2: 주차 노드와 주차 전용 /cmd_vel 어댑터
 ./parking_ws/run.sh --with-adapter
 
-# 터미널 3: 장애물 군집, 목표 화살표, 경로
+# 터미널 3: LIMO Pro 모형, 원시 라이다, 목표 화살표, 경로
 ./parking_ws/rviz.sh
 ```
 
@@ -40,18 +40,21 @@ ros2 service call /parking/reset std_srvs/srv/Trigger '{}'
 | --- | --- | --- | --- |
 | 구독 | `/scan` | `sensor_msgs/msg/LaserScan` | Best Effort 센서 입력 |
 | 구독 | `/yolo/parking_sign` | `std_msgs/msg/Bool` | 연속 감지 시작 조건 |
-| 발행 | `/parking/obstacles` | `visualization_msgs/msg/MarkerArray` | 군집별 색상·테두리·번호, 민트색 LIMO |
+| 발행 | `/parking/obstacles` | `visualization_msgs/msg/MarkerArray` | 장애물 군집별 파란색 박스 테두리 (점·글자 없음) |
+| RViz 전용 발행 | `/parking/robot_description` | `std_msgs/msg/String` | LIMO Pro 차체·바퀴 메시를 사용하는 시각화 전용 URDF |
 | 발행 | `/parking/target` | `visualization_msgs/msg/MarkerArray` | 선택한 빈 공간과 진입 방향 |
 | 발행 | `/parking/path` | `nav_msgs/msg/Path` | 현재 차량 기준 진입 경로, 주차 완료 후에는 역순 후진 출차 경로 |
 | 발행 | `/parking/active` | `std_msgs/msg/Bool` | 미션 활성 여부 |
 | 발행 | `/parking/status` | `std_msgs/msg/String` | 확인용 JSON 상태·시도 번호·대기 잔여 시간·명령·스캔 정합 오차 |
 | 발행 | `/mission/parking/command_03` | `ackermann_msgs/msg/AckermannDriveStamped` | 20 Hz 속도(m/s)·조향각(rad), 좌측 양수 |
 
-RViz 설정의 Fixed Frame은 **`base_link`**입니다. 원시 LaserScan을 함께 보려면 `laser_link → base_link` 정적 TF가 필요하며 시뮬레이터가 제공합니다. 군집·목표·경로는 설정 파일의 센서 장착값으로 `base_link`에 직접 변환하므로 노드가 TF를 구독하지 않습니다. 표지판 대기 중에도 군집은 표시하고, 활성화 후 경로·주행 명령을 발행합니다. 주차 완료 시 출차 경로를 바로 표시하고 3초 대기 후 후진 명령을 발행합니다. Path의 점 순서는 실제 이동 순서이고 각 pose의 방향은 차량이 바라보는 방향입니다. 출차 완료 후에는 0 속도 명령을 계속 발행합니다. 초기화 후 비활성 상태에서는 명령을 발행하지 않아 mux 제어권을 반환합니다.
+RViz 설정의 Fixed Frame은 **`base_link`**입니다. 원시 LaserScan을 함께 보려면 `laser_link → base_link` 정적 TF가 필요하며 시뮬레이터가 제공합니다. 군집·목표·경로는 설정 파일의 센서 장착값으로 `base_link`에 직접 변환하므로 노드가 TF를 구독하지 않습니다. 기본 화면은 원시 라이다 점과 LIMO Pro 모형을 표시하며, 장애물 군집은 파란색 박스 테두리만 표시합니다. 군집별 색상 점·번호·글자와 기존 민트색 상자는 표시하지 않습니다. 활성화 후 경로·주행 명령을 발행합니다. 주차 완료 시 출차 경로를 바로 표시하고 3초 대기 후 후진 명령을 발행합니다. Path의 점 순서는 실제 이동 순서이고 각 pose의 방향은 차량이 바라보는 방향입니다. 출차 완료 후에는 0 속도 명령을 계속 발행합니다. 초기화 후 비활성 상태에서는 명령을 발행하지 않아 mux 제어권을 반환합니다.
+
+차량 모형은 `./parking_ws/rviz.sh`가 함께 시작하는 `parking_robot_visual` 노드에서 제공합니다. `sensor_ws`의 기존 차체·바퀴 메시를 LIMO Pro 치수에 맞춰 재사용하며, 센서 워크스페이스를 빌드하지 않아도 저장소에서 바로 실행할 수 있습니다. 모형의 모든 시각 요소는 `base_link`에 속하고 별도의 TF나 joint state를 발행하지 않습니다. 주차 노드가 꺼져 있어도 모형을 표시합니다. colcon launch도 `rviz:=true`이면 이 시각화 노드를 함께 실행합니다.
 
 ## 동작과 범위
 
-1. 유효한 라이다 점을 거리 12 cm 이내의 연결 군집으로 묶습니다. 3점 이상의 군집을 장애물 하나로 시각화합니다. 번호는 **현재 스캔 안에서만** 유효하며 영구 추적 ID가 아닙니다. 가려진 물체가 여러 군집으로 나뉘거나 붙어 있는 물체가 합쳐질 수 있습니다.
+1. 유효한 라이다 점을 거리 12 cm 이내의 연결 군집으로 묶습니다. 3점 이상의 군집을 장애물 하나로 처리합니다. 각 군집에는 파란색 박스 테두리만 표시합니다. 군집 ID는 **현재 스캔 안에서만** 유효하며 영구 추적 ID가 아닙니다. 가려진 물체가 여러 군집으로 나뉘거나 붙어 있는 물체가 합쳐질 수 있습니다.
 2. 주차 열 방향으로 나란한 차량 크기의 군집 사이에서 차폭+양쪽 여유 폭 이상의 빈 공간을 찾습니다. 벽처럼 긴 군집은 주차 후보에서 제외하지만 모든 라이다 점을 충돌 검사에 사용합니다. 1~2점짜리 작은 장애물도 충돌 검사에서 제외하지 않습니다.
 3. 차량 크기, 축간거리, 최대 조향각을 반영한 원호 경로를 탐색합니다. 원호 후보로 찾지 못하면 제한 시간 안에서 hybrid A*를 사용합니다. 차체와 주변 점, 경로의 중간 자세까지 검사하고 0/NaN·가려진 영역을 빈 공간으로 간주하지 않습니다. 단, 후방 마스킹 때문에 **현재 차체 중심 반경 30 cm는 장애물이 없는 초기 공간이라고 가정**합니다. 이 범위에도 실제 관측된 장애물은 충돌 검사에 반영합니다.
 4. 칸 안쪽이 가려져 있으면 칸 앞의 관측 가능한 위치까지 먼저 접근하고 다시 계획합니다. 활성화 이후 연속 스캔의 point-to-line ICP로 짧은 구간의 상대 이동을 추정해 목표 위치를 유지합니다. odom/IMU/TF 입력은 없습니다.

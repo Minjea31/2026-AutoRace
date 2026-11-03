@@ -13,5 +13,8 @@ setup(
     maintainer='AutoRace Team', maintainer_email='autorace@example.com',
     description='Parking activation and LiDAR obstacle/path visualization',
     license='Apache-2.0',
-    entry_points={'console_scripts': ['parking_node = autorace_parking.node:main']},
+    entry_points={'console_scripts': [
+        'parking_node = autorace_parking.node:main',
+        'parking_robot_visual = autorace_parking.robot_visual:main',
+    ]},
 )

@@ -17,6 +17,9 @@ def generate_launch_description():
         DeclareLaunchArgument('params_file', default_value=str(share / 'config/parking.yaml')),
         Node(package='autorace_parking', executable='parking_node', output='screen',
              parameters=[LaunchConfiguration('params_file'), {'use_sim_time': sim_time}]),
+        Node(package='autorace_parking', executable='parking_robot_visual',
+             condition=IfCondition(LaunchConfiguration('rviz')),
+             parameters=[{'use_sim_time': sim_time}]),
         Node(package='rviz2', executable='rviz2', condition=IfCondition(LaunchConfiguration('rviz')),
              arguments=['-d', str(share / 'config/parking.rviz')], parameters=[{'use_sim_time': sim_time}]),
     ])

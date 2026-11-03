@@ -1,7 +1,6 @@
 """Parking ROS adapter. Motion is emitted only through the documented mux input."""
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import fields, replace
-import colorsys
 import json
 import math
 import time
@@ -208,31 +207,13 @@ class ParkingNode(Node):
         clear.action = Marker.DELETEALL
         markers = [clear]
         for index, cluster in enumerate(clusters):
-            rgb = colorsys.hsv_to_rgb((index * 0.618) % 1.0, 0.8, 1.0)
-            points = self.marker('cluster_points', index, Marker.POINTS)
-            points.scale.x = points.scale.y = .035
-            points.color.r, points.color.g, points.color.b = rgb
-            points.points = [Point(x=float(x), y=float(y), z=0.02) for x, y in cluster.points]
-            markers.append(points)
             xmin, xmax, ymin, ymax = cluster.bounds
             box = self.marker('cluster_box', index, Marker.LINE_STRIP)
             box.scale.x = .015
-            box.color.r, box.color.g, box.color.b = rgb
+            box.color.r, box.color.g, box.color.b = 0.0, 0.3, 1.0
             box.points = [Point(x=float(x), y=float(y), z=.04) for x, y in
                           ((xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax), (xmin, ymin))]
             markers.append(box)
-            label = self.marker('cluster_label', index, Marker.TEXT_VIEW_FACING)
-            label.pose.position.x, label.pose.position.y = map(float, cluster.center)
-            label.pose.position.z = .18
-            label.scale.z = .09
-            label.color.r = label.color.g = label.color.b = 1.0
-            label.text = f'obstacle {index + 1} ({len(cluster.points)} pts)'
-            markers.append(label)
-        ego = self.marker('ego', 0, Marker.CUBE)
-        ego.scale.x, ego.scale.y, ego.scale.z = self.cfg.vehicle_length, self.cfg.vehicle_width, .10
-        ego.pose.position.z = .05
-        ego.color.r, ego.color.g, ego.color.b = .1, 1.0, .8
-        markers.append(ego)
         self.obstacles_pub.publish(MarkerArray(markers=markers))
 
     def publish_target(self):
