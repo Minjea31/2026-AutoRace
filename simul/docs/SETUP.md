@@ -110,7 +110,7 @@ Python은 `3.10.x`, 검사 항목은 모두 `OK`, ROS 설정은 `42 / 1`이면 �
 | 파일 | 역할 |
 | --- | --- |
 | `simul/env.sh` | autorace-simul 생성·활성화·필수 패키지 보완 + ROS 환경 + 시뮬레이터 Python 경로 |
-| `simul/ros_env.sh` | ROS 명령용 환경. Conda 활성화 없이도 사용 가능 |
+| `simul/ros_env.sh` | ROS 명령용 환경 + 일반 ros2 topic 조회를 데몬 없이 실행하는 Bash 함수. Conda 활성화 없이도 사용 가능 |
 | `simul/run.sh` | env.sh로 환경 준비 후 시뮬레이터 실행 |
 | `simul/ros2.sh` | ROS 환경을 적용한 뒤 시스템 `ros2` CLI 실행 |
 
