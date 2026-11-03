@@ -10,8 +10,15 @@ from limo_parking_sim.model import Simulation,overlaps
 from limo_parking_sim.world import Cone,cone_course_shape,cone_reference_path,obstacle_reference_path,signs
 
 
-def test_seven_avoidance_vehicles_and_feasible_ackermann_route():
-    cfg=load_config()
+@pytest.fixture
+def cfg(tmp_path):
+    # Default-layout checks must not depend on the user's live editor sidecar.
+    world = tmp_path/'track.yaml'
+    world.write_text((share_directory()/'config/parking_map.yaml').read_text())
+    return load_config(world=world)
+
+
+def test_seven_avoidance_vehicles_and_feasible_ackermann_route(cfg):
     vehicles=[o for o in cfg['world']['obstacles'] if o['name'].startswith('avoid_')]
     assert len(vehicles)==7
     assert {(o['grid_row'],o['grid_column']) for o in vehicles}=={
@@ -33,8 +40,7 @@ def test_seven_avoidance_vehicles_and_feasible_ackermann_route():
     assert path[-1,1]==pytest.approx(.68)
 
 
-def test_s_cones_inside_gate_and_route_clearance():
-    cfg=load_config()
+def test_s_cones_inside_gate_and_route_clearance(cfg):
     m=Simulation(cfg)
     assert len(m.cones)==48
     course=cfg['world']['cone_course']
@@ -92,8 +98,7 @@ def test_s_cones_inside_gate_and_route_clearance():
     assert curvature.max()>.85/m.min_radius
 
 
-def test_cone_height_aware_scan_and_circle_collision():
-    cfg=load_config()
+def test_cone_height_aware_scan_and_circle_collision(cfg):
     cfg['simulation']['spawn']=[2.,2.,0.]
     m=Simulation(cfg)
     m.obstacles=[]
@@ -107,8 +112,7 @@ def test_cone_height_aware_scan_and_circle_collision():
     assert m.scan()[len(m.angles)//2]==0
 
 
-def test_mission_signs_and_spawn_locations():
-    cfg=load_config()
+def test_mission_signs_and_spawn_locations(cfg):
     assets=share_directory()/'assets'
     items=signs(cfg['world'])
     assert {s['name'] for s in items}=={'parking_sign','speed_bump_sign','slow_sign',
@@ -126,8 +130,7 @@ def test_mission_signs_and_spawn_locations():
     assert cfg['world']['speed_bump']['height']<cfg['vehicle']['ground_clearance']
 
 
-def test_round_sign_scan_uses_actual_chord_at_lidar_height():
-    cfg=load_config()
+def test_round_sign_scan_uses_actual_chord_at_lidar_height(cfg):
     m=Simulation(cfg)
     panel=next(b for b in m.obstacles if b.name=='parking_sign_panel')
     assert panel.zmin==pytest.approx(.11) and panel.zmax==pytest.approx(.20)

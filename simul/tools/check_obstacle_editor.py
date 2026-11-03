@@ -14,7 +14,7 @@ import time
 import numpy as np
 from PIL import Image, ImageGrab
 
-from limo_parking_sim.config import load_config
+from limo_parking_sim.config import load_config, share_directory
 from limo_parking_sim.model import Simulation
 from limo_parking_sim.obstacle_editor import read_layout
 from limo_parking_sim.scene import Scene
@@ -27,7 +27,9 @@ def main():
     out = Path(options.output).resolve()
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='autorace-editor-') as temporary:
-        cfg = load_config()
+        world = Path(temporary)/'track.yaml'
+        world.write_text((share_directory()/'config/parking_map.yaml').read_text())
+        cfg = load_config(world=world)
         cfg['_obstacle_layout_path'] = str(Path(temporary)/'layout.yaml')
         cfg['simulation']['spawn'] = [3., 3., 0.]
         model = Simulation(cfg)
@@ -92,8 +94,8 @@ def main():
             assert not scene.render.find('**/'+added).isEmpty()
             assert read_layout(editor.placement.path,cfg) == cfg['world']['obstacles']
             capture('05-undo')
-            # Keep every edit within the three lanes. Move ego to look at the
-            # first empty upper cell, then verify the same physical sensors.
+            # Move ego to look at the first empty upper cell, then verify the
+            # same physical sensors before switching to the other regions.
             model.x, model.y, model.yaw = 3.9,1.46,0.
             settle()
             before_rgb, before_depth, before_scan = scene.color_image(), scene.depth_image(), model.scan()
@@ -113,18 +115,55 @@ def main():
             assert np.array_equal(model.scan(),before_scan)
             assert np.array_equal(scene.color_image(),before_rgb)
             assert np.array_equal(scene.depth_image(),before_depth)
-            # Window resizing preserves the inverse mouse/map transform.
+            # Real region buttons switch both the crop and observer camera,
+            # without moving the vehicle or changing its physical camera.
+            pose = model.x, model.y, model.yaw
+            sensor = scene.sensors['color']['camera'].getMat(scene.render)
+            editor.region_buttons['parking'][0].invoke()
+            settle()
+            click(6.88, 4.27)
+            parked = cfg['world']['obstacles'][-1]
+            assert parked['parking_column'] == 2 and parked['parking_row'] == 1
+            capture('07-parking')
+            click(*parked['pose'][:2], button=3)
+            count_cones = len(model.cones)
+            editor.region_buttons['cone'][0].invoke()
+            settle()
+            assert editor.placement.kind == 'cone'
+            click(1.4, 2.8)
+            added_cone = model.cones[-1].name
+            assert len(model.cones) == count_cones+1
+            assert not scene.render.find('**/'+added_cone).isEmpty()
+            capture('08-cone')
+            click(1.4, 2.8)
+            editor.region_buttons['parking'][0].invoke()
+            settle()
+            assert editor.placement.selected == added_cone and editor.placement.kind == 'cone'
+            click(6.88, 4.27)
+            assert model.cones[-1].name == added_cone
+            assert abs(model.cones[-1].x-6.88) < .01
+            capture('09-cone-in-parking')
+            click(6.88, 4.27, button=3)
+            assert len(model.cones) == count_cones
+            assert (model.x, model.y, model.yaw) == pose
+            assert scene.sensors['color']['camera'].getMat(scene.render) == sensor
+            # Window resizing preserves mouse/map coordinates in every crop.
             editor.root.geometry('900x580')
             settle()
-            assert np.allclose(editor.world(*editor.screen(5.,1.)), (5.,1.))
-            unchanged = len(cfg['world']['obstacles'])
-            assert not editor.placement.click(3.,3.)
-            assert len(cfg['world']['obstacles']) == unchanged
+            for region in ('cone', 'parking', 'obstacle'):
+                editor.region_buttons[region][0].invoke()
+                settle()
+                x0, x1, y0, y1 = editor.bounds()
+                point = ((x0+x1)/2, (y0+y1)/2)
+                assert np.allclose(editor.world(*editor.screen(*point)), point)
+                capture('10-resized-'+region)
             report = dict(result='PASS', checks=[
                 'separate window open/close/reopen', 'existing vehicles displayed',
                 'left click installs at grid centre', 'select then click moves without duplication',
                 'right click deletes visual and collision geometry', 'undo restores',
-                'atomic save/load preserves edited list', 'edits restricted to three lanes',
+                'atomic save/load preserves edited list', 'parking bay snapping and deletion',
+                'cone tool defaults in cone region', 'cone moves across regions without changing type',
+                'region buttons switch crop and observer only',
                 'RGB and depth pixels change', 'lidar distance and collision update',
                 'deletion restores original RGB/depth/lidar', 'resized mouse coordinates',
             ])

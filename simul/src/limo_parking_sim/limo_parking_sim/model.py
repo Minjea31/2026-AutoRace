@@ -83,6 +83,17 @@ def overlaps(a, b):
     return True
 
 
+def cone_overlaps_box(cone, body):
+    radius = cone.radius_at(max(0., body.zmin))
+    if radius <= 0 or body.zmin > cone.height or body.zmax < 0:
+        return False
+    dx, dy = cone.x-body.x, cone.y-body.y
+    c, s = math.cos(body.yaw), math.sin(body.yaw)
+    point = np.array([c*dx+s*dy, -s*dx+c*dy])
+    nearest = np.clip(point, [-body.length/2, -body.width/2], [body.length/2, body.width/2])
+    return np.linalg.norm(point-nearest) <= radius
+
+
 def make_obstacles(cfg):
     v, world = cfg['vehicle'], cfg['world']
     boxes = [Box(o['name'], *o['pose'], v['length'], v['width'],
@@ -150,14 +161,7 @@ class Simulation:
         body = self.body(x, y, yaw)
         names = [b.name for b in self.obstacles if overlaps(body, b)]
         for cone in self.cones:
-            radius=cone.radius_at(body.zmin)
-            if radius<=0 or body.zmin>cone.height or body.zmax<0:
-                continue
-            dx,dy=cone.x-body.x,cone.y-body.y
-            c,s=math.cos(body.yaw),math.sin(body.yaw)
-            p=np.array([c*dx+s*dy,-s*dx+c*dy])
-            nearest=np.clip(p,[-body.length/2,-body.width/2],[body.length/2,body.width/2])
-            if np.linalg.norm(p-nearest)<=radius:
+            if cone_overlaps_box(cone, body):
                 names.append(cone.name)
         corners = body.corners()
         if np.any(corners < 0) or np.any(corners > np.array(self.cfg['world']['size'])):

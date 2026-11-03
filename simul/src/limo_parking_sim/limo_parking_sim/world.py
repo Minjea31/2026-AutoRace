@@ -92,7 +92,7 @@ class Cone:
 def cones(world):
     result=[Cone(**c) for c in world.get('cones',[])]
     course=world.get('cone_course')
-    if course:
+    if course and course.get('enabled', True):
         spec=course.get('cone',{})
         half_base=spec.get('base_size',.08)/2
         y0,y1=course['start_line_y']+half_base,course['end_line_y']-half_base

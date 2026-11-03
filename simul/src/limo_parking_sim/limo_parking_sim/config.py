@@ -26,8 +26,13 @@ def load_config(vehicle=None, world=None):
     layout_path = Path(world or share / 'config/parking_map.yaml').resolve().with_suffix('.obstacles.yaml')
     cfg['_obstacle_layout_path'] = str(layout_path)
     if layout_path.exists():
-        from .obstacle_editor import read_layout
-        cfg['world']['obstacles'] = read_layout(layout_path, cfg)
+        from .obstacle_editor import read_scene_layout
+        saved = read_scene_layout(layout_path, cfg)
+        cfg['world']['obstacles'] = saved['obstacles']
+        if 'cones' in saved:
+            cfg['world']['cones'] = saved['cones']
+            if cfg['world'].get('cone_course'):
+                cfg['world']['cone_course']['enabled'] = False
     validate(cfg)
     return cfg
 
