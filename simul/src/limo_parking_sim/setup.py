@@ -16,5 +16,6 @@ setup(
     entry_points={'console_scripts':[
         'limo_parking_sim = limo_parking_sim.app:main',
         'parking_sim_adapter = limo_parking_sim.parking_adapter:main',
+        'mission_sim_adapter = limo_parking_sim.mission_adapter:main',
     ]},
 )

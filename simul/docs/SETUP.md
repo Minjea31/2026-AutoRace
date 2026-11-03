@@ -1,6 +1,6 @@
 # Conda 설치부터 ROS 2 제어까지
 
-이 문서는 `~/2026-AutoRace`에서 Bash를 사용하는 경우를 기준으로 합니다. 검증 환경은 **Ubuntu 22.04 / ROS 2 Humble / Conda Python 3.10**입니다. 설치 명령은 사용자가 필요한 항목만 실행합니다.
+이 문서는 `~/2026-AutoRace`에서 Bash를 사용하는 경우를 기준으로 합니다. 검증 환경은 **Ubuntu 22.04 / ROS 2 Humble / Conda Python 3.10**입니다. Conda와 시스템 ROS 설치 후에는 `source simul/env.sh`가 Conda 환경 준비를 자동 수행합니다.
 
 현재 사용자 PC에는 `autorace-simul`과 ROS 2 Humble이 이미 있고 필수 모듈 검사도 통과했습니다. **이 PC에서 바로 사용할 때는 3번부터 시작**하면 됩니다.
 
@@ -38,17 +38,20 @@ sudo apt install libgl1 libegl1 libegl-mesa0 libgl1-mesa-dri
 
 `rclpy`, `sensor_msgs`, `geometry_msgs`, `tf2_ros`는 이 가이드에서 **시스템 ROS 패키지로 공급**합니다. 이들을 `pip install`로 따로 설치할 필요가 없습니다.
 
-## 2. Conda 환경 생성 — 최초 한 번
+## 2. Conda 환경 자동 준비
 
-### 권장: environment.yml 사용
+### 권장: env.sh 한 번으로 준비
 
 ```bash
 cd ~/2026-AutoRace
-conda env create -f simul/environment.yml
-conda activate autorace-simul
+source simul/env.sh
 ```
 
-이 명령은 아래 항목을 설치합니다. **Panda3D도 YAML의 `pip:` 항목으로 자동 설치되므로 별도의 pip 명령은 필요 없습니다.** Conda 환경 파일에 Conda와 pip 의존성을 함께 넣는 방식은 [Conda 공식 문서](https://docs.conda.io/projects/conda/en/stable/user-guide/tasks/manage-environments.html#creating-an-environment-file-manually)에 설명되어 있습니다.
+Conda 셸 초기화와 `autorace-simul` 환경 확인을 수행합니다. 환경이 없으면 `environment.yml`로 아래 항목을 설치하고 활성화하며, 기존 환경은 활성화 후 필수 패키지가 누락되거나 호환되지 않을 때만 보완합니다. 다른 Conda 환경에서 실행해도 `autorace-simul`로 전환합니다. 최초 설치·보완에는 인터넷이 필요하며, 설치 실패 시 오류를 반환합니다. **Panda3D도 YAML의 `pip:` 항목으로 자동 설치되므로 별도의 pip 명령은 필요 없습니다.**
+
+`./simul/env.sh`는 환경 생성·검사를 수행할 수 있지만, 실행이 끝나면 현재 터미널의 환경은 그대로입니다. 현재 터미널에서 시뮬레이터·ROS 명령을 이어서 쓰려면 **`source simul/env.sh`**를 사용합니다. `simul` 폴더 안에서는 `source env.sh`입니다.
+
+Conda 실행 파일은 `CONDA_EXE`, `PATH`, 홈 폴더의 일반적인 Anaconda/Miniconda/Miniforge/Mambaforge 경로에서 찾습니다. 별도 경로라면 `export CONDA_EXE=/설치/경로/bin/conda`를 먼저 설정하세요. Conda 자체와 시스템 ROS·그래픽 라이브러리 설치는 1번의 사전 준비입니다.
 
 | 패키지 | 설치 위치/방법 | 용도 |
 | --- | --- | --- |
@@ -56,11 +59,13 @@ conda activate autorace-simul
 | NumPy 1.26.x | Conda | 차량 운동·라이다·영상 배열 |
 | PyYAML | Conda | 차량·맵 설정 읽기 |
 | Pillow | Conda | 이미지·JPEG 처리 |
+| Tk | Conda | 장애물 편집 창 |
+| PyQt5 5.15 | Conda (또는 시스템 PyQt5) | 미션 command 토글 창·화면 없는 렌더링 |
 | pip, setuptools < 81 | Conda | 패키지 설치 및 빌드 호환 |
 | pytest | Conda | 자동 검사. 일반 실행에는 사용하지 않음 |
 | Panda3D 1.10.16 | 위 환경 안의 pip | 3D 화면과 RGB·Depth 렌더링 |
 
-환경이 이미 있다면 `conda env create`를 반복하지 않고 활성화합니다.
+수동으로 환경을 조회·활성화하려면:
 
 ```bash
 conda env list
@@ -80,7 +85,7 @@ YAML 대신 수동으로 만드는 경우입니다. **위 권장 방법을 실�
 
 ```bash
 conda create -n autorace-simul -c conda-forge \
-  python=3.10 numpy=1.26 pyyaml pillow pip 'setuptools<81' pytest
+  python=3.10 numpy=1.26 pyyaml pillow tk pyqt=5.15 pip 'setuptools<81' pytest
 conda activate autorace-simul
 python -m pip install 'panda3d==1.10.16'
 ```
@@ -93,9 +98,7 @@ pip 명령은 `conda activate autorace-simul` 후 `python -m pip`로 실행합�
 
 ```bash
 cd ~/2026-AutoRace
-conda activate autorace-simul
 source simul/env.sh
-export ROS_DOMAIN_ID=42
 
 python --version
 python simul/tools/check_environment.py
@@ -106,12 +109,12 @@ Python은 `3.10.x`, 검사 항목은 모두 `OK`, ROS 설정은 `42 / 1`이면 �
 
 | 파일 | 역할 |
 | --- | --- |
-| `simul/env.sh` | 활성 Conda Python 3.10 확인 + ROS 환경 + 시뮬레이터 Python 경로 |
+| `simul/env.sh` | autorace-simul 생성·활성화·필수 패키지 보완 + ROS 환경 + 시뮬레이터 Python 경로 |
 | `simul/ros_env.sh` | ROS 명령용 환경. Conda 활성화 없이도 사용 가능 |
-| `simul/run.sh` | 활성 Conda Python으로 시뮬레이터 실행 |
+| `simul/run.sh` | env.sh로 환경 준비 후 시뮬레이터 실행 |
 | `simul/ros2.sh` | ROS 환경을 적용한 뒤 시스템 `ros2` CLI 실행 |
 
-`ROS_LOCALHOST_ONLY=1`은 스크립트가 항상 적용합니다. 같은 PC의 터미널끼리 통신할 수 있습니다. `ROS_DOMAIN_ID`는 지정하지 않았을 때 `42`이며, 이미 지정한 도메인은 유지하므로 모든 터미널에서 `42`로 맞추세요.
+`ROS_LOCALHOST_ONLY=1`은 스크립트가 항상 적용합니다. 같은 PC의 터미널끼리 통신할 수 있습니다. `ROS_DOMAIN_ID`가 없거나 기본값 `0`이면 시뮬레이터용 `42`로 맞춥니다. `144`처럼 0이 아닌 사용자 지정 도메인은 유지합니다. 의도적으로 도메인 0을 쓰려면 `AUTORACE_SIM_DOMAIN_ID=0`을 지정하세요. 모든 통신 터미널에서 같은 도메인을 사용합니다.
 
 ## 4. 터미널 A — 시뮬레이터 실행
 
@@ -280,21 +283,28 @@ ros2 launch limo_parking_sim parking.launch.py mission:=cone view:=follow
 
 다른 Python으로 빌드한 산출물이 있다면 새 build/install 경로를 사용합니다. 노드 실행 파일은 빌드할 때 사용한 Python 경로를 따릅니다.
 
-### Ackermann 주차 명령을 cmd_vel로 바꾸는 선택 어댑터
+### 미션 토픽을 선택해 cmd_vel로 바꾸는 어댑터
 
-자신의 노드가 Twist를 직접 발행하거나 기존 mux를 사용한다면 생략합니다. `/mission/parking/command_03`의 `AckermannDriveStamped`를 받아 제어할 때만 설치합니다.
+자신의 노드가 Twist를 직접 발행하거나 기존 mux를 사용한다면 생략합니다. 주차·콘·장애물 회피·차선·횡단보도·신호등·서행 미션의 `AckermannDriveStamped` 입력을 ON/OFF 토글로 연결합니다.
 
 ```bash
 sudo apt install ros-humble-ackermann-msgs
 
 cd ~/2026-AutoRace
-conda activate autorace-simul
-source simul/env.sh
-export ROS_DOMAIN_ID=42
-python -m limo_parking_sim.parking_adapter
+./simul/adapter.sh
 ```
 
-기존 mux와 동시에 실행하지 않습니다. 전체 미션 우선순위 제어는 자신의 mux에서 구현합니다.
+각 미션의 토글을 켜면 즉시 연결됩니다. 여러 입력을 켜면 docs의 번호 우선순위로 최신 유효 입력을 하나 선택하고, 번호 입력이 없으면 ON 상태인 lane 입력으로 복귀합니다. 모든 입력이 만료되면 정지합니다. **토픽 재선택**은 정지 후 모든 토글을 OFF로 되돌립니다. 사용자 지정 토픽은 **입력 추가**로 등록합니다. 미션 노드는 별도로 실행하고 `use_sim_time:=true`를 적용합니다. 기존 mux나 다른 어댑터는 먼저 종료합니다.
+
+GUI는 PyQt5를 사용하며 새 환경 YAML에 포함됩니다. 기존 환경은 시스템 PyQt5를 재사용할 수 있습니다. 화면 없이 실제 GUI를 검증하려면 `source simul/env.sh` 후 `python simul/tools/check_adapter_window.py`를 실행합니다. 기본·최소 크기와 토글·우선순위·재선택·사용자 지정 입력의 렌더링 이미지를 저장합니다.
+
+화면 없이 콘 미션만 연결하려면:
+
+```bash
+./simul/adapter.sh --no-gui --topic /mission/cone/command_04
+```
+
+토픽 목록과 상세 동작은 [미션 선택 창 사용법](../README.md#선택-창으로-모든-미션-직접-연결-mux-없이)을 참고하세요. 기존 주차 전용 `python -m limo_parking_sim.parking_adapter`도 유지합니다.
 
 ### 원본 PDF에서 맵 자산 다시 생성
 
