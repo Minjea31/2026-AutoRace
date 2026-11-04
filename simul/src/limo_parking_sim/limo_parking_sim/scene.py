@@ -14,7 +14,7 @@ from panda3d.core import (
 from .config import share_directory
 from .model import camera_mount, intrinsics
 from .view_controls import OrbitView
-from .world import boundary_walls, signs
+from .world import boundary_walls, signs, traffic_light_parts
 
 
 def mesh(name, faces):
@@ -302,23 +302,30 @@ class Scene:
             root.setPos(s['pose'][0],s['pose'][1],0)
             root.setH(math.degrees(s['pose'][2]))
             bottom=s['center_height']-s['height']/2
-            self.box(root,'post',(0,0,bottom/2),(.018,.018,bottom),(.5,.5,.5,1))
-            self.box(root,'housing',(0,0,s['center_height']),(thickness,s['width'],s['height']),(.025,.03,.035,1))
             if key=='traffic_light':
+                thickness=s.get('thickness',thickness)
+                for name,position,size in traffic_light_parts(s):
+                    colour=(.32,.34,.36,1) if name in ('post','base') else (.025,.03,.035,1)
+                    self.box(root,name,position,size,colour)
                 for index,state in enumerate(('red','yellow','green')):
                     z=s['center_height']+s['height']*(1-index)/3
-                    radius=s['width']*.27
-                    faces=[]
-                    x=thickness/2+.0005
-                    for i in range(32):
-                        a,b=math.tau*i/32,math.tau*(i+1)/32
-                        faces.append(([(x,0,z),(x,radius*math.cos(a),z+radius*math.sin(a)),
-                                       (x,radius*math.cos(b),z+radius*math.sin(b)),(x,0,z)],(1,0,0)))
-                    bulb=root.attachNewNode(mesh('bulb-'+state,faces))
+                    radius=s.get('lens_diameter',s['width']*.54)/2
+                    for name,r,x,colour in (
+                        ('bezel',radius+.003,thickness/2+.0005,(.10,.11,.12,1)),
+                        ('bulb',radius,thickness/2+.001,(1,1,1,1)),
+                    ):
+                        points=[(r*math.cos(a),r*math.sin(a))
+                                for a in np.linspace(0,math.tau,64,endpoint=False)]
+                        node=root.attachNewNode(plate_face(name+'-'+state,x,points,2*r,2*r))
+                        node.setZ(z)
+                        node.setColor(*colour)
+                        if name=='bulb':
+                            bulb=node
                     bulb.setLightOff()
-                    bulb.setTwoSided(True)
                     self.traffic_bulbs[state]=bulb
             else:
+                self.box(root,'post',(0,0,bottom/2),(.018,.018,bottom),(.5,.5,.5,1))
+                self.box(root,'housing',(0,0,s['center_height']),(thickness,s['width'],s['height']),(.025,.03,.035,1))
                 for index,colour in enumerate(((.05,.12,.5,1),(.8,.08,.07,1),(.1,.6,.3,1))):
                     self.box(root,'advert-colour',(thickness/2+.001,0,s['center_height']+(index-1)*s['height']/3),
                              (.001,s['width']*.92,s['height']/3),colour).setLightOff()
@@ -339,7 +346,8 @@ class Scene:
         self.traffic_state=state
         colours={'red':(1,.025,.015,1),'yellow':(1,.75,.015,1),'green':(.015,1,.09,1)}
         for key,node in self.traffic_bulbs.items():
-            node.setColor(*(colours[key] if key==state else (.045,.055,.045,1)))
+            colour=colours[key]
+            node.setColor(*(colour if key==state else tuple(.16*c for c in colour[:3])+(1,)))
 
     def _sensor(self, stream):
         c = self.cfg['camera'][stream]
