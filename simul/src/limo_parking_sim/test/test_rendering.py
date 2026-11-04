@@ -6,6 +6,49 @@ from limo_parking_sim.config import load_config
 from limo_parking_sim.model import Simulation
 
 
+def test_low_traffic_light_dimensions_and_sensor_colour_switch():
+    from limo_parking_sim.scene import Scene
+    cfg = load_config()
+    cfg['simulation']['spawn'] = cfg['world']['spawns']['signal']
+    model = Simulation(cfg)
+    scene = Scene(cfg, model, headless=True)
+    try:
+        root = scene.render.find('**/traffic_light')
+        lo, hi = root.getTightBounds(root)
+        assert hi.y-lo.y == pytest.approx(.12, abs=1e-6)
+        assert lo.z == pytest.approx(0, abs=1e-6)
+        assert hi.z == pytest.approx(.255, abs=1e-6)
+        lo, hi = root.find('housing').getTightBounds(root)
+        assert lo.z == pytest.approx(.05, abs=1e-6)
+        assert hi.z-lo.z == pytest.approx(.205, abs=1e-6)
+        # Sensor/collision boxes must use the same low stand and brackets.
+        for box in (b for b in model.obstacles if b.name.startswith('traffic_light_')):
+            lo, hi = root.find(box.name.removeprefix('traffic_light_')).getTightBounds(scene.render)
+            assert (lo.z, hi.z) == pytest.approx((box.zmin, box.zmax), abs=1e-6)
+            assert (lo.x, lo.y) == pytest.approx(box.corners().min(axis=0), abs=1e-6)
+            assert (hi.x, hi.y) == pytest.approx(box.corners().max(axis=0), abs=1e-6)
+        colours = []
+        depths = []
+        for state in ('red', 'yellow', 'green'):
+            scene.set_traffic(state)
+            assert scene.traffic_state == state
+            scene.render_frame({'color', 'depth'})
+            colours.append(scene.color_image())
+            depths.append(scene.depth_image())
+        for before, after in zip(colours, colours[1:]):
+            assert np.count_nonzero(np.max(np.abs(before.astype(float)-after), axis=2) > 32) > 20
+        assert np.array_equal(depths[0], depths[1])
+        assert np.array_equal(depths[0], depths[2])
+        # At sensor height the lowered housing, rather than the old tall post,
+        # must now intersect the centre lidar ray.
+        model.x, model.y, model.yaw = 2.45, 4.49, 0.
+        scan = model.scan()
+        index = np.argmin(np.abs(model.angles))
+        assert scan[index] == pytest.approx(3.17-.035/2-2.45-.103, abs=.002)
+    finally:
+        scene.close()
+
+
 def test_rendered_depth_rgb_orientation_and_camera_frame():
     from limo_parking_sim.scene import Scene
     cfg = load_config()
@@ -72,9 +115,9 @@ def test_rendered_depth_rgb_orientation_and_camera_frame():
         assert scene.preview.isHidden()
         scene.update_scan(model.scan())
         assert scene.scan_node is None
-        scene.base.messenger.send('s')
+        scene.base.messenger.send('i')
         assert scene.scan_visible and scene.scan_node is not None
-        scene.base.messenger.send('s')
+        scene.base.messenger.send('i')
         assert not scene.scan_visible and scene.scan_node.isHidden()
         scene.base.messenger.send('v')
         assert scene.preview_visible and not scene.preview.isHidden()
@@ -113,7 +156,7 @@ def test_rendered_depth_rgb_orientation_and_camera_frame():
         lo,hi = scene.ego.getTightBounds()
         assert tuple(hi-lo)==pytest.approx((.322,.220,.251),abs=.004)
         assert scene.render.find('**/goal-debug').isEmpty()
-        sign=scene.render.find('**/slow_sign')
+        sign=scene.render.find('**/parking_sign')
         lo,hi=sign.getTightBounds(scene.render)
         assert hi.z==pytest.approx(.20,abs=1e-6)
         assert lo.z==pytest.approx(0,abs=1e-6)
@@ -121,7 +164,7 @@ def test_rendered_depth_rgb_orientation_and_camera_frame():
         assert hi.z-lo.z==pytest.approx(.09,abs=1e-6)
         assert hi.y-lo.y==pytest.approx(.09,abs=1e-6)
         # R/L must replace the real fork texture without resetting/moving ego;
-        # S remains solely a visual laser toggle and Down is the reverse key.
+        # I toggles laser overlays; S and Down both reverse without toggling it.
         model.x,model.y,model.yaw=cfg['world']['spawns']['fork']
         scene.render_frame({'color','depth'})
         left=scene.color_image().copy()
@@ -144,12 +187,14 @@ def test_rendered_depth_rgb_orientation_and_camera_frame():
         assert scene.traffic_state=='yellow'
         scene.base.messenger.send('f5')
         scene.base.messenger.send('k')
-        scene.base.messenger.send('arrow_down')
-        for _ in range(30):
-            scene.keyboard_command()
-            model.step(1/120)
-        assert model.speed<0
-        scene.base.messenger.send('arrow_down-up')
+        for key in ('s', 'arrow_down'):
+            scene.base.messenger.send(key)
+            for _ in range(30):
+                scene.keyboard_command()
+                model.step(1/120)
+            assert model.speed<0 and model.cmd_speed == -1.0
+            assert not scene.scan_visible
+            scene.base.messenger.send(key+'-up')
         scene.base.messenger.send('k')
         # The real perimeter is black, 30 cm tall, and visible to RGB/depth.
         for side in ('west', 'east', 'south', 'north'):
@@ -163,5 +208,48 @@ def test_rendered_depth_rgb_orientation_and_camera_frame():
             scene.render_frame({'color','depth'})
         assert np.median(scene.depth_image()[190:210,310:330]) == pytest.approx(467, abs=2)
         assert np.max(scene.color_image()[230:250,310:330]) < 20
+    finally:
+        scene.close()
+
+
+def test_live_cone_and_parking_placement_update_rendering(tmp_path):
+    from limo_parking_sim.scene import Scene
+    from limo_parking_sim.obstacle_editor import Placement
+    cfg = load_config()
+    cfg['simulation']['spawn'] = [3., 3., 0.]
+    cfg['world']['obstacles'] = []
+    cfg['world']['cones'] = []
+    cfg['world']['cone_course']['enabled'] = False
+    model = Simulation(cfg)
+    scene = Scene(cfg, model, headless=True)
+    placement = Placement(cfg, model, scene.refresh_obstacles, path=tmp_path/'layout.yaml')
+    try:
+        scene.render_frame({'color', 'depth'})
+        color, depth, scan = scene.color_image(), scene.depth_image(), model.scan()
+        placement.set_kind('cone')
+        assert placement.click(3.65, 3.)
+        name = placement.cones[-1]['name']
+        scene.render_frame({'color', 'depth'})
+        assert not scene.render.find('**/'+name).isEmpty()
+        assert np.count_nonzero(scene.color_image() != color) > 100
+        assert np.count_nonzero(scene.depth_image() != depth) > 100
+        assert model.scan()[len(model.angles)//2] < scan[len(model.angles)//2]
+        assert placement.click(3.65, 3., button=3)
+        scene.render_frame({'color', 'depth'})
+        assert scene.render.find('**/'+name).isEmpty()
+        assert np.array_equal(scene.color_image(), color)
+        assert np.array_equal(scene.depth_image(), depth)
+        placement.set_kind('vehicle')
+        assert placement.click(6.88, 4.27)
+        car_name = placement.obstacles[-1]['name']
+        assert not scene.render.find('**/'+car_name).isEmpty()
+        pose = model.x, model.y, model.yaw
+        camera = scene.sensors['color']['camera'].getMat(scene.render)
+        for region in ('cone', 'parking', 'obstacle'):
+            scene.focus_editor_region(region)
+            assert (model.x, model.y, model.yaw) == pose
+            assert scene.sensors['color']['camera'].getMat(scene.render) == camera
+        placement.undo()
+        assert scene.render.find('**/'+car_name).isEmpty()
     finally:
         scene.close()

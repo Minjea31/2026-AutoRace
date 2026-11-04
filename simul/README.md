@@ -1,83 +1,190 @@
-# LIMO Pro AutoRace 미션 시뮬레이터 · Panda3D / ROS 2
+# LIMO Pro AutoRace 미션 시뮬레이터
 
-**설치부터 시작하려면 [Conda·pip·시스템 패키지 설치 및 사용 가이드](docs/SETUP.md)를 보세요.** 최초 설치, 기존 환경 사용, 터미널별 실행·센서 수신·직접 제어와 선택 패키지를 순서대로 정리했습니다.
+Panda3D와 ROS 2로 만든 **10 × 6 m 트랙의 LIMO Pro 주행 시뮬레이터**입니다. 차량 운동과 충돌, 카메라 RGB·깊이 영상, 라이다를 제공하며 차선 주행·서행·횡단보도·장애물 회피·갈림길·콘·신호등·주차 미션을 시험할 수 있습니다.
 
-**주차 노드와 함께 실행하려면 [주차 시뮬레이션: 터미널 4개로 실행](#주차-시뮬레이션-터미널-4개로-실행)을 보세요.** 시뮬레이터, 주차 노드·RViz, 어댑터, 주차 시작 신호를 순서대로 실행합니다.
+시뮬레이터는 트랙과 센서·차량을 제공하고, 인지·주행 알고리즘은 별도 노드에서 실행합니다. 미션 명령은 어댑터를 통해 차량에 전달하며, 자동 주행 알고리즘이나 점수·성공 판정은 포함하지 않습니다.
 
-`assets`의 실제 CAD 도면을 추출한 **10 × 6 m 트랙**에서 LIMO Pro로 미션 코드를 개발합니다. `docs/architecture.md`의 **압축 카메라 영상·라이다·차량 제어 토픽**과 `sensor_ws`의 기본 센서 설정을 사용합니다. 주차장 정차 차량 5대, 사용자 그림과 같은 하단 3차선 회피 차량 7대, 두 흰 정지선 사이에 **S자 두 개가 연속되는 통로의 콘 48개**, 미션별 표지판, 방지턱, 신호등·광고판을 배치했습니다. 표지판은 판 포함 전체 높이 20 cm, 원형 판의 지름 9 cm입니다. 가운데 앞쪽 주차 칸은 비워 두었습니다. 점수·미션 성공/실패 판정은 넣지 않았습니다.
+![전체 트랙과 미션 배치](docs/missions-check/overview.png)
 
-![Panda3D 전체 미션 배치](docs/missions-check/overview.png)
+## 1. 환경 설정
 
-[전체 미션 장면 모음](docs/missions-check/all-missions.jpg) · [콘 S자·7대 차량 회피 검증 영상](docs/missions-check/motion.mp4) · [미션별 배치와 조작](docs/MISSIONS.md)
-
-직접 렌더링하며 전진·후진·좌우 조향·충돌 정지·후진 탈출·90° 주차 칸 진입을 확인했습니다. [검증 영상 MP4](docs/render-check/motion.mp4), [움직임 GIF](docs/render-check/motion.gif), [장면 모음](docs/render-check/contact-sheet.jpg), [동작 검증 결과](docs/render-check/report.json)를 볼 수 있습니다. 이 영상의 주차 진입은 시뮬레이터 동작 검증용 정해진 경로이며, 카메라·라이다 기반 자율주차 알고리즘은 본인의 `parking_ws`에서 연결합니다.
-
-## 1. Conda 준비
-
-Ubuntu 22.04 / ROS 2 Humble 기준입니다. **Conda와 시스템 ROS가 설치되어 있으면 아래 한 번으로 Conda Python 3.10 환경 생성·활성화와 ROS 연결을 처리합니다.** base 환경과 시스템 ROS 설치는 유지합니다.
+Ubuntu 22.04, ROS 2 Humble, Conda가 설치된 환경을 기준으로 합니다. **아래 명령어는 `simul` 폴더에서 실행합니다. 새 터미널을 열 때마다 같은 환경을 적용하세요.** 저장소가 다른 위치에 있으면 `cd` 경로를 바꿉니다.
 
 ```bash
-cd /home/a/2026-AutoRace
-source simul/env.sh
-python simul/tools/check_environment.py
+cd /home/a/2026-AutoRace/simul
+source env.sh
 ```
 
-`autorace-simul`이 없으면 `environment.yml`로 생성하고, 있으면 해당 환경으로 전환합니다. 필수 패키지 검사에 통과하면 재설치하지 않으며, 누락되거나 호환되지 않는 패키지가 있으면 YAML로 보완합니다. **Panda3D의 pip 설치까지 자동 처리하므로 별도 pip 설치는 필요 없습니다.** NumPy·PyYAML·Pillow·Tk·setuptools와 검증용 pytest도 포함됩니다. 최초 생성·패키지 보완에는 인터넷이 필요합니다. 수동 설치와 선택 도구는 [설치 가이드](docs/SETUP.md)에 있습니다.
+`source env.sh`는 다음을 준비합니다.
 
-`./simul/env.sh`로 직접 실행해도 환경 생성·검사는 수행하지만, 현재 터미널의 Conda 환경과 ROS 변수는 바뀌지 않습니다. **현재 터미널에 적용하려면 `source simul/env.sh`를 사용하세요.** `simul` 폴더 안에서는 `source env.sh`입니다.
+- `autorace-simul` Conda 환경을 생성하거나 기존 환경을 활성화합니다. Python 3.10, Panda3D, NumPy, Pillow, Tk, PyQt 등 필수 패키지를 확인하고 필요하면 보완합니다.
+- 시스템 ROS 2와 시뮬레이터 Python 소스 경로를 연결합니다. 시뮬레이터는 별도 colcon 빌드 없이 실행할 수 있습니다.
+- 기본 `ROS_DOMAIN_ID`를 **42**, `ROS_LOCALHOST_ONLY`를 **1**로 설정합니다. 이미 지정한 0 이외의 도메인은 유지하므로 시뮬레이터·어댑터·미션 노드가 같은 도메인을 쓰도록 맞춥니다.
 
-`source simul/env.sh`는 시스템 ROS 환경과 Python 경로를 연결하고, `ROS_DOMAIN_ID`가 없거나 기본 도메인 `0`이면 시뮬레이터용 `42`로 맞춥니다. `144`처럼 0이 아닌 사용자 지정 도메인은 유지합니다. 의도적으로 도메인 0을 사용하려면 `AUTORACE_SIM_DOMAIN_ID=0`을 설정하고, 다른 도메인도 이 변수로 명시할 수 있습니다. **`ROS_LOCALHOST_ONLY=1`은 항상 적용**하여 같은 PC 안에서 통신합니다. 부모 터미널에 `0`이 설정되어 있어도 `1`로 바꿉니다. **시뮬레이터와 토픽을 받는 터미널마다 같은 환경을 적용**합니다. 실차 드라이버와 시뮬레이터가 같은 토픽에 동시에 발행되지 않도록 실차와 다른 도메인을 사용하세요.
+최초 환경 생성·패키지 보완에는 인터넷이 필요합니다. `./env.sh`가 아닌 **`source env.sh`**로 실행해야 현재 터미널에 환경이 적용됩니다. 최초 설치나 수동 설정은 [설치 가이드](docs/SETUP.md)를 참고하세요.
 
-ROS 명령만 쓰는 터미널은 **base 그대로 `./simul/ros2.sh ...`를 사용해도 됩니다.** 이 파일은 시뮬레이터와 같은 `ros_env.sh`를 읽고 시스템 ROS CLI를 실행합니다. 기본 도메인 0은 42로 맞추고, localhost 설정은 `1`로 맞춥니다. `topic list/info/echo/type/find`는 기존 ROS CLI 데몬의 발견 결과 대신 현재 프로세스로 직접 DDS를 조회합니다. **`source simul/env.sh` 또는 `source simul/ros_env.sh`를 적용하면 일반 `ros2 topic list`에도 같은 조회 방식을 자동 적용합니다.** Bash `ros2` 함수가 조회 명령에만 옵션을 추가하며, `run`, `launch`, `topic pub`는 시스템 ROS CLI로 그대로 전달합니다. 기본 발견 대기 시간은 2초이며 `--spin-time`으로 변경할 수 있습니다. 시뮬레이터 시작 로그와 화면 왼쪽에 실제 `ROS domain`을 표시하며, `--no-ros`로 실행하면 화면에 `ROS OFF`로 표시합니다. 설정 변경 전에 켜 둔 프로세스에는 새 환경이 적용되지 않으므로 시뮬레이터를 재실행합니다.
+## 2. 시뮬레이터 실행
 
-## 2. 실행
-
-빌드 없이 저장소 루트에서 바로 실행할 수 있습니다.
+환경 설정 후 전체 트랙과 콘·주차·장애물 배치 편집 창을 함께 엽니다.
 
 ```bash
-cd /home/a/2026-AutoRace
-./simul.sh
+./run.sh --mission track --view overview --editor
 ```
 
-`./simul.sh`는 **`--mission track --view overview --editor`**를 기본 적용합니다. 트랙 출발점 `(x=0.65, y=5.58, yaw=0)`에서 전체 맵과 별도 장애물 편집 창을 엽니다. 설치된 `autorace-simul` 환경을 선택해 실행합니다. 최초 환경 생성은 위의 `source simul/env.sh`로 완료하세요. 추가 인자로 시작 미션·시점을 덮어쓸 수 있습니다. 예: `./simul.sh --mission parking --view parking`.
-
-아래의 `./simul/run.sh`도 같은 환경 준비를 자동 수행하며, 별도 인자 없이 실행하면 기존 주차 시작 위치 `(x=5.50, y=4.84, yaw=0)`를 사용합니다. 단위는 m/rad이고 x축이 차량의 첫 진행 방향입니다.
+저장소 루트에서 실행하는 `./simul.sh`도 같은 기본 옵션을 사용합니다. 아래 명령은 `simul` 폴더 기준입니다.
 
 ```bash
-# 창 없이 EGL로 렌더링. 카메라·라이다 토픽은 그대로 발행
-./simul/run.sh --headless
+# 전체 트랙만 열기
+./run.sh --mission track --view overview
 
-# ROS 없이 Panda3D와 키보드만 사용
-./simul/run.sh --no-ros
+# 창 없이 센서 렌더링과 ROS 토픽 발행
+./run.sh --mission track --headless
 
-# 별도 창에서 3개 차로의 장애물 배치 편집 (실행 중 E로 열기/닫기도 가능)
-./simul/run.sh --editor
-
-# 전체 트랙 보기
-./simul/run.sh --mission track --view overview
-
-# 미션 시작 위치에서 시작. view follow는 차량을 따라가는 관찰 화면
-./simul/run.sh --mission cone --view follow
-./simul/run.sh --mission obstacle --view follow
-./simul/run.sh --mission fork --view follow
-./simul/run.sh --mission signal --view follow
-
-# 시작 위치 변경
-./simul/run.sh --spawn 5.8 4.84 0
-
-# 3초 구동 후 화면/RGB/깊이 PNG 저장
-./simul/run.sh --headless --duration 3 --snapshot simul/captures/check
+# ROS 없이 수동 조작으로 장면 확인
+./run.sh --mission track --view overview --no-ros
 ```
 
-사용자 그림의 색상 구역·격자·번호·붉은 S 경로선은 표시하지 않습니다. 원본 지도 사진처럼 **도로 경계·지그재그 가장자리·갈림길 섬·주차장 바깥 테두리는 노란색**, **주차장 내부 구획·차로 점선·정지선·횡단보도·노면 글자와 마름모는 흰색**으로 구분합니다. 차선의 위치와 두께는 CAD 도면 기준입니다. 주차 목표의 초록색 테두리도 기본 숨김입니다. 미션별 표지판은 흰색 기준선 옆에 배치했으며, 정차 차량·콘·표지판 지주·신호등·광고판은 카메라와 라이다에 함께 반영됩니다. 노면의 한글·횡단보도·마름모는 서로 뭉개지지 않게 별도로 복원했습니다.
+`--mission`은 차량의 시작 위치를, `--view`는 관찰 화면을 선택합니다. 사용할 미션을 명시하면 원하는 구간에서 바로 시작할 수 있습니다. `./run.sh`만 실행하면 기존 기본 위치인 주차 접근 지점에서 시작합니다.
 
-콘 코스는 **오른쪽→왼쪽→오른쪽→왼쪽으로 휘는 S자 두 개**가 연속됩니다. 콘 줄의 좌우 이동 폭 **40 cm**를 유지하고, 오른쪽을 포함한 양쪽 흰 차선 밖까지 통로를 넓혔습니다. 두 정지선의 위치는 유지하며, 콘은 양쪽 24개씩 총 **48개**로 촘촘히 배치했습니다. LIMO Pro가 콘 사이의 여유 공간을 사용해 조향 한계 안에서 통과할 수 있는지도 검사합니다.
+| 옵션 | 의미 |
+| --- | --- |
+| `--view overview` | 전체 트랙 보기 |
+| `--view follow` | 주행 차량을 따라가는 화면 |
+| `--view camera` | 차량의 전방 카메라 시점 |
+| `--view parking` | 주차 구역을 보는 화면 |
+| `--editor` | 콘·주차·장애물 배치 편집 창도 열기 |
+| `--headless` | 화면 창 없이 렌더링. ROS 센서는 계속 발행 |
+| `--no-ros` | ROS 연결 없이 실행 |
+| `--spawn X Y YAW` | 시작 좌표를 직접 지정. 단위는 m, m, rad이며 `--mission`의 위치보다 우선 |
+
+## 3. 미션별 시작 명령
+
+아래에서 **시험할 미션의 명령 하나를 선택**합니다. 각 명령은 해당 구간에서 시뮬레이터를 시작하며, 미션 알고리즘 노드는 별도로 실행해야 합니다.
+
+| 미션 | 시험할 장면 | 시뮬레이터 실행 명령 |
+| --- | --- | --- |
+| 전체 트랙·기본 차선 주행 | 출발선에서 전체 코스 주행 | `./run.sh --mission track --view overview` |
+| 방지턱·서행 (`slow`) | 상단 직선의 방지턱과 방지턱 표지판 | `./run.sh --mission slow --view follow` |
+| 횡단보도 (`crosswalk`) | 오른쪽 횡단보도와 보행자 표지판 | `./run.sh --mission crosswalk --view follow` |
+| 장애물 회피 (`objavoid`) | 3개 차로에 배치한 정차 차량 7대 | `./run.sh --mission obstacle --view follow` |
+| 갈림길 (`fork`) | A/B 표지판에 따른 좌·우 분기 | `./run.sh --mission fork --view follow` |
+| 콘 (`cone`) | 콘 48개로 만든 연속 S자 통로 | `./run.sh --mission cone --view follow` |
+| 신호등 (`signal`) | 3색 신호등과 방해 광고판 | `./run.sh --mission signal --view follow` |
+| 주차 (`parking`) | 정차 차량 5대와 빈 주차 칸 | `./run.sh --mission parking --view parking` |
+
+**장애물 미션의 실행 옵션은 `obstacle`, 어댑터 입력 이름은 `objavoid`입니다.** 갈림길은 별도 command 없이 `lane` 입력으로 주행합니다. 지그재그 서행도 `slow` 입력을 사용하며, 별도의 `--mission zigzag` 옵션은 없습니다.
+
+배치를 바꾸려면 선택한 명령 끝에 `--editor`를 추가합니다. 예를 들어 콘 구간은 다음과 같이 실행합니다.
+
+```bash
+./run.sh --mission cone --view follow --editor
+```
+
+## 4. 어댑터로 미션 명령 연결
+
+미션 노드가 보내는 `AckermannDriveStamped`의 속도·조향각을 시뮬레이터의 `/cmd_vel` (`Twist`)로 변환하는 프로그램입니다. 시뮬레이터와 미션 노드를 실행한 뒤 **별도 터미널**에서 실행합니다.
+
+```bash
+cd /home/a/2026-AutoRace/simul
+source env.sh
+./adapter.sh
+```
+
+어댑터 창에서 시험할 미션의 토글을 **ON**으로 바꿉니다. 처음에는 모두 OFF이며, 미션 종료 후 기본 주행으로 돌아가려면 **차선·갈림길 (`lane`)도 함께 ON**으로 켭니다.
+
+| 시험할 미션 | 어댑터에서 켤 입력 | 미션 입력 토픽 |
+| --- | --- | --- |
+| 기본 차선 주행·갈림길 | 차선·갈림길 (`lane`) | `/mission/lane` |
+| 방지턱·지그재그 서행 | 서행·방지턱 (`slow`) + `lane` | `/mission/slow/command_08` |
+| 횡단보도 | 횡단보도 (`crosswalk`) + `lane` | `/mission/crosswalk/command_01` |
+| 장애물 회피 | 장애물 회피 (`objavoid`) + `lane` | `/mission/objavoid/command_05` |
+| 콘 | 콘 (`cone`) + `lane` | `/mission/cone/command_04` |
+| 신호등 | 신호등 (`signal`) + `lane` | `/mission/signal/command_02` |
+| 주차 | 주차 (`parking`) + `lane` | `/mission/parking/command_03` |
+
+여러 미션을 켜면 **01 → 02 → 03 → 04 → 05 → 08** 순서로 최신 유효 입력을 선택합니다. 미션 입력이 만료되면 ON 상태인 `lane`으로 복귀하고, 유효한 입력이 없으면 정지합니다. 입력 유효 시간은 0.25초이며, 후진은 주차 입력만 허용합니다. 선택된 입력은 창에서 초록색으로 표시합니다. **토픽 재선택**은 모든 입력을 OFF로 되돌립니다.
+
+![미션 command 어댑터](docs/adapter-window.png)
+
+### 창 없이 미션별로 연결하기
+
+위의 GUI 실행 대신 아래에서 **명령 하나를 선택**합니다. 각 명령은 해당 미션과 기본 차선 입력을 함께 연결합니다.
+
+```bash
+# 기본 차선 주행·갈림길
+./adapter.sh --no-gui --topic /mission/lane
+
+# 방지턱·지그재그 서행
+./adapter.sh --no-gui --topic /mission/slow/command_08 --topic /mission/lane
+
+# 횡단보도
+./adapter.sh --no-gui --topic /mission/crosswalk/command_01 --topic /mission/lane
+
+# 장애물 회피: 시뮬레이터의 --mission obstacle에 대응
+./adapter.sh --no-gui --topic /mission/objavoid/command_05 --topic /mission/lane
+
+# 콘
+./adapter.sh --no-gui --topic /mission/cone/command_04 --topic /mission/lane
+
+# 신호등
+./adapter.sh --no-gui --topic /mission/signal/command_02 --topic /mission/lane
+
+# 주차
+./adapter.sh --no-gui --topic /mission/parking/command_03 --topic /mission/lane
+```
+
+미션·인지·차선 노드는 각 워크스페이스의 방법으로 별도 실행하고, **`use_sim_time:=true`**를 적용합니다. 이 노드들도 시뮬레이터와 같은 ROS 도메인을 사용해야 합니다. 어댑터를 켜는 것만으로 미션 명령이나 `/mission/lane`이 만들어지지는 않습니다. 입력 메시지의 헤더에는 현재 ROS 시각을 넣고, 속도는 m/s, 조향각은 rad로 발행합니다.
+
+어댑터를 사용할 때는 `/cmd_vel`을 발행하는 기존 mux나 다른 어댑터를 종료합니다. mux로 차량 명령을 전달하는 구성이라면 이 어댑터는 실행하지 않습니다. `ackermann_msgs`가 없다는 오류가 나오면 `sudo apt install ros-humble-ackermann-msgs`로 설치합니다.
+
+## 5. 토픽 확인
+
+시뮬레이터를 ROS 모드로 실행한 상태에서 **새 터미널**을 열어 확인합니다.
+
+```bash
+cd /home/a/2026-AutoRace/simul
+source env.sh
+ros2 topic list
+```
+
+| 방향 | 주요 토픽 | 타입·내용 |
+| --- | --- | --- |
+| 발행 | `/camera/color/image_raw/compressed` | `CompressedImage`, 640×480 JPEG, 30 Hz |
+| 발행 | `/camera/color/image_raw` | `Image`, RGB 640×480, 30 Hz |
+| 발행 | `/camera/depth/image_raw` | `Image`, 깊이 640×400, mm 단위, 30 Hz |
+| 발행 | `/camera/color/camera_info`, `/camera/depth/camera_info` | `CameraInfo`, 각 카메라의 투영 정보 |
+| 발행 | `/scan` | `LaserScan`, 10 Hz |
+| 발행 | `/imu`, `/odom` | `Imu` / `Odometry`, 50 Hz |
+| 발행 | `/tf`, `/tf_static` | `TFMessage`, 차량·센서 좌표계 |
+| 발행 | `/clock` | `Clock`, 시뮬레이션 시각 |
+| 발행 | `/sim/ground_truth`, `/sim/parking_status` | 실제 시뮬레이션 위치와 차량 상태 |
+| 구독 | `/cmd_vel` | `Twist`, 차량 선속도·각속도 |
+
+주기는 시뮬레이션 시간 기준입니다. `/mission/*`와 `/yolo/*`의 명령·인지 결과를 받으려면 해당 미션·인지 노드를 별도로 실행해야 합니다. 시뮬레이터는 인지 Bool을 대신 발행하지 않습니다. `--no-ros`로 실행하면 센서 토픽도 발행하지 않습니다. 토픽이 보이지 않으면 모든 터미널에서 환경을 다시 적용하고 ROS 도메인이 같은지 확인합니다.
+
+## 6. 콘·주차·장애물 배치 편집 창
+
+`--editor`로 시뮬레이터와 함께 열거나 실행 중 **E**로 열고 닫습니다. 위쪽의 **콘 / 주차 / 장애물** 버튼으로 편집할 구역을 선택하고, **설치 대상 콘 / 차량**으로 배치할 물체를 고릅니다.
+
+| 구역 | 배치 방식 |
+| --- | --- |
+| 콘 (`cone`) | 클릭한 위치에 콘을 자유롭게 배치 |
+| 주차 (`parking`) | 차량을 3열 × 2행 주차 칸 중앙에 세로로 배치 |
+| 장애물 (`objavoid`, 화면 이름: 장애물) | 차량을 3개 차로 × 8칸의 중앙에 배치 |
+
+- **왼쪽 클릭:** 새 물체 설치. 기존 물체를 선택한 뒤 빈 곳을 클릭하면 이동합니다.
+- **오른쪽 클릭:** 현재 설치 대상과 같은 종류의 물체를 삭제합니다.
+- **새로 설치 / Esc:** 선택 해제. **되돌리기 / Ctrl+Z:** 직전 배치 변경 취소.
+
+변경은 3D 장면·RGB·깊이·라이다·충돌에 즉시 반영되며, `src/limo_parking_sim/config/parking_map.obstacles.yaml`에 자동 저장되어 재실행 후에도 유지됩니다. `--map`으로 다른 맵을 쓰면 그 파일 옆의 `<맵 이름>.obstacles.yaml`에 저장합니다. 기본 배치로 돌아가려면 종료 후 해당 저장 파일의 이름을 바꾸세요.
+
+## 7. 시뮬레이터 조작
 
 | 키 | 동작 |
 | --- | --- |
 | K | 키보드 제어 켜기/끄기. 기본은 ROS 제어 |
-| W 또는 ↑ | 전진, 0.25 m/s |
-| ↓ | 후진, 0.25 m/s |
+| W 또는 ↑ | 전진, 1.0 m/s |
+| S 또는 ↓ | 후진, 1.0 m/s |
 | A / D 또는 ← / → | 좌 / 우 조향 |
 | Space | 정지 |
 | 마우스 왼쪽 드래그 | 관찰 화면 위치 이동 |
@@ -85,439 +192,22 @@ cd /home/a/2026-AutoRace
 | 마우스 휠 | 확대 / 축소 |
 | 1 / 2 / 3 / 4 | 주차장 / 전체 트랙 / 차량 추적 / 전방 시점 |
 | L / R | 갈림길의 왼쪽 A / 오른쪽 B 표지판 표시. 차량 위치 유지 |
-| S | 라이다 광선 표시 / 숨김. 기본 숨김 |
+| I | 라이다 광선 표시 / 숨김. 기본 숨김 |
 | V | 오른쪽 위 카메라 영상 표시 / 숨김. 기본 숨김 |
-| E | 별도 장애물 편집 창 열기 / 닫기 |
+| E | 콘·주차·장애물 배치 편집 창 열기 / 닫기 |
 | P | 일시정지 / 계속 |
 | T / G / Y | 신호등 적색 / 녹색 / 황색 |
 | F5 | 선택한 미션의 시작 위치로 차량 리셋 |
 | Esc | 종료 |
 
-키보드 제어를 켠 동안에는 ROS 명령을 적용하지 않습니다. 주차 노드로 제어할 때 K를 끄세요. 키보드 제어는 시뮬레이터 내부에서 처리합니다.
+## 8. 설정 파일과 상세 문서
 
-`R`/`L`은 실제 3D 갈림길 표지판의 그림을 바꾸며, 카메라 토픽에도 바뀐 화살표가 보입니다. `S`와 후진 키가 겹치지 않도록 후진은 `↓`, 기존 리셋은 `F5`로 옮겼습니다. `T/G/Y`도 실제 신호등의 켜진 색을 바꿉니다. 인지 Bool은 사용자 YOLO 노드에서 계산합니다.
-
-마우스는 관찰용 카메라를 움직입니다. 드래그나 휠을 사용하면 자유 시점으로 바뀌고, `1`~`4`를 누르면 해당 기본 시점으로 돌아갑니다. 차량의 센서 장착 위치·차량 자세·ROS 카메라 영상은 마우스로 바뀌지 않습니다. 라이다 광선과 카메라 영상 표시를 숨겨도 `/scan`과 카메라 토픽은 계속 발행합니다.
-
-### 장애물 편집 창
-
-`--editor` 또는 **E**로 별도 창을 엽니다. 첨부 그림과 같은 **위·가운데·아래 3개 차로 × 8칸**만 편집할 수 있습니다. 기존 회피 차량은 흰색, 주행 차량은 민트색으로 표시됩니다. 숫자·격자는 편집 창에만 표시합니다.
-
-- **왼쪽 클릭:** 빈 칸 중앙에 차량 설치.
-- **기존 차량을 왼쪽 클릭 → 빈 칸 클릭:** 해당 차량 이동.
-- **오른쪽 클릭:** 해당 칸의 차량 삭제.
-- **Esc / 새 장애물:** 이동 선택 해제. **Ctrl+Z / 되돌리기:** 직전 편집 취소.
-
-편집 즉시 3D 장면·RGB·깊이·라이다·차량 충돌에 반영됩니다. 주행 차량이나 다른 시설물과 겹치는 배치는 거부합니다. 다른 구역의 주차 차량은 편집하지 않습니다. 매번 **`config/parking_map.obstacles.yaml`에 자동 저장**하며, 다음 실행에서도 읽습니다. `--map`을 지정하면 그 파일 옆의 `<맵 이름>.obstacles.yaml`을 사용합니다. 원본 맵 YAML은 유지되며, 저장 실패는 창 아래에 표시하고 Ctrl+S로 재시도할 수 있습니다. 초기 배치로 돌아가려면 시뮬레이터 종료 후 저장 파일의 이름을 바꾸면 됩니다.
-
-편집 창에는 Tk가 필요합니다. 제공 Conda 환경은 `tk`를 포함하며, 시스템 Python으로 실행하면 `python3-tk`가 필요합니다. ROS launch에서도 `editor:=true`를 사용할 수 있습니다.
-
-실제 창의 마우스 이벤트와 렌더링을 다시 검증하려면 데스크톱 터미널에서 다음을 실행합니다. 임시 배치를 사용하므로 사용자가 저장한 배치는 변경하지 않습니다.
-
-```bash
-python simul/tools/check_obstacle_editor.py
-```
-
-결과는 `simul/captures/editor-check/`의 편집 GIF·3D/RGB/깊이 스크린샷·`report.json`에 저장됩니다.
-
-[마우스 이동·회전·확대 화면 예시](docs/mouse-controls.jpg)
-
-## 3. 실제 제공하는 토픽
-
-| 방향 | 토픽 | ROS 2 타입 | 기본 주기 / 내용 |
-| --- | --- | --- | --- |
-| 구독 | `/cmd_vel` | `geometry_msgs/msg/Twist` | `linear.x` m/s, `angular.z` rad/s |
-| 발행 | **`/camera/color/image_raw/compressed`** | **`sensor_msgs/msg/CompressedImage`** | **640×480, JPEG, 30 Hz. docs의 미션 입력** |
-| 발행 | **`/scan`** | **`sensor_msgs/msg/LaserScan`** | **10 Hz. docs의 미션 입력** |
-| 발행 | `/camera/color/image_raw` | `sensor_msgs/msg/Image` | 640×480, `rgb8`, 30 Hz |
-| 발행 | `/camera/color/camera_info` | `sensor_msgs/msg/CameraInfo` | RGB와 같은 시각·해상도 |
-| 발행 | `/camera/depth/image_raw` | `sensor_msgs/msg/Image` | 640×400, `16UC1`, mm, 30 Hz. 무효 값 0 |
-| 발행 | `/camera/depth/camera_info` | `sensor_msgs/msg/CameraInfo` | Depth와 같은 시각·해상도 |
-| 발행 | `/imu` | `sensor_msgs/msg/Imu` | 50 Hz, 이상적 가속도·각속도·방향 |
-| 발행 | `/odom` | `nav_msgs/msg/Odometry` | 50 Hz, 시작 위치 기준 |
-| 발행 | `/tf`, `/tf_static` | `tf2_msgs/msg/TFMessage` | 차체·센서·광학 좌표계 |
-| 발행 | `/clock` | `rosgraph_msgs/msg/Clock` | 120 Hz, 시뮬레이션 시각 |
-| 발행 | `/sim/ground_truth` | `nav_msgs/msg/Odometry` | 50 Hz, 지도 기준 실제 시뮬레이션 위치. 디버깅용 |
-| 발행 | `/sim/parking_status` | `std_msgs/msg/String` | 5 Hz, 위치·속도·충돌·명령 만료 JSON. 점수 없음 |
-
-센서 주기는 **시뮬레이션 시간 기준**입니다. GPU/CPU 성능이 부족하면 실제 시간에서는 느려질 수 있고, `/clock`도 함께 느려집니다. 카메라는 Reliable, 라이다는 Best Effort의 SensorDataQoS로 발행하여 현재 Orbbec/YDLIDAR 기본값에 맞췄습니다. 구독자는 `qos_profile_sensor_data`를 사용하면 두 종류 모두 받을 수 있습니다.
-
-`/mission/parking/command_03`, `/yolo/parking_sign`은 각각 **주차 노드와 YOLO 노드가 발행**하는 토픽입니다. 센서 시뮬레이터가 인지 결과를 대신 만들지 않습니다. `/odometry/filtered`는 EKF 출력이므로 필요하면 기존 EKF를 `use_sim_time:=true`로 별도 실행합니다. `/limo_status`는 실차 전용 커스텀 상태 메시지이므로 여기서는 합성하지 않습니다.
-
-## 4. 토픽 수신 확인
-
-시뮬레이터를 ROS 모드로 실행해 둔 뒤, **새 터미널에서 아래 명령을 실행**합니다. 이 터미널에는 Conda 활성화가 필요 없습니다.
-
-```bash
-cd /home/a/2026-AutoRace
-./simul/ros2.sh topic list -t
-./simul/ros2.sh topic echo /scan --once --field ranges --qos-reliability best_effort
-./simul/ros2.sh topic echo /camera/color/image_raw/compressed --once --field header
-./simul/ros2.sh topic hz /camera/color/image_raw/compressed
-```
-
-일반 `ros2` 명령이나 본인의 노드를 실행할 터미널에서는:
-
-```bash
-conda activate autorace-simul
-cd /home/a/2026-AutoRace
-source simul/env.sh
-
-ros2 topic list
-ros2 topic hz /camera/color/image_raw/compressed
-ros2 topic echo /scan --qos-reliability best_effort --once
-```
-
-**센서 토픽이 안 보일 때:** 실행 중인 시뮬레이터의 시작 로그 또는 화면에서 도메인을 확인하고 터미널의 `echo ${ROS_DOMAIN_ID:-0}`과 비교하세요. 서로 다른 도메인은 연결되지 않습니다. 실제 사용자 세션에서도 시뮬레이터가 도메인 42, base의 `ros2 topic pub`는 도메인 0이어서 센서 토픽과 제어가 연결되지 않았습니다. 두 터미널의 `ROS_LOCALHOST_ONLY` 값도 `1`로 맞추고, 이전에 `0`으로 켠 시뮬레이터는 재실행하세요. `ros_env.sh`는 기본 도메인 0을 42로 바꾸며, 0이 아닌 사용자 지정 도메인은 유지합니다.
-
-**`ros2.sh`에서도 `/scan`을 못 찾았던 원인과 수정:** 실제 실행 중인 시뮬레이터·주차 노드·RViz는 도메인 42였지만, base 터미널은 도메인 0을 상속했고 이전 `ros_env.sh`가 이 값을 유지했습니다. 또한 도메인 42의 기존 ROS CLI 데몬에서는 `/scan`이 없다고 나왔지만 직접 DDS를 조회하면 정상적으로 발견·수신됐습니다. 이를 해결하기 위해 기본 도메인 0을 42로 맞추고, `ros2.sh`의 토픽 조회는 데몬을 사용하지 않도록 변경했습니다. 실행 중인 시뮬레이터를 재시작하지 않고 아래 명령으로 라이다와 카메라 수신을 검증했습니다.
-
-```bash
-./simul/ros2.sh topic list -t
-./simul/ros2.sh topic echo /scan --once --qos-reliability best_effort --field header
-./simul/ros2.sh topic echo /camera/color/image_raw/compressed --once --field header
-```
-
-`requesting incompatible QoS ... RELIABILITY`는 특정 구독자의 신뢰성 요구가 발행자와 다르다는 경고이며, 모든 토픽이 사라지는 원인은 아닙니다. 현재 `/scan` 발행자와 주차 노드·RViz 구독자는 모두 Best Effort임을 확인했습니다. 구독자별 설정은 `./simul/ros2.sh topic info /scan --verbose`로 확인할 수 있습니다.
-
-**일반 `ros2 topic list`에는 두 기본 토픽만 보이고 `--no-daemon`으로는 센서가 모두 보일 때:** 시뮬레이터 발행은 정상이며 기존 데몬의 그래프 상태가 원인입니다. 수정된 환경 파일을 `source simul/env.sh`로 다시 읽으면 `ros2 topic list`만 입력해도 직접 조회합니다. `parking_ws/env.sh`도 같은 공통 설정을 읽습니다. 기존 터미널에는 파일 수정이 자동 반영되지 않습니다.
-
-일반 ROS 터미널에서도 같은 로컬 설정을 사용하려면:
-
-```bash
-source simul/ros_env.sh
-export ROS_DOMAIN_ID=42
-ros2 topic list --no-daemon --spin-time 2 -t
-```
-
-`--no-ros` 실행은 토픽을 발행하지 않습니다. `V`로 카메라 미리보기를 숨기거나 `S`로 라이다 광선을 숨기는 것은 센서 발행에 영향을 주지 않습니다. 토픽은 보이지만 `/scan` 값이 안 들어오면 위의 Best Effort 옵션을 사용하세요.
-
-압축 영상은 Python에서 다음처럼 받습니다. OpenCV를 이미 쓰는 노드라면 `cv2.imdecode`로 디코딩해도 됩니다.
-
-```python
-import io
-import rclpy
-from PIL import Image
-from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import CompressedImage, LaserScan
-
-class ParkingInputs(Node):
-    def __init__(self):
-        super().__init__('parking_inputs')
-        self.create_subscription(CompressedImage,
-            '/camera/color/image_raw/compressed', self.image, qos_profile_sensor_data)
-        self.create_subscription(LaserScan, '/scan', self.scan, qos_profile_sensor_data)
-
-    def image(self, msg):
-        rgb = Image.open(io.BytesIO(bytes(msg.data))).convert('RGB')
-        # 영상과 원본 header.stamp를 주차 알고리즘에 전달
-
-    def scan(self, msg):
-        # i번 거리의 각도 = msg.angle_min + i * msg.angle_increment
-        # 현재 설정에서는 0이 무효 거리. inf가 들어오는 설정도 함께 처리
-        pass
-
-rclpy.init()
-node = ParkingInputs()
-rclpy.spin(node)
-```
-
-RViz에서는 Fixed Frame을 `map`, LaserScan 토픽을 `/scan` 및 Best Effort, Image 토픽을 `/camera/color/image_raw`로 설정합니다.
-
-```bash
-rviz2 --ros-args -p use_sim_time:=true
-```
-
-실차 QoS에 맞춘 기본 화면으로 바로 실행하려면 `./simul/rviz.sh`를 사용합니다. `/scan` Best Effort와 카메라 Reliable 설정이 저장되어 있습니다. 토픽별 큐 깊이와 실제 드라이버 근거는 [센서 기본 QoS](docs/SENSOR_DEFAULTS.md)를 참고하세요.
-
-## 5. 내 주차 코드 연결
-
-### 주차 시뮬레이션: 터미널 4개로 실행
-
-아래는 **YOLO 대신 수동 시작 신호를 보내 `parking_ws`의 주차·정지·후진 출차를 시험하는 방법**입니다. 모든 명령은 저장소 루트 `/home/a/2026-AutoRace` 기준입니다. **네 터미널 모두 `ROS_DOMAIN_ID=42`, `ROS_LOCALHOST_ONLY=1`로 맞춥니다.** 다른 도메인으로 이미 실행한 프로그램은 종료하고 다시 실행해야 합니다. 실제 센서 launch는 실행하지 않습니다.
-
-최초 사용 또는 주차 패키지의 실행 파일·launch 변경 후에는 먼저 빌드합니다. 시뮬레이터 자체는 빌드할 필요가 없습니다.
-
-```bash
-cd /home/a/2026-AutoRace
-source parking_ws/env.sh
-cd parking_ws
-/usr/bin/python3 -m colcon build --packages-select autorace_parking --symlink-install
-```
-
-`ackermann_msgs`가 없다는 오류가 나면 `sudo apt install ros-humble-ackermann-msgs`로 설치합니다. `parking_ws/.ros-deps`에 로컬 설치한 경우에는 `source parking_ws/env.sh`가 해당 의존성을 연결합니다.
-
-#### 터미널 1 — 주차 위치에서 시뮬레이터 실행
-
-```bash
-cd /home/a/2026-AutoRace
-conda activate autorace-simul
-source simul/env.sh
-export ROS_DOMAIN_ID=42
-./simul.sh --mission parking --view parking
-```
-
-시작 로그에서 `ROS_DOMAIN_ID=42, ROS_LOCALHOST_ONLY=1`을 확인합니다. 차량은 주차 구간 시작 위치에서 대기합니다. 화면의 제어 모드가 `KEYBOARD`라면 K로 ROS 제어로 바꾸고, `PAUSED`라면 P로 재개합니다.
-
-#### 터미널 2 — 주차 노드와 RViz 실행
-
-```bash
-cd /home/a/2026-AutoRace
-conda activate autorace-simul
-source simul/env.sh
-source parking_ws/env.sh
-source parking_ws/install/setup.bash
-export ROS_DOMAIN_ID=42
-ros2 launch autorace_parking parking.launch.py use_sim_time:=true rviz:=true
-```
-
-주차 노드, LIMO Pro 모형 설명 노드, RViz를 함께 실행합니다. RViz는 Fixed Frame=`base_link`에서 **LIMO Pro 모형, 원시 라이다 점, 장애물의 파란색 박스 테두리, 주차·출차 경로**를 표시합니다. 장애물 군집의 별도 색상 점과 글자는 표시하지 않습니다. 시작 신호를 보내기 전에는 경로가 비어 있을 수 있습니다. `Stereo is NOT SUPPORTED`는 이 실행을 막는 오류가 아닙니다.
-
-#### 터미널 3 — 주차 명령을 시뮬레이터로 전달하는 어댑터 실행
-
-```bash
-cd /home/a/2026-AutoRace
-./simul/adapter.sh
-```
-
-선택 창에서 **주차 (parking)**의 토글을 **ON**으로 바꿉니다. `/mission/parking/command_03`의 속도·조향각을 `/cmd_vel`로 변환합니다. **기존 mux나 다른 어댑터가 `/cmd_vel`을 발행 중이면 먼저 종료합니다.** 터미널 2의 launch는 어댑터를 자동 실행하지 않습니다.
-
-#### 터미널 4 — 연속 3회 감지 신호로 주차 시작
-
-이 터미널은 Conda base에서도 사용할 수 있습니다.
-
-```bash
-cd /home/a/2026-AutoRace
-source parking_ws/env.sh
-export ROS_DOMAIN_ID=42
-ros2 topic pub -r 10 --times 3 /yolo/parking_sign std_msgs/msg/Bool '{data: true}'
-```
-
-연속 3회의 true를 받으면 터미널 2에 `Parking mission activated (attempt 1)`이 출력되고 주차를 시작합니다. 주차 후 시뮬레이션 시간으로 3초 정지한 다음 진입 궤적을 역순으로 따라 후진 출차합니다. 새로운 연속 3회 true는 이전 경로·실패 상태를 초기화해 다시 시도하므로, 한 번의 시도에는 위 명령을 한 번만 실행합니다. `--times 3` 없이 계속 발행하면 매 3회마다 미션이 재시작됩니다.
-
-같은 터미널에서 상태와 센서를 확인할 수 있습니다.
-
-```bash
-ros2 topic echo /parking/status
-# 확인을 마치면 Ctrl+C
-ros2 topic list --no-daemon --spin-time 2 -t
-ros2 topic echo /scan --once --qos-reliability best_effort
-```
-
-다시 처음 위치에서 시험하려면 먼저 터미널 4에서 미션을 초기화하고, 시뮬레이터 창에서 **F5**로 차량을 시작 위치로 되돌린 다음 시작 신호 3회를 다시 보냅니다.
-
-```bash
-ros2 service call /parking/reset std_srvs/srv/Trigger '{}'
-# 시뮬레이터 창에서 F5를 누른 뒤 실행
-ros2 topic pub -r 10 --times 3 /yolo/parking_sign std_msgs/msg/Bool '{data: true}'
-```
-
-종료할 때는 주차 노드·RViz가 실행 중인 터미널 2, 어댑터의 터미널 3, 시뮬레이터의 터미널 1에서 각각 Ctrl+C를 누릅니다. 주차 제어의 설정과 제한은 [parking_ws README](../parking_ws/README.md)를 참고하세요.
-
-### 선택 창으로 모든 미션 직접 연결 (mux 없이)
-
-시뮬레이터와 시험할 미션 노드를 실행한 뒤, 별도 터미널에서 실행합니다. Conda 환경 생성·전환과 ROS 설정은 자동 적용됩니다.
-
-```bash
-cd /home/a/2026-AutoRace
-./simul/adapter.sh
-```
-
-각 command의 **ON/OFF 토글**을 누르면 즉시 입력 연결·해제가 적용됩니다. 여러 토글을 켜면 [docs의 우선순위](../docs/architecture.md#미션-명령과-우선순위)에 따라 **01 → 02 → 03 → 04 → 05 → 08** 중 최신 유효 입력 하나를 `/cmd_vel`로 전달합니다. 번호 입력이 모두 만료되면 ON 상태인 차선 입력으로 복귀하며, 차선도 유효하지 않으면 정지합니다. 시작할 때는 모든 토글이 OFF입니다.
-
-기존 연결·정지·새로고침 버튼 세 개는 **토픽 재선택** 하나로 바꿨습니다. 이 버튼은 정지 명령을 보내고 모든 입력을 OFF로 되돌립니다. 다시 사용할 토픽의 토글을 켜면 됩니다. 사용자 지정 토픽은 입력란에서 **입력 추가**로 행을 추가한 뒤 토글을 켭니다. 사용자 지정 입력의 우선순위는 08 다음, 차선 앞입니다.
-
-![실제 Qt 위젯 렌더링: command 토글과 우선순위](docs/adapter-window.png)
-
-| 선택 | 입력 토픽 |
+| 항목 | 파일 |
 | --- | --- |
-| 차선·갈림길 | `/mission/lane` |
-| 횡단보도 | `/mission/crosswalk/command_01` |
-| 신호등 | `/mission/signal/command_02` |
-| 주차 | `/mission/parking/command_03` |
-| 콘 | `/mission/cone/command_04` |
-| 장애물 회피 (objavoid) | `/mission/objavoid/command_05` |
-| 서행·방지턱 | `/mission/slow/command_08` |
-
-입력 타입은 `ackermann_msgs/msg/AckermannDriveStamped`이며, 속도는 m/s, 조향각은 rad입니다. 미션 노드도 **`use_sim_time:=true`**와 같은 ROS 도메인을 사용하세요. 아직 구현되지 않은 미션 노드는 별도로 작성·실행해야 하며, 어댑터는 해당 제어 입력을 연결합니다.
-
-각 행에 연결·수신·전달 상태를 표시하고, 실제 선택된 행을 초록색으로 강조합니다. 출력 속도와 각속도도 표시하며, 유효 입력 횟수는 상태의 툴팁에서 볼 수 있습니다. 수신과 헤더 시각의 유효 시간은 0.25초이며, 오래되거나 비정상인 입력은 제외합니다. OFF 후 다시 ON으로 바꾼 입력은 과거 명령을 재사용하지 않습니다. docs와 같이 **후진은 주차 입력만 허용**합니다. 모든 입력 OFF·토픽 재선택·창 종료 시 정지 명령을 보내고 출력을 해제합니다. mux나 기존 주차 어댑터는 종료하고, 시뮬레이터의 키보드 제어는 K로 끄세요.
-
-GUI는 PyQt5를 사용합니다. 새 Conda 환경에는 `pyqt=5.15`를 설치하며, 기존 환경은 시스템의 Python 3.10용 PyQt5가 있으면 그대로 사용할 수 있습니다. 한글 폰트와 기본·최소 창 크기, 토글·재선택·사용자 지정 입력을 실제 위젯으로 렌더링해 검증했습니다. 문서용 최종 화면 한 장만 보관하며, 임시 검증 이미지는 아래 명령으로 다시 생성할 수 있습니다.
-
-디스플레이 없이 검증을 재실행하려면:
-
-```bash
-source simul/env.sh
-python simul/tools/check_adapter_window.py
-```
-
-이미지 6장과 `report.json`을 `simul/captures/adapter-check/`에 저장합니다. 검증은 시뮬레이터 기본 도메인과 분리한 179에서 실행합니다.
-
-창 없이 특정 토픽만 바로 연결할 수도 있습니다.
-
-```bash
-./simul/adapter.sh --no-gui --topic /mission/cone/command_04
-./simul/adapter.sh --no-gui --topic /mission/objavoid/command_05
-
-# 여러 입력을 켜고 docs의 우선순위로 선택
-./simul/adapter.sh --no-gui --topic /mission/cone/command_04 --topic /mission/lane
-```
-
-`ackermann_msgs`가 없으면 `sudo apt install ros-humble-ackermann-msgs`로 설치합니다. 기존 `python -m limo_parking_sim.parking_adapter`와 `parking_adapter:=true` launch 옵션은 주차 전용으로 계속 사용할 수 있습니다.
-
-### 전체 미션 인터페이스와 직접 제어
-
-현재 `docs`의 인터페이스를 그대로 사용합니다.
-
-```text
-시뮬레이터 ─ /camera/color/image_raw/compressed ─> parking_ws / yolo_ws
-시뮬레이터 ─ /scan ──────────────────────────> parking_ws
-yolo_ws ─── /yolo/parking_sign (Bool) ────────> parking_ws
-parking_ws ─ /mission/parking/command_03
-             (AckermannDriveStamped) ────────> mux_ws
-mux_ws ──── /cmd_vel (Twist) ────────────────> 시뮬레이터
-```
-
-미션·YOLO·mux를 실행할 터미널에서도 `source simul/env.sh`를 적용하고 **각 노드의 `use_sim_time=true`**를 설정합니다. 이때 실제 센서 launch는 실행하지 않습니다. `sensor_ws` 코드는 설정 참고 대상으로 사용했고 수정하지 않았습니다.
-
-`/cmd_vel`의 `angular.z`는 조향각이 아닙니다. 문서대로 `v=drive.speed`, `w=v*tan(drive.steering_angle)/0.2`로 변환합니다. 속도가 0이면 제자리 회전하지 않습니다. 후진도 지원합니다. 명령이 0.5초 동안 오지 않으면 정지합니다.
-
-센서와 무관하게 임의의 `/cmd_vel`을 보내려면 아래 명령을 실행합니다. 화면의 `control: ROS /cmd_vel`을 확인하세요. `KEYBOARD`라면 **K를 한 번 눌러 끄고**, `PAUSED`라면 P로 재개합니다. 실행 중인 다른 제어 노드가 있다면 먼저 그 노드의 발행을 중단하세요.
-
-```bash
-cd /home/a/2026-AutoRace
-# 전진. Ctrl+C로 발행을 중단하면 watchdog 정지
-./simul/ros2.sh topic pub -r 20 /cmd_vel geometry_msgs/msg/Twist \
-  '{linear: {x: 0.2}, angular: {z: 0.0}}'
-
-# 후진
-./simul/ros2.sh topic pub -r 20 /cmd_vel geometry_msgs/msg/Twist \
-  '{linear: {x: -0.15}, angular: {z: 0.0}}'
-
-# 좌회전하면서 전진. angular.z를 음수로 바꾸면 우회전
-./simul/ros2.sh topic pub -r 20 /cmd_vel geometry_msgs/msg/Twist \
-  '{linear: {x: 0.2}, angular: {z: 0.3}}'
-
-# 기존 발행 명령을 Ctrl+C로 끝낸 뒤 정지 명령
-./simul/ros2.sh topic pub --once /cmd_vel geometry_msgs/msg/Twist \
-  '{linear: {x: 0.0}, angular: {z: 0.0}}'
-```
-
-`-r 20`은 초당 20회 발행합니다. 움직임 명령을 `--once`로 한 번만 보내면 0.5초의 **시뮬레이션 시간** 뒤 watchdog으로 정지하므로 계속 주행하려면 반복 발행해야 합니다. `angular.z`는 rad/s 단위의 회전 속도이며, LIMO Pro는 속도 0에서 제자리 회전을 하지 않습니다.
-
-실제 ROS 송수신과 CLI 제어를 별도 도메인에서 다시 검사하려면 시뮬레이터용 Conda 터미널에서 실행합니다. 이 검사는 새 오프스크린 시뮬레이터를 따로 실행하며, 현재 화면의 차량에는 명령을 보내지 않습니다.
-
-```bash
-conda activate autorace-simul
-source simul/env.sh
-ROS_DOMAIN_ID=144 ROS_LOCALHOST_ONLY=1 python simul/tools/check_ros_topics.py --cli-command
-```
-
-**mux_ws 구현 전의 주차 단독 연결:** 선택적으로 `parking_adapter`를 실행할 수 있습니다. 이 어댑터는 `/mission/parking/command_03`만 받아 30 Hz의 `/cmd_vel`로 바꾸며, 헤더와 수신 시각의 0.25초 만료를 검사합니다. 전체 미션 우선순위 mux는 아닙니다. 기존 mux와 동시에 실행하지 않습니다.
-
-```bash
-# 선택 기능. ackermann_msgs가 없다면 사용자가 설치
-sudo apt install ros-humble-ackermann-msgs
-
-# 별도 터미널: conda 활성화와 source simul/env.sh 후
-python -m limo_parking_sim.parking_adapter
-```
-
-## 6. 센서와 치수 변경
-
-파일: [차량·센서·토픽 설정](src/limo_parking_sim/config/limo_pro.yaml), [주차장 설정](src/limo_parking_sim/config/parking_map.yaml).
-
-| 항목 | 반영한 값 / 근거 |
-| --- | --- |
-| 트랙 | 10,000×6,000 mm. PDF CAD 경로 276개를 추출. 그림의 픽셀을 눈대중으로 배치한 맵이 아님 |
-| 주차장 | 전체 1,580×1,240 mm. 3열×2행, 내부 구획 500×600 mm, 선 20 mm |
-| 차량 외곽 | 322×220×251 mm, 축간 200 mm, 제조사 윤거 175 mm |
-| 조향 한계 | `sensor_ws/limo_driver.h`의 안쪽 바퀴 28°와 변환 윤거 172 mm 반영. 차체 중심 조향 한계 약 23.4° |
-| 라이다 장착 | base_link 기준 `(0.103,0,-0.034)`. 지면에서 116 mm |
-| 카메라 장착 | mount `(0.103,0,0.06)` + link `(0.03,-0.05,0)`. pitch=0에서 지면 기준 `(0.133,-0.05,0.210)` |
-| 카메라 해상도·주기 | 현재 `astra_stereo_u3.launch.py`의 RGB 640×480, Depth 640×400, 각 30 Hz |
-| 라이다 출력 | 현재 YAML과 동일한 −110°~+110°, 10 Hz, 약 245샘플. 물리적 최대 감지 12 m |
-
-라이다의 메시지 `range_min/max=0.01/64.0`은 기존 드라이버 설정을 유지하지만, 실제 광선은 T-mini Pro의 `0.02~12 m`로 제한합니다. 전방 마스킹을 없애려면 `angle_min_deg=-180`, `angle_max_deg=180`으로 변경합니다. `inverted`는 드라이버가 원시 회전 순서를 ROS 각도로 정리하는 옵션이므로, 이미 ROS 좌표로 계산하는 시뮬레이션에서 다시 반전하지 않습니다.
-
-카메라와 라이다는 같은 3D 배치와 차량 위치를 참조합니다. RGB는 Panda3D 렌더링, Depth는 GPU Z-buffer를 **광학 z축 거리 mm**로 환산한 값, 라이다는 센서 높이의 장애물 첫 교차 거리입니다. 차선은 반사 벽이 아닙니다. 사용자 요청으로 **10×6 m 매트 사각형 외곽에 높이 30 cm, 두께 5 cm의 검정 벽**을 추가했습니다. 벽은 경계 바깥쪽으로 두께를 가지며 카메라·깊이·라이다와 차량 충돌에 함께 반영됩니다. `parking_map.yaml`의 `boundary_wall`에서 높이·두께·색상을 바꾸거나, 항목을 제거해 벽을 끌 수 있습니다. 매트 밖으로 차량이 나가면 멈추는 안전 경계도 유지합니다.
-
-### 실차와 완전히 같게 하려면 남는 보정
-
-**[실차 카메라 화질 비교 결과와 재검사 방법](docs/CAMERA_MATCH.md)**: 컬러 640×480·30 FPS, 깊이 640×400·30 FPS의 기본 설정은 같지만 화질·화각·왜곡·노이즈는 실측 일치를 확인한 상태가 아닙니다.
-
-카메라 **장치별 K/D·RGB/Depth 외부 보정은 웹 사양에 없습니다.** 기본 모델은 명목 pinhole 카메라이며, RGB 71°×43.7°는 제조사가 1920×1080 모드에 제공한 값입니다. 현재 640×480 모드의 정확한 화각을 확인한 값은 아닙니다. 내부 센서 오프셋은 기본 0으로 두고, 실제 토픽과 구별해 설정에 표시했습니다.
-
-실차에서 다음 정보를 읽어 보정합니다.
-
-```bash
-ros2 topic echo /camera/color/camera_info --once
-ros2 topic echo /camera/depth/camera_info --once
-ros2 run tf2_ros tf2_echo camera_link camera_color_frame
-ros2 run tf2_ros tf2_echo camera_link camera_depth_frame
-```
-
-각 카메라의 `intrinsics: [fx, fy, cx, cy]`, `xyz`, `rpy`를 설정하면 렌더링 투영과 CameraInfo/TF에 함께 적용됩니다. 렌즈 왜곡은 재현하지 않으므로 시뮬레이터의 D는 0입니다. 실제 raw 영상의 왜곡 보정은 실차 쪽에서 필요합니다. Depth는 등록되지 않은 별도 카메라이며 RGB에 정렬된 영상이 아닙니다.
-
-차체·바퀴 외형은 `sensor_ws/limo_description`의 LIMO 메시를 가볍게 변환하고 LIMO Pro 외곽·축간·윤거에 맞췄습니다. 메시의 센서·스크린 세부 외형은 기존 자산을 따르며, 장치별 Pro 장착 상태를 새로 실측한 모델은 아닙니다. 재생성 도구는 `tools/build_limo_model.py`, 원본 해시와 변환 정보는 `assets/limo_pro_model.json`에 있습니다. 운동은 기존 드라이버의 속도·곡률 적분을 따르는 평면 Ackermann 모델이며, 서스펜션·타이어 미끄럼·모터 지연·충돌 후 물체 이동·실제 카메라 노출·구조광 결측은 모델링하지 않습니다. 가속도·조향 속도·장애물 세부 위치·표지판 위치는 자료에서 확정할 수 없어 조정 가능한 가정값으로 분리했습니다. 점수 판정은 없습니다.
-
-## 7. ROS 패키지로 빌드하기 (선택)
-
-바로 실행하는 `run.sh`에는 colcon 설치가 필요 없습니다. `ros2 launch`를 쓰려면 활성 Conda 환경에 colcon도 설치하고 **해당 환경의 Python으로 빌드**합니다.
-
-```bash
-conda activate autorace-simul
-python -m pip install colcon-common-extensions
-cd /home/a/2026-AutoRace
-source simul/env.sh
-cd simul
-python -m colcon build --symlink-install
-source install/setup.bash
-ros2 launch limo_parking_sim parking.launch.py
-
-# GUI 없이 실행
-ros2 launch limo_parking_sim parking.launch.py headless:=true
-
-# 주차 단독 어댑터도 실행할 경우에만
-ros2 launch limo_parking_sim parking.launch.py parking_adapter:=true
-```
-
-기존에 시스템 Python으로 빌드한 결과가 있다면 별도 빌드 경로를 사용하세요. 실행 파일의 Python 경로가 빌드 당시 환경을 따릅니다.
-
-## 8. 검증과 문제 해결
-
-```bash
-conda activate autorace-simul
-cd /home/a/2026-AutoRace
-source simul/env.sh
-
-# 모델·토픽 계약·오프스크린 RGB/깊이 검증
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q simul/src/limo_parking_sim/test
-
-# 시뮬레이터를 자체 실행하고 실제 DDS 메시지·제어·서비스 검증 후 종료
-# 별도로 띄운 시뮬레이터가 없는 도메인 144에서 실행
-ROS_DOMAIN_ID=144 python simul/tools/check_ros_topics.py
-
-# 전진/후진/좌우 조향/충돌/90도 진입을 렌더링하고 영상·결과 다시 만들기
-python simul/tools/render_validation.py --output simul/captures/motion-check
-
-# S자 콘 및 7대 장애물 구간의 실제 운동·충돌·렌더링, L/R·신호등 카메라 검증
-python simul/tools/render_missions.py --output simul/captures/missions-check
-
-# 리셋 / 일시정지 / 계속
-ros2 service call /sim/reset std_srvs/srv/Empty '{}'
-ros2 service call /sim/pause std_srvs/srv/SetBool '{data: true}'
-ros2 service call /sim/pause std_srvs/srv/SetBool '{data: false}'
-```
-
-`No module named rclpy`이면 Python 3.10 Conda 환경인지와 `source simul/env.sh` 적용 여부를 확인합니다. `_rclpy_pybind11` 또는 GLIBCXX 오류는 Conda와 시스템 ROS의 ABI/라이브러리 경로를 확인해야 합니다. `check_environment.py`가 읽기 전용으로 모듈 상태를 출력합니다.
-
-검증 명령의 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`은 이 검사와 무관한 시스템 ROS pytest 플러그인을 자동으로 불러오지 않게 합니다. Conda에 `lark` 같은 ROS launch 테스트 전용 패키지를 추가 설치할 필요가 없습니다.
-
-창을 열 수 없으면 `--headless`를 사용합니다. EGL OpenGL 또는 Mesa 소프트웨어 렌더러가 필요합니다. 화면 없이도 실제 센서 렌더링은 계속하므로 카메라를 더미 이미지로 대체하지 않습니다. `eglGraphicsPipe` 뒤에 GPU/Mesa 렌더러가 잡혔다면 기본 EGL display 경고가 있더라도 동작할 수 있습니다.
-
-토픽은 보이는데 `/scan`이 안 들어오면 구독 QoS를 Best Effort로 바꾸세요. 현재 실행 스크립트는 사용자 요청에 따라 `ROS_LOCALHOST_ONLY=1`로 고정하며, 같은 PC의 노드와 통신합니다.
-
-리셋은 차량·속도·충돌 상태를 초기화하고 `/clock`은 계속 증가시킵니다. 깊이 무효 픽셀은 0, 기본 라이다 무효 거리도 0입니다. 토픽명·frame·장착 좌표의 근거와 검증 범위는 [SOURCES.md](docs/SOURCES.md), [VALIDATION.md](docs/VALIDATION.md)를 참고하세요.
+| 차량 치수·운동·센서·토픽 설정 | [limo_pro.yaml](src/limo_parking_sim/config/limo_pro.yaml) |
+| 트랙·미션 시설물·기본 장애물·시작 위치 | [parking_map.yaml](src/limo_parking_sim/config/parking_map.yaml) |
+| 최초 설치·수동 환경 구성 | [SETUP.md](docs/SETUP.md) |
+| 미션 시설물의 세부 배치 | [MISSIONS.md](docs/MISSIONS.md) |
+| 센서 기본값·QoS | [SENSOR_DEFAULTS.md](docs/SENSOR_DEFAULTS.md) |
+| 실차 카메라와의 차이·보정 | [CAMERA_MATCH.md](docs/CAMERA_MATCH.md) |
+| 전체 워크스페이스·토픽 연결 | [architecture.md](../docs/architecture.md) |
