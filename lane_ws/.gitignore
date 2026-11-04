@@ -1,0 +1,15 @@
+build/
+install/
+log/
+.venv/
+.ros-venv/
+**/__pycache__/
+.pytest_cache/
+train/data/
+train/runs/
+train/exports/
+models/
+*.onnx
+*.engine
+*.pt
+*.pth
