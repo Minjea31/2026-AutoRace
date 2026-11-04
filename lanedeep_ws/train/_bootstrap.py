@@ -1,4 +1,4 @@
-"""Allow scripts to run from lane_ws/train before colcon installation."""
+"""Allow scripts to run from lanedeep_ws/train before colcon installation."""
 import sys
 from pathlib import Path
 
