@@ -1,8 +1,23 @@
 version: 1
 obstacles:
+- name: parked_left
+  pose:
+  - 6.360085
+  - 4.270171
+  - 1.5707963267948966
+- name: parked_right
+  pose:
+  - 7.400167
+  - 4.270171
+  - 1.5707963267948966
 - name: parked_inner_left
   pose:
   - 6.360085
+  - 3.649864
+  - 1.5707963267948966
+- name: parked_inner_middle
+  pose:
+  - 6.880126
   - 3.649864
   - 1.5707963267948966
 - name: parked_inner_right
