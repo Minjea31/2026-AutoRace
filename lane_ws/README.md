@@ -15,4 +15,18 @@
 
 미검출은 좌측 인지 결과가 아니므로 `/yolo/LR_sign`의 초기 false를 방향 결정으로 사용하지 않습니다. 유효한 인지 시각·구간 특징·내부 상태로 분기 방향을 선택하고 통과 후 상태를 정리합니다. 미션 command가 없으면 mux는 `/mission/lane`을 기본 출력으로 선택합니다.
 
-현재는 인터페이스와 폴더 구조를 정리한 상태이며, `src/init.txt`는 빈 src 디렉터리 유지용입니다. 전체 설계는 [architecture.md](../docs/architecture.md)를 참고합니다.
+전체 설계는 [architecture.md](../docs/architecture.md)를 참고합니다.
+
+## 현재 사용 가능한 패키지: `autorace_lane_lite` (차선 검출)
+
+카메라 영상으로 차선을 검출해 `/lane_lite/target`을 발행합니다. GUI 없이 실행되며, **주행 명령(`/mission/lane`)은 아직 발행하지 않습니다**(제어기 미포함). 갈림길·`/current_lane`·`/yolo/LR_sign`도 아직 반영하지 않았습니다.
+
+```bash
+cd lane_ws && source /opt/ros/humble/setup.bash
+PYTHONNOUSERSITE=1 colcon build --packages-select autorace_lane_lite --cmake-args -DCMAKE_BUILD_TYPE=Release
+# 시뮬(./simul.sh 실행 중)에서
+source ../simul/ros_env.sh && source install/setup.bash
+ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim use_sim_time:=true
+```
+
+자세한 실행 방법·토픽·설정은 [autorace_lane_lite/README.md](src/autorace_lane_lite/README.md)를 참고합니다.
