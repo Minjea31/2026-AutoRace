@@ -23,13 +23,16 @@ class SignalState:
         self.reset_confirmation()
 
     def tick(self, now):
-        if self.stopping and now-self.started_at >= self.max_wait:
+        if self.stopping and now >= self.started_at+self.max_wait:
             self.release('red wait timeout')
         if self.last_received is not None and now-self.last_received > self.gap:
             self.reset_confirmation()
 
     def receive(self, green, now):
         self.tick(now)
+        if self.stopping and not green:
+            # Once stopped, a single red restarts the full waiting period.
+            self.started_at = now
         if self.candidate != green:
             self.candidate, self.count = green, 0
         self.last_received = now

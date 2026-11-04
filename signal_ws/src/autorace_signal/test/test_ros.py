@@ -160,3 +160,32 @@ def test_timeout_stops_publishing_and_requires_five_new_reds():
         assert h.signal.state.stopping
     finally:
         h.close()
+
+
+def test_single_red_extends_stop_past_original_timeout_and_mux_returns_to_lane():
+    h = Harness(max_wait=.8)
+    try:
+        h.lane_enabled = True
+        h.pump(.3)
+        assert h.outputs[-1].linear.x == pytest.approx(.3)
+        h.light(False, 5)
+        first_stop = h.signal.state.started_at
+        h.pump(.3)
+        h.light(False, 1)
+        refreshed = h.signal.state.started_at
+        assert refreshed > first_stop
+        h.pump(.5)
+        # The initial deadline passed, but the single new red must keep both
+        # the signal publisher and mux stopped until the renewed deadline.
+        assert time.monotonic()-first_stop > .8
+        assert h.signal.state.stopping
+        assert h.outputs[-1].linear.x == 0.
+        assert h.commands[-1].drive.steering_angle == pytest.approx(.12)
+        h.pump(.4)
+        assert not h.signal.state.stopping
+        count = len(h.commands)
+        h.pump(.35)
+        assert len(h.commands) == count
+        assert h.outputs[-1].linear.x == pytest.approx(.3)
+    finally:
+        h.close()

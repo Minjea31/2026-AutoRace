@@ -1,4 +1,4 @@
-"""Stop on confirmed red, release on confirmed green or maximum wait."""
+"""Stop on confirmed red; release on confirmed green or a red-free timeout."""
 import copy
 import math
 import time
@@ -16,7 +16,7 @@ from .core import SignalState
 
 # Tune here; launch does not override these defaults. Restart after changes.
 CONFIRM_FRAMES = 5
-MAX_RED_WAIT_SEC = 10.0
+MAX_RED_WAIT_SEC = 10.0  # Restarted by every red received while stopping.
 SIGNAL_GAP_TIMEOUT_SEC = 0.5
 PUBLISH_RATE_HZ = 30.0
 LANE_TIMEOUT_SEC = 0.25
@@ -49,7 +49,7 @@ class SignalNode(Node):
         self.lane_sub = self.create_subscription(AckermannDriveStamped, '/mission/lane', self.on_lane, qos)
         self.steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self.timer = self.create_timer(1/self.publish_rate_hz, self.publish, clock=self.steady_clock)
-        self.get_logger().info(f'Signal ready: confirm={self.confirm_frames}, max red wait={self.max_red_wait_sec}s')
+        self.get_logger().info(f'Signal ready: confirm={self.confirm_frames}, red inactivity timeout={self.max_red_wait_sec}s')
 
     def ros_now(self):
         now = self.get_clock().now().nanoseconds
