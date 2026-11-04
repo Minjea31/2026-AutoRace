@@ -17,17 +17,16 @@
 
 전체 설계는 [architecture.md](../docs/architecture.md)를 참고합니다.
 
-## 현재 사용 가능한 패키지: `autorace_lane_lite` (단일 차로 기본 주행)
+## 현재 사용 가능한 패키지: `autorace_lane_lite` (차선 검출)
 
-카메라 영상으로 차선을 검출하고 Pure Pursuit로 `/mission/lane`을 발행합니다. GUI 없이 실행됩니다. 갈림길·`/current_lane`·`/yolo/LR_sign`은 아직 반영하지 않았습니다.
+카메라 영상으로 차선을 검출해 `/lane_lite/target`을 발행합니다. GUI 없이 실행되며, **주행 명령(`/mission/lane`)은 아직 발행하지 않습니다**(제어기 미포함). 갈림길·`/current_lane`·`/yolo/LR_sign`도 아직 반영하지 않았습니다.
 
 ```bash
 cd lane_ws && source /opt/ros/humble/setup.bash
 PYTHONNOUSERSITE=1 colcon build --packages-select autorace_lane_lite --cmake-args -DCMAKE_BUILD_TYPE=Release
 # 시뮬(./simul.sh 실행 중)에서
 source ../simul/ros_env.sh && source install/setup.bash
-ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim use_sim_time:=true \
-  controller:=true enable_vehicle_output:=true
+ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim use_sim_time:=true
 ```
 
 자세한 실행 방법·토픽·설정은 [autorace_lane_lite/README.md](src/autorace_lane_lite/README.md)를 참고합니다.
