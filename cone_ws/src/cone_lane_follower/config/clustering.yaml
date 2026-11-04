@@ -1,0 +1,7 @@
+cone_lane_roi:
+  ros__parameters:
+    cluster_threshold: 0.10
+    min_cluster_points: 2
+    max_cluster_width: 0.28
+    cluster_point_size: 0.05
+    cone_center_size: 0.08
