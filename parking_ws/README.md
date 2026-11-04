@@ -2,13 +2,13 @@
 
 `/yolo/parking_sign`을 연속 **3회 true**로 받으면 주차를 시작합니다. **미션 시작 시 차량 오른쪽에 주차 차량과 빈 칸이 있는 배치**를 사용합니다. 직진한 뒤 우회전해 전진 주차하고, 시뮬레이션 시간으로 3초 정지한 다음 **진입할 때 기록한 회전 구간을 그대로 후진**합니다. 회전 시작점 부근에서 멈추며 초기 출발점까지 돌아가지 않습니다.
 
-아래는 **시뮬레이터와 주차 노드를 ros2 launch, 어댑터 창을 ros2 run으로 실행**하는 절차입니다. 장애물 편집과 전체 시뮬레이터 기능은 [simul README](../simul/README.md)를 참고하세요.
+아래는 **시뮬레이터와 주차 노드를 ros2 launch, 어댑터 창을 `simul` 폴더에서 `./adapter`로 실행**하는 절차입니다. 장애물 편집과 전체 시뮬레이터 기능은 [simul README](../simul/README.md)를 참고하세요.
 
 ## 1. 환경 설정과 최초 빌드
 
 Ubuntu 22.04 / ROS 2 Humble 기준입니다. Conda와 시스템 ROS가 설치되어 있어야 합니다. 시뮬레이터는 Conda `autorace-simul`의 Python 3.10, 주차 패키지는 시스템 `/usr/bin/python3`으로 빌드합니다.
 
-**환경 파일은 각 터미널에서 source로 적용합니다.** `./env.sh`는 부모 터미널의 환경을 바꾸지 못합니다. 모든 명령은 저장소 루트 `~/2026-AutoRace` 기준입니다.
+**환경 파일은 각 터미널에서 source로 적용합니다.** `./env.sh`는 부모 터미널의 환경을 바꾸지 못합니다. 각 명령 블록의 `cd` 경로에서 실행하며, 어댑터는 `~/2026-AutoRace/simul` 폴더에서 실행합니다.
 
 ### 시뮬레이터 패키지 빌드
 
@@ -74,21 +74,19 @@ ros2 launch autorace_parking parking.launch.py use_sim_time:=true rviz:=true
 ### 터미널 3 — simul 공용 어댑터 창
 
 ~~~bash
-cd ~/2026-AutoRace
-source simul/env.sh
-source simul/install/local_setup.bash
-ros2 run limo_parking_sim mission_sim_adapter
+cd ~/2026-AutoRace/simul
+source env.sh
+./adapter
 ~~~
 
-`simul/adapter.sh`와 같은 공용 어댑터 창입니다. **주차 (parking)** 행의 **/mission/parking/command_03을 ON**으로 켜고, 주차 단독 시험에서는 나머지 입력을 OFF로 둡니다. 처음에는 모두 OFF입니다. 창과 실행 터미널을 유지하세요.
+`./adapter`는 기존 `adapter.sh`를 실행하므로 어댑터용 colcon 빌드나 `source install/local_setup.bash`가 필요 없습니다. **주차 (parking)** 행의 **/mission/parking/command_03을 ON**으로 켜고, 주차 단독 시험에서는 나머지 입력을 OFF로 둡니다. 처음에는 모두 OFF입니다. 창과 실행 터미널을 유지하세요.
 
 어댑터는 주차 노드의 `AckermannDriveStamped`를 시뮬레이터의 `/cmd_vel` (`Twist`)로 변환합니다. 출력 토픽이 `/cmd_vel`인지 확인하고, 같은 토픽을 발행하는 기존 mux나 다른 어댑터는 종료합니다.
 
-창 없이 주차 입력만 연결하려면 위 ros2 run 대신 실행합니다.
+창 없이 주차 입력만 연결하려면 같은 `simul` 폴더에서 위 GUI 실행 대신 사용합니다.
 
 ~~~bash
-ros2 run limo_parking_sim mission_sim_adapter \
-  --no-gui --topic /mission/parking/command_03
+./adapter --no-gui --topic /mission/parking/command_03
 ~~~
 
 ### 터미널 4 — 주차 시작 신호
