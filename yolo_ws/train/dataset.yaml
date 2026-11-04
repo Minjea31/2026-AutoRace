@@ -1,0 +1,14 @@
+# Split paths are relative to this YAML file's directory.
+train: dataset/train/images
+val: dataset/valid/images
+test: dataset/test/images
+
+nc: 6
+names: ['bump', 'crosswalk', 'left', 'parking', 'right', 'slow']
+
+roboflow:
+  workspace: clothoid-ryhpb
+  project: autorace-pehs7
+  version: 1
+  license: MIT
+  url: https://universe.roboflow.com/clothoid-ryhpb/autorace-pehs7/dataset/1

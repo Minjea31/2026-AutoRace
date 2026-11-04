@@ -7,3 +7,7 @@
 /parking_ws/**/__pycache__/
 /parking_ws/.pytest_cache/
 /parking_ws/captures/
+# Local agent instructions
+AGENTS.md
+Agent.md
+

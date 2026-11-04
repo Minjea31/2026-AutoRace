@@ -266,7 +266,7 @@
     "target": "slow_ws",
     "topics": [
       {
-        "name": "/yolo/slow_sign",
+        "name": "/yolo/bump_sign",
         "type": "std_msgs/msg/Bool"
       }
     ],
@@ -275,12 +275,12 @@
   },
   {
     "page": "전체 흐름",
-    "id": "yolo-zigzag-to-slow",
+    "id": "yolo-slow-to-slow",
     "source": "yolo_ws",
     "target": "slow_ws",
     "topics": [
       {
-        "name": "/yolo/zigzag",
+        "name": "/yolo/slow_sign",
         "type": "std_msgs/msg/Bool"
       }
     ],
