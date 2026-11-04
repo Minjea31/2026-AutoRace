@@ -6,6 +6,49 @@ from limo_parking_sim.config import load_config
 from limo_parking_sim.model import Simulation
 
 
+def test_low_traffic_light_dimensions_and_sensor_colour_switch():
+    from limo_parking_sim.scene import Scene
+    cfg = load_config()
+    cfg['simulation']['spawn'] = cfg['world']['spawns']['signal']
+    model = Simulation(cfg)
+    scene = Scene(cfg, model, headless=True)
+    try:
+        root = scene.render.find('**/traffic_light')
+        lo, hi = root.getTightBounds(root)
+        assert hi.y-lo.y == pytest.approx(.12, abs=1e-6)
+        assert lo.z == pytest.approx(0, abs=1e-6)
+        assert hi.z == pytest.approx(.255, abs=1e-6)
+        lo, hi = root.find('housing').getTightBounds(root)
+        assert lo.z == pytest.approx(.05, abs=1e-6)
+        assert hi.z-lo.z == pytest.approx(.205, abs=1e-6)
+        # Sensor/collision boxes must use the same low stand and brackets.
+        for box in (b for b in model.obstacles if b.name.startswith('traffic_light_')):
+            lo, hi = root.find(box.name.removeprefix('traffic_light_')).getTightBounds(scene.render)
+            assert (lo.z, hi.z) == pytest.approx((box.zmin, box.zmax), abs=1e-6)
+            assert (lo.x, lo.y) == pytest.approx(box.corners().min(axis=0), abs=1e-6)
+            assert (hi.x, hi.y) == pytest.approx(box.corners().max(axis=0), abs=1e-6)
+        colours = []
+        depths = []
+        for state in ('red', 'yellow', 'green'):
+            scene.set_traffic(state)
+            assert scene.traffic_state == state
+            scene.render_frame({'color', 'depth'})
+            colours.append(scene.color_image())
+            depths.append(scene.depth_image())
+        for before, after in zip(colours, colours[1:]):
+            assert np.count_nonzero(np.max(np.abs(before.astype(float)-after), axis=2) > 32) > 20
+        assert np.array_equal(depths[0], depths[1])
+        assert np.array_equal(depths[0], depths[2])
+        # At sensor height the lowered housing, rather than the old tall post,
+        # must now intersect the centre lidar ray.
+        model.x, model.y, model.yaw = 2.45, 4.49, 0.
+        scan = model.scan()
+        index = np.argmin(np.abs(model.angles))
+        assert scan[index] == pytest.approx(3.17-.035/2-2.45-.103, abs=.002)
+    finally:
+        scene.close()
+
+
 def test_rendered_depth_rgb_orientation_and_camera_frame():
     from limo_parking_sim.scene import Scene
     cfg = load_config()

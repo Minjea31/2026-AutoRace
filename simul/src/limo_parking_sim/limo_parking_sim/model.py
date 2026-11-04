@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
-from .world import boundary_walls, cones, signs
+from .world import boundary_walls, cones, signs, traffic_light_parts
 
 
 def wrap(angle):
@@ -112,6 +112,12 @@ def make_obstacles(cfg):
         item=world.get(key)
         if item:
             x,y,yaw=item['pose']
+            if key=='traffic_light':
+                c,s=math.cos(yaw),math.sin(yaw)
+                for name,(px,py,pz),(length,width,height) in traffic_light_parts(item):
+                    boxes.append(Box(key+'_'+name,x+c*px-s*py,y+s*px+c*py,yaw,
+                                     length,width,pz-height/2,pz+height/2))
+                continue
             bottom=item['center_height']-item['height']/2
             boxes += [Box(key+'_post',x,y,yaw,.018,.018,0,bottom),
                       Box(key+'_panel',x,y,yaw,thickness,item['width'],bottom,bottom+item['height'])]
