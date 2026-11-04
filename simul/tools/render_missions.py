@@ -144,7 +144,7 @@ def main():
         model.x,model.y,model.yaw=cfg['world']['spawns']['slow']
         camera_pose((3.20,4.70,1.6),(3.10,5.58,0))
         still.append(capture('slow-signs-and-bump',save=True))
-        camera_pose((2.53,5.89,.155),(3.05,5.89,.155))
+        camera_pose((5.68,4.52,.155),(6.20,4.52,.155))
         capture('sign-size-closeup',save=True)
         sheet=Image.new('RGB',(1536,1920))
         for i,im in enumerate(still):
