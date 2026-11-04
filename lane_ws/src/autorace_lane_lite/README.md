@@ -4,22 +4,25 @@
 
 ## 실행 (GUI 없음, 시뮬)
 
+모든 명령은 **저장소 루트(clone한 `2026-AutoRace` 폴더)**에서 실행합니다.
+
 ```bash
 # 빌드 (한 번)
-cd ~/2026-AutoRace/lane_ws          # 각자 clone 위치
+cd lane_ws
 source /opt/ros/humble/setup.bash
 sudo apt install ros-humble-cv-bridge libopencv-dev libyaml-cpp-dev  # 없을 때만
 PYTHONNOUSERSITE=1 colcon build --packages-select autorace_lane_lite --cmake-args -DCMAKE_BUILD_TYPE=Release
+cd ..
 
 # 터미널 1: 시뮬
-cd ~/2026-AutoRace && ./simul.sh
+./simul.sh
 
 # 터미널 2: 차선 인식
-source ~/2026-AutoRace/simul/ros_env.sh
-source ~/2026-AutoRace/lane_ws/install/setup.bash
+source simul/ros_env.sh
+source lane_ws/install/setup.bash
 ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim use_sim_time:=true
 
-# 확인
+# 터미널 3: 확인 (같은 두 줄 source 후)
 ros2 topic echo /lane_lite/target
 ros2 run rqt_image_view rqt_image_view /lane_lite/debug   # 검출 결과 영상(선택)
 ```
