@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: autorace-mux
+Version: 0.1.0
+Summary: Priority mux with lane fallback and /cmd_vel output.
+Home-page: UNKNOWN
+Maintainer: wego
+Maintainer-email: wego@example.com
+License: Apache-2.0
+Platform: UNKNOWN
+
+UNKNOWN
+

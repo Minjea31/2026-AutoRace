@@ -1,0 +1,3 @@
+[console_scripts]
+mux_node = autorace_mux.node:main
+
