@@ -95,7 +95,7 @@ class Harness:
         self.context.shutdown()
 
 
-def test_dds_historical_steering_is_frozen_and_bump_uses_latest_lane():
+def test_dds_slow_steering_is_zero_and_bump_uses_latest_lane():
     h = Harness()
     try:
         h.lane_enabled = True
@@ -106,18 +106,15 @@ def test_dds_historical_steering_is_frozen_and_bump_uses_latest_lane():
         h.detect('slow', 2)
         assert not h.commands
         h.detect('slow', 1)
-        assert h.node.frozen_angle == pytest.approx(.05)
         h.pump(.15)
         assert h.commands[-1].drive.speed == pytest.approx(.2)
-        assert h.commands[-1].drive.steering_angle == pytest.approx(.05)
+        assert h.commands[-1].drive.steering_angle == 0.
         assert h.outputs[-1].linear.x == pytest.approx(.2)
         h.angle = .24
         h.pump(.12)
-        frozen = h.node.frozen_angle
         h.detect('slow', 1)
         h.pump(.06)
-        assert h.node.frozen_angle == frozen
-        assert h.commands[-1].drive.steering_angle == pytest.approx(.05)
+        assert h.commands[-1].drive.steering_angle == 0.
         h.detect('bump')
         h.pump(.06)
         message = h.commands[-1]
@@ -162,18 +159,15 @@ def test_renewal_expiry_with_system_mux_or_paused_sim_clock(sim):
         h.close()
 
 
-def test_missing_stale_invalid_lane_and_history_wait_are_neutral_stops():
+def test_missing_stale_invalid_lane_stops_and_first_fresh_lane_moves_straight():
     h = Harness()
     try:
         h.detect('slow')
         h.pump(.06)
         assert h.commands[-1].drive.speed == 0.
         h.lane_enabled = True
-        h.pump(.06)
-        assert h.node.frozen_angle is None
-        h.pump(.15)
+        h.pump(.08)
         assert h.commands[-1].drive.speed == pytest.approx(.2)
-        assert h.node.frozen_angle == pytest.approx(.05)
         h.lane_enabled = False
         h.pump(.3)
         assert h.commands[-1].drive.speed == h.commands[-1].drive.steering_angle == 0.

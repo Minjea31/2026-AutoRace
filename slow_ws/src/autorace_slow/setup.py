@@ -10,7 +10,7 @@ setup(
     ],
     install_requires=['setuptools'], zip_safe=True,
     maintainer='Minjea31', maintainer_email='kimminjea31@naver.com',
-    description='Renewable slow missions with lane steering history.',
+    description='Straight slow missions and lane-following speed bump control.',
     license='Apache-2.0',
     entry_points={'console_scripts': ['slow_node = autorace_slow.node:main']},
 )

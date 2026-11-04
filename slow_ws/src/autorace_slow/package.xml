@@ -2,7 +2,7 @@
 <package format="3">
   <name>autorace_slow</name>
   <version>0.1.0</version>
-  <description>Renewable slow missions with lane steering history.</description>
+  <description>Straight slow missions and lane-following speed bump control.</description>
   <maintainer email="kimminjea31@naver.com">Minjea31</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_python</buildtool_depend>
