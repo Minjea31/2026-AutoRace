@@ -41,7 +41,6 @@ sign:
   pose: [6.20, 4.52, 3.141592653589793]  # beside the y=4.570 white line
 signs:
   - {name: speed_bump_sign, asset: speed-bump.png, pose: [2.50, 5.89, 3.141592653589793]}
-  - {name: slow_sign, asset: slow.png, pose: [3.05, 5.89, 3.141592653589793]}
   - {name: zigzag_slow_sign, asset: slow.png, pose: [9.27, 4.46, 1.5707963267948966]}
   - {name: pedestrian_sign, asset: pedestrian.png, pose: [9.27, 2.54, 1.5707963267948966]}
 fork:

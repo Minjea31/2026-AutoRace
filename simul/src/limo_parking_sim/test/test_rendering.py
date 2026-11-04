@@ -156,7 +156,7 @@ def test_rendered_depth_rgb_orientation_and_camera_frame():
         lo,hi = scene.ego.getTightBounds()
         assert tuple(hi-lo)==pytest.approx((.322,.220,.251),abs=.004)
         assert scene.render.find('**/goal-debug').isEmpty()
-        sign=scene.render.find('**/slow_sign')
+        sign=scene.render.find('**/parking_sign')
         lo,hi=sign.getTightBounds(scene.render)
         assert hi.z==pytest.approx(.20,abs=1e-6)
         assert lo.z==pytest.approx(0,abs=1e-6)
