@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>autorace_lane_lite</name><version>0.1.0</version>
+  <description>Compact sliding-window lane perception, separate pure-pursuit controller, and the reused Qt tuner.</description>
+  <maintainer email="alstjd5571@cbnu.ac.kr">AutoRace team</maintainer><license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend><depend>sensor_msgs</depend><depend>std_msgs</depend>
+  <depend>ackermann_msgs</depend><depend>cv_bridge</depend><depend>rosbag2_cpp</depend>
+  <depend>rosbag2_storage</depend><depend>yaml-cpp</depend><depend>libopencv-dev</depend>
+  <depend>qtbase5-dev</depend><exec_depend>launch_ros</exec_depend>
+  <exec_depend>rosbag2_storage_default_plugins</exec_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

@@ -1,0 +1,15 @@
+# Controller ROS parameters for the REAL car (pure pursuit). Not edited by the
+# lane GUI; change live with: ros2 param set /lane_lite_controller speed 0.3
+lane_lite_controller:
+  ros__parameters:
+    wheelbase: 0.20
+    axle_offset: 0.10
+    speed: 0.25
+    max_steering: 0.45
+    steering_rate: 2.0
+    heading_gain: 0.0
+    steering_slowdown: 1.0
+    confidence_stop: 0.10
+    confidence_full: 0.5
+    acceleration: 0.5
+    timeout: 0.3
