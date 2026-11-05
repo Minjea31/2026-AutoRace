@@ -5,7 +5,7 @@
 | [`autorace_lane_lite`](src/autorace_lane_lite/README.md) | 차선 인식 전용. `/camera/color/image_raw/compressed` → `/lane_lite/target`. 인식 튜너 `lane_lite_tuner` |
 | [`autorace_lane_pid`](src/autorace_lane_pid/README.md) | 오차 기반 PID 제어. `/lane_lite/target` → `/mission/lane`. PID 튜너 `lane_pid_tuner` |
 
-인식과 제어는 노드, 설정 파일, 튜너 창이 모두 따로 있습니다. 차선 튜너에는 제어 파라미터가 없고, PID 튜너에는 인식 파라미터가 없습니다.
+**실행 방법은 [RUN.md](RUN.md)에 정리돼 있습니다.** 인식과 제어는 노드, 설정 파일, 튜너 창이 모두 따로 있습니다. 차선 튜너에는 제어 파라미터가 없고, PID 튜너에는 인식 파라미터가 없습니다.
 
 ## 명령어 모음 (복사해서 쓰기)
 
@@ -20,28 +20,44 @@ source /opt/ros/humble/setup.bash
 PYTHONNOUSERSITE=1 colcon build --packages-select autorace_lane_lite autorace_lane_pid --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
+### 실차에서 주행 (`ros2 launch`)
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/2026-AutoRace/lane_ws/install/setup.bash
+
+# 인식 + 제어 한 번에 (/mission/lane 발행 → mux가 차량으로 전달)
+ros2 launch autorace_lane_pid lane_pid.launch.py profile:=real
+
+# 또는 따로 띄우기
+ros2 launch autorace_lane_lite lane_lite.launch.py profile:=real           # 차선 인식
+ros2 launch autorace_lane_pid lane_pid.launch.py profile:=real lane:=false # PID 제어만
+```
+
+- 실차(`profile:=real`)에서는 PID 튜너 창이 기본으로 안 뜹니다(ssh에는 화면이 없음). 노트북에서 `ros2 run autorace_lane_pid lane_pid_tuner --profile real`로 띄웁니다.
+- 실차 PID(`config/real/pid.yaml`)는 폐루프 검증 전 값입니다(0.15 m/s). 노트북 PID 창의 **■ 주행 정지** 상태에서 mux를 켜고, 인식을 확인한 뒤 출발하세요.
+
 ### 시뮬에서 주행 (터미널 3개)
 
 ```bash
-cd ~/2026-AutoRace && ./simul.sh                                   # 1: 시뮬
-cd ~/2026-AutoRace && ./lane_ws/lane.sh sim                        # 2: 인식 + PID + PID 튜너 창
+cd ~/2026-AutoRace && ./simul.sh                                          # 1: 시뮬
+source ~/2026-AutoRace/simul/ros_env.sh                                   # 2: 시뮬 DDS 도메인(42) 먼저
+source ~/2026-AutoRace/lane_ws/install/setup.bash
+ros2 launch autorace_lane_pid lane_pid.launch.py profile:=sim             #    인식 + PID + PID 튜너 창
 cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane   # 3: /mission/lane -> 시뮬 차량
 ```
 
-### 실차에서 주행
+`lane_ws/lane.sh sim|real`, `simul/lane.sh`는 위 `ros2 launch`를 대신 실행해 주는 단축 스크립트입니다(그대로 동작).
 
-```bash
-cd ~/2026-AutoRace && ./lane_ws/lane.sh real      # 인식 + PID, /mission/lane 발행 (mux가 차량으로 전달)
-```
+### 자주 쓰는 launch 인자
 
-> 실차 PID(`config/real/pid.yaml`)는 아직 검증 전 시작값(0.15 m/s)입니다. PID 창의 **■ 주행 정지** 상태에서 시작해 인식을 확인한 뒤 출발하세요.
-
-### 자주 쓰는 옵션 (`lane.sh` 뒤에 붙임)
-
-| 옵션 | 의미 |
+| 인자 | 의미 |
 | --- | --- |
+| `profile:=sim` / `profile:=real` | 인식·제어 설정 폴더와 `use_sim_time`을 함께 선택 |
+| `lane:=false` | 인식 노드 없이 PID 제어만 |
 | `lane_gui:=true` | 차선 인식 튜너 창도 같이 열기 |
-| `gui:=false` | PID 튜너 창 없이 |
+| `gui:=true` / `gui:=false` | PID 튜너 창 열기/닫기 (기본: sim 켬, real 끔) |
+| `enable_vehicle_output:=false` | `/mission/lane` 대신 `/lane_pid/command` 미리보기만 발행 (기본 true) |
 | `image_topic:=/다른/토픽` | 카메라 토픽 변경 (`CompressedImage`) |
 
 ### 인식만 확인 (차는 안 움직임)
@@ -78,10 +94,8 @@ ros2 run autorace_lane_lite lane_lite_eval <bag 폴더> src/autorace_lane_lite/c
 두 패키지 모두 `config/sim/`과 `config/real/`을 따로 두고, **`profile` 인자 하나**로 인식·제어 설정과 `use_sim_time`을 같이 바꿉니다.
 
 ```bash
-cd ~/2026-AutoRace/lane_ws
-./lane.sh sim    # 시뮬: 인식 sim + PID sim, use_sim_time, 시뮬 DDS 도메인
-./lane.sh real   # 실차: 인식 real + PID real (실차 PID는 미검증 시작값, 속도 0.15 m/s)
-# 직접: ros2 launch autorace_lane_pid lane_pid.launch.py profile:=real enable_vehicle_output:=true
+ros2 launch autorace_lane_pid lane_pid.launch.py profile:=sim    # 시뮬: use_sim_time (먼저 source simul/ros_env.sh)
+ros2 launch autorace_lane_pid lane_pid.launch.py profile:=real   # 실차
 ```
 
 ## 토픽
@@ -90,7 +104,7 @@ cd ~/2026-AutoRace/lane_ws
 | --- | --- | --- | --- |
 | 구독 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 카메라 입력. 실차(Orbbec)와 시뮬이 같은 토픽에 JPEG로 발행 |
 | 내부 | `/lane_lite/target` | `std_msgs/msg/Float32MultiArray` | 인식 결과(횡오차·헤딩·곡률·신뢰도) |
-| 발행 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 기본 주행 명령. `enable_vehicle_output:=true`일 때만 발행 |
+| 발행 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 기본 주행 명령. 기본 발행(`enable_vehicle_output:=false`면 안 함) |
 | 발행 | `/lane_pid/command`, `/lane_pid/state` | | 제어 미리보기·상태(튜너 창 표시용) |
 
 카메라 입력은 `CompressedImage` 전용입니다. 토픽 이름을 바꿔야 할 때만 `image_topic:=/다른/토픽`을 지정합니다.
@@ -145,7 +159,7 @@ ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim gui:=true
 
 `ros2 topic`/`ros2 run` 명령은 위 두 `source`를 한 터미널에서 실행해야 시뮬 토픽이 보입니다.
 
-확인이 끝나면 `Ctrl+C`로 종료하고 3단계로 넘어갑니다. 3단계의 `lane.sh`가 인식 노드를 다시 함께 띄웁니다.
+확인이 끝나면 `Ctrl+C`로 종료하고 3단계로 넘어갑니다. 3단계의 launch가 인식 노드를 다시 함께 띄웁니다.
 
 ### 3. 제어 (터미널 2, 3)
 
@@ -153,9 +167,10 @@ ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim gui:=true
 
 ```bash
 cd ~/2026-AutoRace
-./simul/lane.sh                     # 인식 + PID, /mission/lane 발행 (= lane_ws/lane.sh sim)
-# ./simul/lane.sh lane_gui:=true    # 차선 튜너 창도 같이
-# ./simul/lane.sh gui:=false        # PID 튜너 창 없이
+source simul/ros_env.sh && source lane_ws/install/setup.bash
+ros2 launch autorace_lane_pid lane_pid.launch.py profile:=sim                  # 인식 + PID, /mission/lane 발행
+# ros2 launch autorace_lane_pid lane_pid.launch.py profile:=sim lane_gui:=true # 차선 튜너 창도 같이
+# ros2 launch autorace_lane_pid lane_pid.launch.py profile:=sim gui:=false     # PID 튜너 창 없이
 ```
 
 **터미널 3: `/mission/lane`을 시뮬 차량(`/cmd_vel`)으로 전달**
@@ -171,7 +186,7 @@ cd ~/2026-AutoRace
 - **■ 주행 정지 / ▶ 주행 시작** 버튼으로 차를 세우거나 다시 출발시킵니다.
 - **Save YAML**로 저장하면 `src/autorace_lane_pid/config/sim/pid.yaml`(실차는 `config/real/pid.yaml`)에 기록됩니다. 다음 실행부터 반영하려면 0단계 빌드를 다시 합니다.
 
-mux를 거쳐 다른 미션과 함께 돌릴 때는 터미널 3 대신 mux를 실행합니다. 이 경우에도 `/mission/lane`은 `lane.sh` 하나만 발행해야 합니다.
+mux를 거쳐 다른 미션과 함께 돌릴 때는 터미널 3 대신 mux를 실행합니다. 이 경우에도 `/mission/lane`은 이 launch 하나만 발행해야 합니다.
 
 ### 종료
 
@@ -181,7 +196,7 @@ mux를 거쳐 다른 미션과 함께 돌릴 때는 터미널 3 대신 mux를 �
 
 | 증상 | 확인 |
 | --- | --- |
-| `lane.sh`가 "먼저 colcon build…"를 출력 | 0단계 빌드를 안 했거나 실패함 |
+| `Package 'autorace_lane_pid' not found` | 0단계 빌드를 안 했거나 실패함, 또는 그 터미널에서 `source lane_ws/install/setup.bash`를 안 함 |
 | `/lane_lite/target` 첫 값이 계속 `0` | 시뮬이 떠 있는지, 1단계 `topic hz`로 카메라가 나오는지 확인 |
 | 인식은 되는데 차가 안 움직임 | 터미널 3(`adapter.sh`)을 실행했는지, PID 창이 "주행 정지" 상태인지 확인 |
 | `ros2 topic list`에 시뮬 토픽이 안 보임 | 그 터미널에서 `source ~/2026-AutoRace/simul/ros_env.sh`를 안 함 (시뮬은 `ROS_DOMAIN_ID=42`, localhost 전용) |

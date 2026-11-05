@@ -1,6 +1,6 @@
 # autorace_lane_pid — 오차 기반 PID 차로 유지 (시뮬 / 실차)
 
-`autorace_lane_lite`가 발행하는 `/lane_lite/target`(차선 인식 결과)에서 오차를 만들고 PID로 조향합니다. **인식과 완전히 분리된 패키지**이며, 제어 파라미터는 전용 튜너 창 `lane_pid_tuner`에서만 조절합니다(차선 튜너 `lane_lite_tuner`에는 나오지 않음). 설정은 `config/sim/pid.yaml`(시뮬, 폐루프 검증)과 `config/real/pid.yaml`(실차, 시뮬 값에서 속도만 0.15 m/s로 낮춘 **미검증 시작값**)로 나뉩니다.
+`autorace_lane_lite`가 발행하는 `/lane_lite/target`(차선 인식 결과)에서 오차를 만들고 PID로 조향합니다. **인식과 완전히 분리된 패키지**이며, 제어 파라미터는 전용 튜너 창 `lane_pid_tuner`에서만 조절합니다(차선 튜너 `lane_lite_tuner`에는 나오지 않음). 설정은 `config/sim/pid.yaml`(시뮬, 폐루프 검증)과 `config/real/pid.yaml`(실차, 0.15 m/s, bag 기반으로 커브 게인을 올린 **폐루프 미검증 값**)로 나뉩니다.
 
 ## sim / real 전환
 
@@ -11,35 +11,32 @@
 | 인식 | `autorace_lane_lite/config/sim/lane.yaml` | `autorace_lane_lite/config/real/lane.yaml` |
 | 제어 | `config/sim/pid.yaml` | `config/real/pid.yaml` |
 | `use_sim_time` | true | false |
-| ROS 환경 (`lane_ws/lane.sh`) | `simul/ros_env.sh`(DDS 도메인 42) | `/opt/ros/humble` 기본 |
+| PID 튜너 창 기본값 (`gui`) | 켬 | 끔 (ssh에는 화면이 없음, 노트북에서 실행) |
+| 먼저 source할 ROS 환경 | `simul/ros_env.sh` (DDS 도메인 42) | `/opt/ros/humble/setup.bash` |
+
+## 실행 (`ros2 launch`)
 
 ```bash
-cd ~/2026-AutoRace/lane_ws
-./lane.sh sim                 # 시뮬 (= ../simul/lane.sh)
-./lane.sh real                # 실차: /mission/lane 발행 → mux가 차량으로 전달
-./lane.sh real lane_gui:=true # 인자는 ros2 launch로 그대로 전달
-```
-
-PID 튜너도 `ros2 run autorace_lane_pid lane_pid_tuner --profile real`처럼 프로필을 고르며, Save YAML은 그 프로필의 소스 파일에 저장합니다.
-
-## 실행
-
-```bash
+# 빌드
 cd ~/2026-AutoRace/lane_ws
 source /opt/ros/humble/setup.bash
 PYTHONNOUSERSITE=1 colcon build --packages-select autorace_lane_lite autorace_lane_pid --cmake-args -DCMAKE_BUILD_TYPE=Release
 
-# 터미널 1: 시뮬
+# 실차: 인식 + 제어 (/mission/lane 발행 → mux가 차량으로 전달)
+source /opt/ros/humble/setup.bash && source ~/2026-AutoRace/lane_ws/install/setup.bash
+ros2 launch autorace_lane_pid lane_pid.launch.py profile:=real
+#   따로 띄우기: ros2 launch autorace_lane_lite lane_lite.launch.py profile:=real
+#               ros2 launch autorace_lane_pid lane_pid.launch.py profile:=real lane:=false
+#   노트북 PID 창: ros2 run autorace_lane_pid lane_pid_tuner --profile real
+
+# 시뮬 (터미널 3개)
 cd ~/2026-AutoRace && ./simul.sh
-# 터미널 2: 인식 + PID 제어(/mission/lane 발행) + PID 튜너 창
-cd ~/2026-AutoRace && ./simul/lane.sh
-#   차선 튜너 창도 띄우기:   ./simul/lane.sh lane_gui:=true
-#   PID 창 없이:             ./simul/lane.sh gui:=false
-# 터미널 3: /mission/lane -> /cmd_vel
+source ~/2026-AutoRace/simul/ros_env.sh && source ~/2026-AutoRace/lane_ws/install/setup.bash
+ros2 launch autorace_lane_pid lane_pid.launch.py profile:=sim     # + PID 튜너 창 (lane_gui:=true면 차선 튜너도)
 cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane
 ```
 
-직접 launch할 때는 `ros2 launch autorace_lane_pid lane_pid.launch.py profile:=sim enable_vehicle_output:=true`입니다(기본 `profile:=sim`, `enable_vehicle_output:=false`이면 `/lane_pid/command`만 발행). 튜너만 따로: `ros2 run autorace_lane_pid lane_pid_tuner [--profile real]`.
+`/mission/lane`은 기본으로 발행합니다(`enable_vehicle_output:=false`면 `/lane_pid/command` 미리보기만). `lane_ws/lane.sh sim|real`, `simul/lane.sh`는 같은 launch를 실행하는 단축 스크립트로 남겨 두었습니다. PID 튜너의 Save YAML은 `--profile`에 맞는 소스 파일에 저장합니다.
 
 ## 제어 방식
 
@@ -68,7 +65,7 @@ e = lateral_weight·가까운 점 횡오차 + heading_weight·가까운 점 헤�
 | --- | --- | --- |
 | 구독 | `/lane_lite/target` | `Float32MultiArray`, `autorace_lane_lite` README 참고 |
 | 발행 | `/lane_pid/command` | `AckermannDriveStamped` 미리보기, 50 Hz |
-| 발행 | `/mission/lane` | `enable_vehicle_output:=true`일 때만, 같은 명령 |
+| 발행 | `/mission/lane` | 같은 명령. 기본 발행(`enable_vehicle_output:=false`면 안 함) |
 | 발행 | `/lane_pid/state` | `[tracking, e, P, I, D, FF, 목표 조향, 출력 조향, 속도, 가까운 횡오차, 가까운 헤딩, 곡률, 신뢰도, 데이터 나이, active, 목표점 횡오차]` |
 
 CLI로도 바꿀 수 있습니다: `ros2 param set /lane_pid_controller kp 0.5` (모두 double).

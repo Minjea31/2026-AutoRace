@@ -1,5 +1,12 @@
-# Lane PID controller (REAL CAR). Starting point copied from config/sim with
-# lower speed; NOT validated on the car yet. Tune with:
+# Lane PID controller (REAL CAR). NOT closed-loop validated on the car yet.
+# 2026-11-05: kp 0.4 -> 1.0, lateral_weight 0.5 -> 0.3, heading_weight 0.10 -> 0.15,
+#   kd 0.06 -> 0.12.
+#   The real BEV puts the target ~0.68 m ahead (sim ~1.2 m), so the sim gains
+#   steered only ~55-65 % of the arc through the target on the curve frames of
+#   the 2026-11-04 slow/fast bags (median 0.15 rad vs 0.29 needed). These gains
+#   reach the 0.40 rad limit on about half of the curve frames, so a higher kp
+#   no longer adds steering (straight |steer| 90th percentile 0.034 -> 0.077 rad).
+#   Tune with:
 #   ros2 launch autorace_lane_pid lane_pid.launch.py profile:=real
 # (lane_pid_tuner Save YAML writes back here; rebuild to install it).
 # Note: lane_lite real bev_near_m / bev_far_m are still placeholders, so
@@ -8,15 +15,15 @@
 # steer = kp*e + ki*int(e) + kd*de/dt + ff
 lane_pid_controller:
   ros__parameters:
-    lateral_weight: 0.5
-    heading_weight: 0.1
+    lateral_weight: 0.3
+    heading_weight: 0.15
     lookahead_weight: 1.0
     lateral_rate_limit: 0.6
     heading_rate_limit: 2.0
     error_deadband: 0.0
-    kp: 0.4
+    kp: 1.0
     ki: 0.0
-    kd: 0.06
+    kd: 0.12
     d_filter_tau: 0.05
     integral_limit: 0.2
     curvature_ff: 0.0

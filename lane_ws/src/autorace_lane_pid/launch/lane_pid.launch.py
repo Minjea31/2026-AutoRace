@@ -5,11 +5,19 @@ profile:=sim | real switches BOTH configs at once:
   autorace_lane_pid/config/<profile>/pid.yaml    (control)
 and the use_sim_time default (true for sim, false for real).
 
+Run directly with ros2 launch (no wrapper script needed):
+  ros2 launch autorace_lane_pid lane_pid.launch.py profile:=real          # perception + PID
+  ros2 launch autorace_lane_pid lane_pid.launch.py profile:=real lane:=false   # PID only
+  (sim: source simul/ros_env.sh first so the simulator DDS domain is used)
+
 Two separate windows (both optional):
   lane_gui:=true  lane_lite_tuner  - perception parameters only
-  gui:=true       lane_pid_tuner   - PID / speed parameters only (default on)
-The controller always publishes /lane_pid/command; /mission/lane only with
-enable_vehicle_output:=true (then run simul/adapter.sh or the mux).
+  gui:=true       lane_pid_tuner   - PID / speed parameters only
+                  (default: on for sim, off for real - the car has no display
+                   over ssh; run the tuner on the laptop instead)
+/mission/lane is published by default (enable_vehicle_output:=true); the mux
+(real) or simul/adapter.sh (sim) forwards it to the vehicle. Pass
+enable_vehicle_output:=false to only publish the /lane_pid/command preview.
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -37,10 +45,12 @@ def generate_launch_description():
             [lane_share, 'config', profile, 'lane.yaml'])),
         DeclareLaunchArgument('image_topic', default_value='/camera/color/image_raw/compressed'),
         DeclareLaunchArgument('lane_gui', default_value='false', description='open lane_lite_tuner'),
-        DeclareLaunchArgument('gui', default_value='true', description='open lane_pid_tuner'),
+        DeclareLaunchArgument('gui', default_value=PythonExpression(
+            ["'true' if '", profile, "' == 'sim' else 'false'"]), description='open lane_pid_tuner'),
         DeclareLaunchArgument('use_sim_time', default_value=PythonExpression(
             ["'true' if '", profile, "' == 'sim' else 'false'"])),
-        DeclareLaunchArgument('enable_vehicle_output', default_value='false'),
+        DeclareLaunchArgument('enable_vehicle_output', default_value='true',
+                              description='publish /mission/lane (false = /lane_pid/command preview only)'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([lane_share, 'launch', 'lane_lite.launch.py'])),
             condition=IfCondition(arg('lane')),
