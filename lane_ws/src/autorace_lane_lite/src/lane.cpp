@@ -40,6 +40,9 @@ const std::vector<Spec> &specs() {
       {"bev_bottom_right", "ROI·BEV", "BEV 아래 오른쪽 x(화면 밖 가능)", 1.62, 0, 3, .001},
       {"white_max_width", "색상",
        "이보다 두꺼운 흰 덩어리(BEV px) 제거: 횡단보도 블록·노면 글자. 0=끔", 0, 0, 120, 1},
+      {"white_max_length", "색상",
+       "이보다 긴 흰 선(BEV px, 덩어리의 긴 변)은 실선으로 보고 제거해 흰 점선만 남김. 0=끔",
+       0, 0, 2000, 1},
       {"line_width_max", "Sliding Window",
        "BEV에서 차선 띠의 최대 두께(px). Top-hat 크기와 윈도우 안 띠 폭", 40, 4, 120, 1},
       {"min_area", "Sliding Window", "BEV 특징 연결요소 최소 면적(px²)", 60, 0, 3000, 1},
@@ -54,7 +57,7 @@ const std::vector<Spec> &specs() {
       {"lane_width_px", "차로·추적", "BEV에서 좌우 경계 사이 차로 폭(px)", 320, 40, 1200, 1},
       {"width_tolerance", "차로·추적", "차로 폭 허용 오차 비율", .35, .05, .9, .01},
       {"max_angle_deg", "차로·추적",
-       "좌우 경계 방향 차이 허용치(도). 넘으면 평행하지 않은 쪽(횡단보도·정지선 조각) 제외",
+       "좌우 경계 방향 차이 허용치(도). 넘으면 평행하지 않은 쪽(횡단보도·정지선 조각) 제외. 노랑+노랑 쌍에는 적용 안 함(급커브)",
        30, 5, 90, 1},
       {"role_by_color", "차로·추적",
        "1=노랑은 왼쪽·흰색은 오른쪽 경계로 고정, 0=위치·폭으로 판단", 0, 0, 1, 1},
@@ -530,6 +533,18 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
     cv::dilate(thick, thick, cv::getStructuringElement(cv::MORPH_RECT, {7, 7}));
     white &= ~thick;
   }
+  // Only the white DASHED lines are lane boundaries; long continuous white
+  // lines (outer road edge, neighbouring road) are removed by their length.
+  if (const double limit = c["white_max_length"]; limit > 0) {
+    std::vector<std::vector<cv::Point>> parts;
+    cv::findContours(white.clone(), parts, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    for (const auto &part : parts)
+      if (part.size() >= 2) {
+        const auto box = cv::minAreaRect(part).size;
+        if (std::max(box.width, box.height) > limit)
+          cv::drawContours(white, std::vector<std::vector<cv::Point>>{part}, 0, 0, cv::FILLED);
+      }
+  }
   if (!c["yellow_enabled"])
     yellow.setTo(0);
   if (!c["white_enabled"])
@@ -736,9 +751,13 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
       ws.push_back((r.right.path.front() - r.left.path.front())
                        .dot(rightOf(tangent(r.left.path, 0))));
     const auto [mn, mx] = std::minmax_element(ws.begin(), ws.end());
+    // The angle test targets white crosswalk / stop-line fragments. Two
+    // yellow boundaries in a tight bend legitimately differ by >30 deg in
+    // BEV (the inner line turns faster), so a yellow pair is width-checked only.
     const float angle = angleBetween(r.left.path, r.right.path);
+    const bool yellow_pair = r.left.yellow && r.right.yellow;
     const bool bad_width = *mn < width_ * (1 - tol) || *mx > width_ * (1 + tol);
-    if (bad_width || angle > c["max_angle_deg"]) {
+    if (bad_width || (!yellow_pair && angle > c["max_angle_deg"])) {
       // Drop the side that disagrees more with its own track; without
       // tracks, the one with fewer observed windows. A white line lying
       // across the road always goes first; then the shorter of a crossing
@@ -746,6 +765,10 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
       auto disagreement = [&](int side) {
         if (crossing(side) && !crossing(1 - side))
           return 1e9;
+        // An angle-only failure of a yellow/white pair: the white one is the
+        // stop-line / crosswalk fragment this test exists for.
+        if (!bad_width && lines[side]->yellow != lines[1 - side]->yellow)
+          return lines[side]->yellow ? 0. : 1e8;
         if (!bad_width)
           return 1e6 - lines[side]->observed;
         const double d = prior[side].empty()

@@ -137,6 +137,44 @@ TEST(LaneLite, ThickDashesSurviveWhiteMaxWidth) {
     EXPECT_NEAR(r.target_x, 320, 15) << i;
   }
 }
+TEST(LaneLite, SolidWhiteIsIgnoredDashedWhiteKept) {
+  // Only white DASHED lines are lane boundaries: a continuous white line
+  // (outer road edge) is removed by white_max_length, dashes stay.
+  auto c = identity();
+  c.values["white_max_length"] = 320;
+  lane_lite::Pipeline solid(c), dashed(c);
+  lane_lite::Result rs, rd;
+  for (int i = 0; i < 5; ++i) {
+    rs = solid.process(scene(170, 300), i * .05); // full-height white line
+    cv::Mat img = scene(170, 300, true, false);
+    for (int y = 479 + (i * 23) % 140; y > -80; y -= 140)
+      cv::line(img, {470, y}, {470 + 4, y - 80}, cv::Scalar(240, 240, 240), 14);
+    rd = dashed.process(img, i * .05);
+  }
+  ASSERT_TRUE(rs.valid);
+  EXPECT_EQ(rs.state, "left only");
+  EXPECT_NEAR(rs.target_x, 330, 12); // still centred from the yellow line
+  ASSERT_TRUE(rd.valid);
+  EXPECT_EQ(rd.state, "both");
+}
+TEST(LaneLite, YellowPairSkipsAngleLimitWhitePairDoesNot) {
+  // In a tight bend the two yellow boundaries are not parallel in BEV; the
+  // angle test (meant for white crosswalk / stop-line fragments) must not
+  // drop the inner one. A white right line with the same shape is dropped.
+  auto c = identity();
+  c.values["max_angle_deg"] = 5;
+  for (const bool white : {false, true}) {
+    lane_lite::Pipeline p(c);
+    cv::Mat img = scene(170, 300, true, false);
+    cv::line(img, {470, 479}, {560, 0},
+             white ? cv::Scalar(240, 240, 240) : cv::Scalar(0, 200, 230), 14);
+    lane_lite::Result r;
+    for (int i = 0; i < 5; ++i)
+      r = p.process(img, i * .05);
+    ASSERT_TRUE(r.valid) << white;
+    EXPECT_EQ(r.state, white ? "left only" : "both") << white;
+  }
+}
 TEST(LaneLite, ConfigRoundTrip) {
   auto c = identity();
   c.values["margin"] = 61;

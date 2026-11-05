@@ -22,6 +22,12 @@ lane_lite:
   # above the 3-lane white dashes (~30 px thick here, camera blur included):
   # 24 erased them. 44 chosen on the 2026-11-04 dark/fast/slow bags.
   white_max_width: 44
+  # Only white DASHED lines are boundaries on this track: continuous white
+  # lines (outer road edge, neighbouring road) longer than this in BEV are
+  # removed. 3-lane dashes (0.20 m) are ~170-220 px here; the outer solid
+  # white beside the yellow curve was ~600 px (2026-11-04 ctrack bag #1530,
+  # where the old config tracked it as the left boundary).
+  white_max_length: 320
   roi_top: 0.55
   roi_bottom: 1.0
   roi_left: 0.0
