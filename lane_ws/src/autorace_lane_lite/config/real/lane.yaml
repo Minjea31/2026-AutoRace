@@ -1,0 +1,53 @@
+# REAL CAR ONLY. Tune with: lane_lite_tuner --profile real --bag <bag>
+# (Save YAML writes back to this source file; rebuild to install it).
+# BEV from the 2026-11-04 tuner session on lane_1104_ctrack/lane_20261104_192410.
+# lane_width_px measured on that bag: both-boundary separation median ~470 px
+# (the old 240 px made the right line fail the width check and put the
+# centre line at a quarter of the road).
+# bev_near_m / bev_far_m are PLACEHOLDERS: measure the ground distance from
+# base_link to the BEV bottom/top rows before closed-loop driving.
+lane_lite:
+  width: 640
+  height: 480
+  yellow_enabled: 1
+  yellow_h_min: 15
+  yellow_h_max: 40
+  yellow_s_min: 80
+  yellow_v_min: 80
+  white_enabled: 1
+  white_s_max: 70
+  white_v_min: 120
+  white_tophat: 30
+  # Removes crosswalk stripes / road text (~50 px thick in this BEV; lines ~15 px).
+  # Chosen on the 2026-11-04 dark/fast/slow/super_dark bags.
+  white_max_width: 24
+  roi_top: 0.55
+  roi_bottom: 1.0
+  roi_left: 0.0
+  roi_right: 1.0
+  bev_top_y: 0.558
+  bev_bottom_y: 0.989
+  bev_top_left: 0.304
+  bev_top_right: 0.684
+  bev_bottom_left: -0.304
+  bev_bottom_right: 1.232
+  line_width_max: 40
+  min_area: 60
+  windows: 12
+  margin: 50
+  min_pixels: 30
+  max_misses: 3
+  min_windows: 3
+  max_residual: 10
+  histogram_start: 0.5
+  lane_width_px: 470
+  width_tolerance: 0.35
+  role_by_color: 0
+  vehicle_center_u: 0.5
+  lookahead_row: 0.55
+  smoothing: 0.6
+  track_jump_px: 60
+  track_memory: 0.5
+  lane_width_m: 0.55
+  bev_near_m: 0.25
+  bev_far_m: 1.2
