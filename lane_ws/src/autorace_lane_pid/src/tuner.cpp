@@ -375,19 +375,25 @@ private:
 } // namespace
 
 int main(int argc, char **argv) {
-  std::string config = std::string(LANE_PID_SOURCE_DIR) + "/config/sim/pid.yaml", screenshot;
+  std::string config, profile = "sim", screenshot;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (a == "--help") {
-      std::cout << "lane_pid_tuner [--config pid.yaml] [--screenshot PNG]\n"
-                   "  Edits /lane_pid_controller parameters live. Default file: " << config << '\n';
+      std::cout << "lane_pid_tuner [--profile sim|real] [--config pid.yaml] [--screenshot PNG]\n"
+                   "  Edits /lane_pid_controller parameters live.\n"
+                   "  --profile NAME loads config/NAME/pid.yaml from the package source tree "
+                   "(default sim); --config overrides it.\n";
       return 0;
     }
     if (a == "--config" && i + 1 < argc)
       config = argv[++i];
+    else if (a == "--profile" && i + 1 < argc)
+      profile = argv[++i];
     else if (a == "--screenshot" && i + 1 < argc)
       screenshot = argv[++i];
   }
+  if (config.empty())
+    config = std::string(LANE_PID_SOURCE_DIR) + "/config/" + profile + "/pid.yaml";
   rclcpp::init(argc, argv);
   QApplication app(argc, argv);
   auto node = std::make_shared<rclcpp::Node>("lane_pid_tuner");

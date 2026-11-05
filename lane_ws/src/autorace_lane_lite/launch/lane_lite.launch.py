@@ -1,12 +1,12 @@
 """lane_lite perception (+ optional perception tuner GUI). No control here.
 
 profile:=sim | real picks config/<profile>/lane.yaml (sim and real are tuned
-separately). Steering/speed come from the separate autorace_lane_pid package.
+separately) and the use_sim_time default (true for sim). Steering/speed come from the separate autorace_lane_pid package.
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -17,12 +17,14 @@ def generate_launch_description():
     arg = LaunchConfiguration
     sim_time = ParameterValue(arg('use_sim_time'), value_type=bool)
     return LaunchDescription([
-        DeclareLaunchArgument('profile', default_value='real', description='sim | real (config/<profile>/)'),
+        DeclareLaunchArgument('profile', default_value='sim', choices=['sim', 'real'],
+                              description='sim | real (config/<profile>/)'),
         DeclareLaunchArgument('config_file',
                               default_value=PathJoinSubstitution([share, 'config', arg('profile'), 'lane.yaml'])),
         DeclareLaunchArgument('image_topic', default_value='/camera/color/image_raw/compressed',
                               description='sensor_msgs/CompressedImage (JPEG)'),
-        DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument('use_sim_time', default_value=PythonExpression(
+            ["'true' if '", arg('profile'), "' == 'sim' else 'false'"])),
         DeclareLaunchArgument('gui', default_value='false', description='true opens lane_lite_tuner'),
         Node(package='autorace_lane_lite', executable='lane_lite_node', output='screen',
              parameters=[{'config_file': arg('config_file'), 'image_topic': arg('image_topic'),

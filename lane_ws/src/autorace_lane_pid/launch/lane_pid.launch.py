@@ -1,4 +1,9 @@
-"""Simulator lane keeping: lane_lite perception + error-based PID controller.
+"""Lane keeping: lane_lite perception + error-based PID controller.
+
+profile:=sim | real switches BOTH configs at once:
+  autorace_lane_lite/config/<profile>/lane.yaml  (perception)
+  autorace_lane_pid/config/<profile>/pid.yaml    (control)
+and the use_sim_time default (true for sim, false for real).
 
 Two separate windows (both optional):
   lane_gui:=true  lane_lite_tuner  - perception parameters only
@@ -10,7 +15,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -18,24 +23,29 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     share = FindPackageShare('autorace_lane_pid')
+    lane_share = FindPackageShare('autorace_lane_lite')
     arg = LaunchConfiguration
+    profile = arg('profile')
     sim_time = ParameterValue(arg('use_sim_time'), value_type=bool)
     return LaunchDescription([
+        DeclareLaunchArgument('profile', default_value='sim', choices=['sim', 'real'],
+                              description='sim | real: picks config/<profile>/ of both packages'),
         DeclareLaunchArgument('pid_config',
-                              default_value=PathJoinSubstitution([share, 'config', 'sim', 'pid.yaml'])),
-        DeclareLaunchArgument('lane', default_value='true',
-                              description='also start lane_lite_node (profile sim)'),
+                              default_value=PathJoinSubstitution([share, 'config', profile, 'pid.yaml'])),
+        DeclareLaunchArgument('lane', default_value='true', description='also start lane_lite_node'),
         DeclareLaunchArgument('lane_config', default_value=PathJoinSubstitution(
-            [FindPackageShare('autorace_lane_lite'), 'config', 'sim', 'lane.yaml'])),
+            [lane_share, 'config', profile, 'lane.yaml'])),
+        DeclareLaunchArgument('image_topic', default_value='/camera/color/image_raw/compressed'),
         DeclareLaunchArgument('lane_gui', default_value='false', description='open lane_lite_tuner'),
         DeclareLaunchArgument('gui', default_value='true', description='open lane_pid_tuner'),
-        DeclareLaunchArgument('use_sim_time', default_value='true'),
+        DeclareLaunchArgument('use_sim_time', default_value=PythonExpression(
+            ["'true' if '", profile, "' == 'sim' else 'false'"])),
         DeclareLaunchArgument('enable_vehicle_output', default_value='false'),
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution(
-                [FindPackageShare('autorace_lane_lite'), 'launch', 'lane_lite.launch.py'])),
+            PythonLaunchDescriptionSource(PathJoinSubstitution([lane_share, 'launch', 'lane_lite.launch.py'])),
             condition=IfCondition(arg('lane')),
-            launch_arguments={'profile': 'sim', 'config_file': arg('lane_config'),
+            launch_arguments={'profile': profile, 'config_file': arg('lane_config'),
+                              'image_topic': arg('image_topic'),
                               'use_sim_time': arg('use_sim_time'), 'gui': arg('lane_gui')}.items()),
         Node(package='autorace_lane_pid', executable='lane_pid_controller', output='screen',
              parameters=[arg('pid_config'), {

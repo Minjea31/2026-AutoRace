@@ -18,7 +18,7 @@ cd ~/2026-AutoRace && ./simul/lane.sh            # 차선 튜너 창도 함께: 
 cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane
 ```
 
-- **차선 검출만** 필요하면 `ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim use_sim_time:=true`로 실행하고 `/lane_lite/target`만 구독합니다.
+- **차선 검출만** 필요하면 `ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim`(실차는 `profile:=real`)으로 실행하고 `/lane_lite/target`만 구독합니다.
 - 검출 결과 영상 확인(선택): `ros2 run rqt_image_view rqt_image_view /lane_lite/debug`
 - Qt5/rosbag2가 없는 PC에서는 튜너·eval이 자동으로 빠지고 `lane_lite_node`만 빌드됩니다.
 
@@ -60,7 +60,7 @@ config/
     └── lane.yaml             2026-11-04 bag(lane_20261104_192410) BEV, lane_width_px 470
 ```
 
-- launch와 튜너 모두 `profile`(sim / real)로 폴더를 고릅니다. 한쪽을 튜닝해도 다른 쪽은 바뀌지 않습니다.
+- launch와 튜너 모두 `profile`(sim / real)로 폴더를 고릅니다. 한쪽을 튜닝해도 다른 쪽은 바뀌지 않습니다. launch 기본값은 `profile:=sim`이고, `use_sim_time`은 profile에 따라 자동(sim=true, real=false)입니다. 제어 패키지 `autorace_lane_pid`도 같은 `profile` 인자를 씁니다.
 - 튜너를 `--profile`로 열면 **Save YAML의 기본 저장 위치가 해당 프로필의 소스 파일**(`src/autorace_lane_lite/config/<profile>/lane.yaml`)입니다. install 폴더로 열어도 소스 경로로 저장합니다. 창 제목에 현재 파일이 표시됩니다. 저장 후 다시 빌드해야 launch(설치 경로)에 반영됩니다. 실행 중인 노드에는 **Apply to running lane_lite_node**로 바로 적용할 수 있습니다.
 - `real/lane.yaml`의 **`bev_near_m`/`bev_far_m`는 자리표시값**입니다. 실차 폐루프 전에 실측해야 합니다.
 - 코드 기본값(YAML 없이 실행할 때)은 시뮬 값과 같습니다(`lane_width_px` 240 등). 실차는 반드시 `--profile real`로 엽니다.
@@ -77,7 +77,7 @@ cd ~/2026-AutoRace/lane_ws
 source /opt/ros/humble/setup.bash
 PYTHONNOUSERSITE=1 colcon build --packages-select autorace_lane_lite --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
-./build/autorace_lane_lite/test_lane          # 합성 영상 단위 테스트 10개
+./build/autorace_lane_lite/test_lane          # 합성 영상 단위 테스트 11개
 ```
 
 ## 인식 튜너 GUI
@@ -123,18 +123,19 @@ ros2 launch autorace_lane_lite lane_lite.launch.py profile:=real
 # 다른 터미널: ros2 run rqt_image_view rqt_image_view /lane_lite/debug
 ```
 
-`real/lane.yaml`의 `bev_near_m`/`bev_far_m`는 실측 전 자리표시값입니다. 실차 제어기는 아직 없습니다(`autorace_lane_pid`는 시뮬 전용 설정).
+`real/lane.yaml`의 `bev_near_m`/`bev_far_m`는 실측 전 자리표시값입니다. 실차 제어는 `lane_ws/lane.sh real`(인식 + `autorace_lane_pid` `config/real/pid.yaml`)로 실행하며 아직 검증하지 않았습니다.
 
 ## 검증 결과 (2026-11-04, 이 PC)
 
-- **횡단보도·정지선 안정화(2026-11-05)**, 2026-11-04 실차 bag `dark`/`fast`(`real/lane.yaml`, `white_max_width: 24`). 횡단보도 구간(dark 620–780·1540–1620, fast 410–580·1430–1560 프레임)에서 프레임 간 변화 횟수, 수정 전 → 후:
+- **횡단보도·정지선 안정화(2026-11-05)**, 2026-11-04 실차 bag `dark`/`fast`(`real/lane.yaml`, `white_max_width: 44`). 횡단보도 구간(dark 620–780·1540–1620, fast 410–580·1430–1560 프레임)에서 프레임 간 변화 횟수, 수정 전 → 후:
 
   | bag | \|near_heading\|>0.35 | \|heading\|>0.5 | near_lateral Δ>3 cm | near_heading Δ>0.2 | lateral Δ>3 cm |
   | --- | --- | --- | --- | --- | --- |
-  | dark | 5 → 1 | 18 → 6 | 11 → 9 | 12 → 8 | 9 → 6 |
-  | fast | 27 → 13 | 27 → 18 | 37 → 26 | 40 → 15 | 28 → 11 |
+  | dark | 5 → 0 | 18 → 4 | 11 → 6 | 12 → 2 | 9 → 1 |
+  | fast | 27 → 20 | 27 → 17 | 37 → 22 | 40 → 18 | 28 → 9 |
 
-  bag 전체 lateral >5 cm 점프: dark 159→148, fast 164→150, slow 228→193, super_dark 65→68, lane_20261104_192410 683→392. 유효율은 같은 수준(이 bag 끝의 카메라가 도로를 보지 않는 구간만 98.5→96.7 %). 남은 튐은 대부분 지그재그 노란 선·"천천히" 글자·라바콘 구간입니다.
+  bag 전체 lateral >5 cm 점프: dark 159→166, fast 164→151, slow 228→215, super_dark 65→70, lane_20261104_192410 683→650. 유효율은 같은 수준(lane_20261104_192410 끝의 카메라가 도로를 보지 않는 구간만 98.5→97.3 %). 남은 튐은 대부분 지그재그 노란 선·"천천히" 글자·라바콘 구간입니다.
+- `white_max_width`는 **3차선 흰 점선 두께(실차 BEV 약 30 px)보다 커야** 합니다. 24로 두면 점선이 지워져 dark 3차선 구간(930–1140) 검출이 198→133 프레임으로 떨어졌고, 44에서 183(양쪽 경계 80→78)으로 회복했습니다. BEV를 바꾸면 점선·블록 두께를 다시 보고 그 사이 값으로 맞춥니다.
 
 - 2026-11-04 bag `lane_20261104_192410` 5051프레임(`real/lane.yaml`): `lane_width_px` 240 → 470으로 양쪽 경계 5% → 48%, 흰 가로선 채택 제거. 직진·횡단보도·정지선·3차선 점선 구간은 양쪽 경계로 도로 중앙을 냄. 나머지 단일 경계 구간은 급커브·라바콘·손으로 든 장면.
 - 이전 bag 3311프레임(수동 주행, 차선 밖·벽 장면 포함, 당시 BEV 기준): 유효 99.5%, 양쪽 경계 66%, CV 평균 7.6 ms. 같은 BEV를 준 legacy는 유효 80%·정지 23%·CV 19 ms. 유광 바닥의 넓은 반사광이 일부 남아 단일 경계 구간에서 횡오차가 튀는 프레임(>5 cm)이 약 5% 있습니다.

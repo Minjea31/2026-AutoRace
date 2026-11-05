@@ -104,7 +104,7 @@ Config Config::load(const std::string &path, const std::string &node) {
 void Config::save(const std::string &path, const std::string &node) const {
   validate();
   std::ofstream f(path);
-  f << "# Lane PID controller (SIMULATOR). Written by lane_pid_tuner.\n"
+  f << "# Lane PID controller (config/sim = simulator, config/real = real car). Written by lane_pid_tuner.\n"
        "# e = lateral_weight*near_lateral + heading_weight*near_heading + lookahead_weight*lateral\n# "
        "steer = kp*e + ki*int(e) + kd*de/dt + ff\n";
   YAML::Emitter e;

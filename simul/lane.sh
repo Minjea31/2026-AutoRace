@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Simulator lane keeping: lane_lite perception + error-based PID (autorace_lane_pid).
+# Same as lane_ws/lane.sh sim (kept for the --lane-camera option).
 # Opens the PID tuner window; add lane_gui:=true for the separate lane tuner.
 # --lane-camera uses the lane-camera (pitch 0.35) perception profile.
 set -eo pipefail
@@ -16,4 +17,4 @@ if [[ ! -f "$_autorace_lane_root/lane_ws/install/autorace_lane_pid/share/autorac
 fi
 source "$_autorace_lane_root/lane_ws/install/setup.bash"
 exec /opt/ros/humble/bin/ros2 launch autorace_lane_pid lane_pid.launch.py \
-  use_sim_time:=true enable_vehicle_output:=true "${_autorace_lane_args[@]}" "$@"
+  profile:=sim enable_vehicle_output:=true "${_autorace_lane_args[@]}" "$@"

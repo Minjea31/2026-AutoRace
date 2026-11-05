@@ -7,6 +7,17 @@
 
 인식과 제어는 노드, 설정 파일, 튜너 창이 모두 따로 있습니다. 차선 튜너에는 제어 파라미터가 없고, PID 튜너에는 인식 파라미터가 없습니다.
 
+## 시뮬 / 실차 전환
+
+두 패키지 모두 `config/sim/`과 `config/real/`을 따로 두고, **`profile` 인자 하나**로 인식·제어 설정과 `use_sim_time`을 같이 바꿉니다.
+
+```bash
+cd ~/2026-AutoRace/lane_ws
+./lane.sh sim    # 시뮬: 인식 sim + PID sim, use_sim_time, 시뮬 DDS 도메인
+./lane.sh real   # 실차: 인식 real + PID real (실차 PID는 미검증 시작값, 속도 0.15 m/s)
+# 직접: ros2 launch autorace_lane_pid lane_pid.launch.py profile:=real enable_vehicle_output:=true
+```
+
 ## 토픽
 
 | 방향 | 토픽 | 타입 | 의미 |
@@ -59,7 +70,7 @@ cd ~/2026-AutoRace
 ```bash
 cd ~/2026-AutoRace/lane_ws
 source ../simul/ros_env.sh && source install/setup.bash   # 시뮬과 같은 DDS 도메인(42) 사용
-ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim use_sim_time:=true gui:=true
+ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim gui:=true
 ```
 
 - `gui:=true`이면 차선 튜너 창(`lane_lite_tuner`)이 함께 뜹니다. ROI·BEV·색상 등 인식 값을 여기서 조절합니다.
@@ -76,7 +87,7 @@ ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim use_sim_time:=tr
 
 ```bash
 cd ~/2026-AutoRace
-./simul/lane.sh                     # 인식 + PID, /mission/lane 발행
+./simul/lane.sh                     # 인식 + PID, /mission/lane 발행 (= lane_ws/lane.sh sim)
 # ./simul/lane.sh lane_gui:=true    # 차선 튜너 창도 같이
 # ./simul/lane.sh gui:=false        # PID 튜너 창 없이
 ```
@@ -92,7 +103,7 @@ cd ~/2026-AutoRace
 
 - 게인·속도 슬라이더를 움직이면 주행 중인 제어기에 바로 적용됩니다.
 - **■ 주행 정지 / ▶ 주행 시작** 버튼으로 차를 세우거나 다시 출발시킵니다.
-- **Save YAML**로 저장하면 `src/autorace_lane_pid/config/sim/pid.yaml`에 기록됩니다. 다음 실행부터 반영하려면 0단계 빌드를 다시 합니다.
+- **Save YAML**로 저장하면 `src/autorace_lane_pid/config/sim/pid.yaml`(실차는 `config/real/pid.yaml`)에 기록됩니다. 다음 실행부터 반영하려면 0단계 빌드를 다시 합니다.
 
 mux를 거쳐 다른 미션과 함께 돌릴 때는 터미널 3 대신 mux를 실행합니다. 이 경우에도 `/mission/lane`은 `lane.sh` 하나만 발행해야 합니다.
 

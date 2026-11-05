@@ -18,9 +18,10 @@ lane_lite:
   white_s_max: 70
   white_v_min: 120
   white_tophat: 30
-  # Removes crosswalk stripes / road text (~50 px thick in this BEV; lines ~15 px).
-  # Chosen on the 2026-11-04 dark/fast/slow/super_dark bags.
-  white_max_width: 24
+  # Removes crosswalk stripes / road text (~50 px thick in this BEV). Must stay
+  # above the 3-lane white dashes (~30 px thick here, camera blur included):
+  # 24 erased them. 44 chosen on the 2026-11-04 dark/fast/slow bags.
+  white_max_width: 44
   roi_top: 0.55
   roi_bottom: 1.0
   roi_left: 0.0
