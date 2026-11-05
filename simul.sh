@@ -10,6 +10,15 @@ if [[ -n "${CONDA_PREFIX:-}" ]] && "$CONDA_PREFIX/bin/python" -c \
     exec "$_autorace_entry_dir/simul/run.sh" "${_autorace_default_args[@]}" "$@"
 fi
 _autorace_conda_exe="${CONDA_EXE:-$(command -v conda || true)}"
+# conda may be installed but not initialised in ~/.bashrc (not on PATH).
+if [[ -z "$_autorace_conda_exe" ]]; then
+    for _autorace_candidate in "$HOME"/{miniforge3,miniconda3,anaconda3,mambaforge}/bin/conda; do
+        if [[ -x "$_autorace_candidate" ]]; then
+            _autorace_conda_exe="$_autorace_candidate"
+            break
+        fi
+    done
+fi
 if [[ -n "$_autorace_conda_exe" ]]; then
     exec "$_autorace_conda_exe" run --no-capture-output -n autorace-simul \
         "$_autorace_entry_dir/simul/run.sh" "${_autorace_default_args[@]}" "$@"
