@@ -7,6 +7,72 @@
 
 인식과 제어는 노드, 설정 파일, 튜너 창이 모두 따로 있습니다. 차선 튜너에는 제어 파라미터가 없고, PID 튜너에는 인식 파라미터가 없습니다.
 
+## 명령어 모음 (복사해서 쓰기)
+
+저장소를 `~/2026-AutoRace`에 clone했다고 가정합니다. 위치가 다르면 경로만 바꿉니다.
+
+### 빌드 (처음 한 번, `git pull`이나 `config/*.yaml` 수정 후 다시)
+
+```bash
+sudo apt install ros-humble-ackermann-msgs ros-humble-cv-bridge libopencv-dev libyaml-cpp-dev qtbase5-dev  # 처음 한 번
+cd ~/2026-AutoRace/lane_ws
+source /opt/ros/humble/setup.bash
+PYTHONNOUSERSITE=1 colcon build --packages-select autorace_lane_lite autorace_lane_pid --cmake-args -DCMAKE_BUILD_TYPE=Release
+```
+
+### 시뮬에서 주행 (터미널 3개)
+
+```bash
+cd ~/2026-AutoRace && ./simul.sh                                   # 1: 시뮬
+cd ~/2026-AutoRace && ./lane_ws/lane.sh sim                        # 2: 인식 + PID + PID 튜너 창
+cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane   # 3: /mission/lane -> 시뮬 차량
+```
+
+### 실차에서 주행
+
+```bash
+cd ~/2026-AutoRace && ./lane_ws/lane.sh real      # 인식 + PID, /mission/lane 발행 (mux가 차량으로 전달)
+```
+
+> 실차 PID(`config/real/pid.yaml`)는 아직 검증 전 시작값(0.15 m/s)입니다. PID 창의 **■ 주행 정지** 상태에서 시작해 인식을 확인한 뒤 출발하세요.
+
+### 자주 쓰는 옵션 (`lane.sh` 뒤에 붙임)
+
+| 옵션 | 의미 |
+| --- | --- |
+| `lane_gui:=true` | 차선 인식 튜너 창도 같이 열기 |
+| `gui:=false` | PID 튜너 창 없이 |
+| `image_topic:=/다른/토픽` | 카메라 토픽 변경 (`CompressedImage`) |
+
+### 인식만 확인 (차는 안 움직임)
+
+```bash
+cd ~/2026-AutoRace/lane_ws && source install/setup.bash   # 시뮬이면 먼저: source ../simul/ros_env.sh
+ros2 launch autorace_lane_lite lane_lite.launch.py profile:=real gui:=true   # 시뮬: profile:=sim
+ros2 topic echo /lane_lite/target                         # 첫 값 1 = 차선 잡음
+ros2 run rqt_image_view rqt_image_view /lane_lite/debug   # 검출 영상
+```
+
+### 튜닝
+
+```bash
+cd ~/2026-AutoRace/lane_ws && source install/setup.bash
+ros2 run autorace_lane_lite lane_lite_tuner --profile real                     # 인식 (실행 중인 카메라)
+ros2 run autorace_lane_lite lane_lite_tuner --profile real --bag <bag 폴더>    # 인식 (bag 재생)
+ros2 run autorace_lane_pid lane_pid_tuner --profile real                       # 제어 (실행 중인 제어기)
+```
+
+**Save YAML**은 `src/<패키지>/config/<profile>/`의 소스 파일에 저장합니다. launch에 반영하려면 다시 빌드합니다. 실행 중인 노드에는 저장 없이 바로 적용됩니다.
+
+### bag 일괄 평가 · 테스트
+
+```bash
+cd ~/2026-AutoRace/lane_ws && source install/setup.bash
+ros2 run autorace_lane_lite lane_lite_eval <bag 폴더> src/autorace_lane_lite/config/real/lane.yaml /tmp/lane_eval --every 150
+# /tmp/lane_eval/frames.csv(프레임별 상태·횡오차·탈락 이유) + frame_N.jpg + 요약 1줄
+./build/autorace_lane_lite/test_lane && ./build/autorace_lane_pid/test_pid
+```
+
 ## 시뮬 / 실차 전환
 
 두 패키지 모두 `config/sim/`과 `config/real/`을 따로 두고, **`profile` 인자 하나**로 인식·제어 설정과 `use_sim_time`을 같이 바꿉니다.
