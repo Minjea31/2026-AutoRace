@@ -89,6 +89,54 @@ TEST(LaneLite, DashedBoundaryIsTrackedNearToFar) {
     EXPECT_NEAR(r.target_x, 320, 15) << i;
   }
 }
+TEST(LaneLite, StopLineIsNeverABoundary) {
+  // Yellow left boundary; a white stop line approaches across the lane. The
+  // right side must never lock onto it, also when it creeps in over frames.
+  lane_lite::Pipeline p(identity());
+  for (int i = 0; i < 20; ++i) {
+    cv::Mat img = scene(170, 300, true, false);
+    const int y = 100 + i * 18;
+    cv::line(img, {150, y}, {640, y + 10}, cv::Scalar(240, 240, 240), 14);
+    auto r = p.process(img, i * .05);
+    ASSERT_TRUE(r.valid) << i;
+    EXPECT_NE(r.right.state, lane_lite::LineState::Detected) << i;
+    EXPECT_LT(std::abs(r.heading), .2) << i;
+    EXPECT_LT(std::abs(r.near_heading), .2) << i;
+  }
+}
+TEST(LaneLite, CrosswalkStripesAreRemoved) {
+  // Thick white stripes inside the lane; their long edges must not pair with
+  // a boundary or bend the centre path.
+  auto c = identity();
+  c.values["white_max_width"] = 44;
+  lane_lite::Pipeline p(c);
+  cv::Mat img = scene(170, 300);
+  for (int x = 200; x < 450; x += 90)
+    cv::rectangle(img, {x, 150}, {x + 55, 400}, cv::Scalar(240, 240, 240), cv::FILLED);
+  lane_lite::Result r;
+  for (int i = 0; i < 5; ++i)
+    r = p.process(img, i * .05);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.state, "both");
+  EXPECT_NEAR(r.target_x, 330, 10);
+  EXPECT_LT(std::abs(r.heading), .15);
+}
+TEST(LaneLite, ThickDashesSurviveWhiteMaxWidth) {
+  // Real-car 3-lane dashes are ~30 px thick in BEV; the crosswalk filter
+  // must keep them (white_max_width 24 erased them on the bag).
+  auto c = identity();
+  c.values["white_max_width"] = 44;
+  lane_lite::Pipeline p(c);
+  for (int i = 0; i < 10; ++i) {
+    cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+    for (int y = 479 + (i * 23) % 140; y > -80; y -= 140)
+      cv::line(img, {470, y}, {470, y - 80}, cv::Scalar(240, 240, 240), 30);
+    auto r = p.process(img, i * .05);
+    ASSERT_TRUE(r.valid) << i;
+    EXPECT_EQ(r.state, "right only") << i;
+    EXPECT_NEAR(r.target_x, 320, 15) << i;
+  }
+}
 TEST(LaneLite, ConfigRoundTrip) {
   auto c = identity();
   c.values["margin"] = 61;

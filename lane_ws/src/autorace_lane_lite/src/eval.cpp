@@ -1,6 +1,6 @@
 // Offline bag evaluation: per-frame CSV, summary, and sampled debug images.
 #include "autorace_lane_lite/lane.hpp"
-#include "autorace_lane_single/bag.hpp"
+#include "autorace_lane_lite/bag.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -47,14 +47,14 @@ int main(int argc, char **argv) {
       }
       return 0;
     }
-    lane_single::Bag bag;
+    lane_lite::Bag bag;
     bag.open(bag_path, topic);
     std::ofstream csv;
     if (!out.empty()) {
       std::filesystem::create_directories(out);
       csv.open(out + "/frames.csv");
       csv << "frame,time,state,left,right,valid,lateral_m,heading,lookahead_m,"
-             "confidence,width_px,ms\n";
+             "confidence,width_px,ms,near_lateral_m,near_heading,notes\n";
     }
     size_t n = 0, valid = 0, both = 0, single = 0, held = 0, jumps = 0;
     double ms = 0, worst_ms = 0, jitter = 0, previous = NAN;
@@ -75,12 +75,17 @@ int main(int argc, char **argv) {
         jumps += d > .05;
       }
       previous = r.valid ? r.lateral_m : NAN;
-      if (csv)
+      if (csv.is_open()) {
         csv << i << ',' << frame.time << ',' << r.state << ','
             << lane_lite::name(r.left.state) << ',' << lane_lite::name(r.right.state)
             << ',' << r.valid << ',' << r.lateral_m << ',' << r.heading << ','
             << r.lookahead_m << ',' << r.confidence << ',' << r.lane_width_px
-            << ',' << r.processing_ms << '\n';
+            << ',' << r.processing_ms << ',' << r.near_lateral_m << ','
+            << r.near_heading << ',';
+        for (size_t k = 0; k < r.notes.size(); ++k)
+          csv << (k ? " | " : "") << r.notes[k];
+        csv << '\n';
+      }
       if (!out.empty() && every && i % every == 0) {
         cv::Mat mask, row;
         cv::cvtColor(r.feature_mask, mask, cv::COLOR_GRAY2BGR);

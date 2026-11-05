@@ -1,7 +1,7 @@
-"""lane_lite perception (+ optional tuner GUI).
+"""lane_lite perception (+ optional perception tuner GUI). No control here.
 
-profile:=sim picks config/<profile>/lane.yaml.
-Publishes /lane_lite/target only; no drive command.
+profile:=sim | real picks config/<profile>/lane.yaml (sim and real are tuned
+separately). Steering/speed come from the separate autorace_lane_pid package.
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -17,20 +17,18 @@ def generate_launch_description():
     arg = LaunchConfiguration
     sim_time = ParameterValue(arg('use_sim_time'), value_type=bool)
     return LaunchDescription([
-        DeclareLaunchArgument('profile', default_value='sim', description='config/<profile>/ (sim)'),
+        DeclareLaunchArgument('profile', default_value='real', description='sim | real (config/<profile>/)'),
         DeclareLaunchArgument('config_file',
                               default_value=PathJoinSubstitution([share, 'config', arg('profile'), 'lane.yaml'])),
-        DeclareLaunchArgument('image_topic', default_value='/camera/color/image_raw/compressed'),
-        DeclareLaunchArgument('transport', default_value='compressed', description='compressed | raw'),
+        DeclareLaunchArgument('image_topic', default_value='/camera/color/image_raw/compressed',
+                              description='sensor_msgs/CompressedImage (JPEG)'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
-        DeclareLaunchArgument('gui', default_value='false',
-                              description='true opens lane_lite_tuner (needs autorace_lane_single at build time)'),
+        DeclareLaunchArgument('gui', default_value='false', description='true opens lane_lite_tuner'),
         Node(package='autorace_lane_lite', executable='lane_lite_node', output='screen',
              parameters=[{'config_file': arg('config_file'), 'image_topic': arg('image_topic'),
-                          'transport': arg('transport'), 'use_sim_time': sim_time}]),
+                          'use_sim_time': sim_time}]),
         Node(package='autorace_lane_lite', executable='lane_lite_tuner', output='screen',
              condition=IfCondition(arg('gui')),
-             arguments=['--config', arg('config_file'), '--topic', arg('image_topic'),
-                        '--transport', arg('transport')],
+             arguments=['--config', arg('config_file'), '--topic', arg('image_topic')],
              parameters=[{'use_sim_time': sim_time}]),
     ])

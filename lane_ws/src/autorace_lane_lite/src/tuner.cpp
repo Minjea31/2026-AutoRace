@@ -1,9 +1,8 @@
-// Qt tuner for lane_lite. Same layout and workflow as autorace_lane_single's
-// lane_tuner; the ROI/BEV drag view and the rosbag reader are reused as-is.
-// Perception only: no control gains and no drive output in this window.
+// Qt tuner for lane_lite: perception parameters only. Control gains live in the
+// separate autorace_lane_pid tuner window and never appear here.
 #include "autorace_lane_lite/lane.hpp"
-#include "autorace_lane_single/bag.hpp"
-#include "autorace_lane_single/roi_view.hpp"
+#include "autorace_lane_lite/bag.hpp"
+#include "autorace_lane_lite/roi_view.hpp"
 #include <QApplication>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -40,16 +39,9 @@ QImage qimage(const cv::Mat &mat) {
   cv::cvtColor(mat, rgb, mat.channels() == 1 ? cv::COLOR_GRAY2RGB : cv::COLOR_BGR2RGB);
   return QImage(rgb.data, rgb.cols, rgb.rows, int(rgb.step), QImage::Format_RGB888).copy();
 }
-// RoiView edits the legacy Config type; only ROI/BEV keys are exchanged.
 const char *kGeometry[] = {"roi_left", "roi_top", "roi_right", "roi_bottom",
                            "bev_top_y", "bev_bottom_y", "bev_top_left", "bev_top_right",
                            "bev_bottom_left", "bev_bottom_right"};
-lane_single::Config toView(const lane_lite::Config &c) {
-  lane_single::Config v;
-  for (const char *k : kGeometry)
-    v.values[k] = c[k];
-  return v;
-}
 const lane_lite::Spec &spec(const std::string &key) {
   for (const auto &s : lane_lite::specs())
     if (key == s.name)
@@ -96,8 +88,8 @@ struct Shared {
 
 void worker(Shared &s) {
   lane_lite::Pipeline pipeline;
-  lane_single::Bag bag;
-  lane_single::Frame frame;
+  lane_lite::Bag bag;
+  lane_lite::Frame frame;
   size_t source = ~size_t(0), revision = ~size_t(0), incoming = 0, index = 0, next = 0,
          serial = 0;
   bool loaded = false;
@@ -152,7 +144,7 @@ void worker(Shared &s) {
       bool process = false;
       if (live) {
         if (new_incoming != incoming && (raw || compressed)) {
-          frame.image = raw ? lane_single::decode(*raw) : lane_single::decode(*compressed);
+          frame.image = raw ? lane_lite::decode(*raw) : lane_lite::decode(*compressed);
           frame.time = received;
           incoming = index = new_incoming;
           process = true;
@@ -261,8 +253,8 @@ public:
       auto box = new QGroupBox(titles[i]);
       auto layout = new QVBoxLayout(box);
       if (i == 0) {
-        original = new lane_single::RoiView;
-        original->setConfig(toView(s.config));
+        original = new lane_lite::RoiView;
+        original->setConfig(s.config);
         auto mode = new QComboBox;
         mode->addItems({"Edit ROI (yellow)", "Edit BEV (blue corners)"});
         connect(mode, qOverload<int>(&QComboBox::currentIndexChanged), this,
@@ -273,7 +265,7 @@ public:
           c.values["roi_right"] = r, c.values["roi_bottom"] = b;
           applyConfig(c);
         };
-        original->onBevChanged = [this](const lane_single::Config &v) {
+        original->onBevChanged = [this](const lane_lite::Config &v) {
           auto c = current();
           for (const char *k : kGeometry)
             c.values[k] = v[k];
@@ -524,7 +516,7 @@ private:
       spin->setValue(c[key]);
       sliders.at(key)->setValue(qRound((c[key] - spec(key).min) / spec(key).step));
     }
-    original->setConfig(toView(c));
+    original->setConfig(c);
   }
   void showImage(QLabel *label, const QImage &image) {
     label->setPixmap(QPixmap::fromImage(image).scaled(label->size(), Qt::KeepAspectRatio,
@@ -568,11 +560,14 @@ private:
                    .arg(QString::fromStdString(r.state))
                    .arg(r.valid ? "유효" : "무효")
                    .arg(r.lane_width_px, 0, 'f', 0);
-      lines << QString("제어 입력(읽기 전용, /lane_lite/target): 횡오차 %1 m (좌+) | 헤딩 %2 rad | "
+      lines << QString("인식 출력(/lane_lite/target): 횡오차 %1 m (좌+) | 헤딩 %2 rad | "
                        "목표 거리 %3 m | 곡률 %4 1/m | 신뢰도 %5")
                    .arg(r.lateral_m, 0, 'f', 3).arg(r.heading, 0, 'f', 3)
                    .arg(r.lookahead_m, 0, 'f', 2).arg(r.curvature, 0, 'f', 2)
                    .arg(r.confidence, 0, 'f', 2);
+      lines << QString("가까운 점: 횡오차 %1 m | 헤딩 %2 rad | 거리 %3 m")
+                   .arg(r.near_lateral_m, 0, 'f', 3).arg(r.near_heading, 0, 'f', 3)
+                   .arg(r.near_m, 0, 'f', 2);
       for (const auto *line : {&r.left, &r.right})
         lines << QString("%1 %2 | 관측 윈도우 %3 | RMS %4 px | 품질 %5 | %6 | %7")
                      .arg(line == &r.left ? "왼쪽" : "오른쪽")
@@ -609,7 +604,7 @@ private:
   std::shared_ptr<rclcpp::AsyncParametersClient> client;
   std::shared_future<rcl_interfaces::msg::SetParametersResult> pending;
   std::string note;
-  lane_single::RoiView *original = nullptr;
+  lane_lite::RoiView *original = nullptr;
   QLabel *labels[4]{}, *status = nullptr;
   QComboBox *binary_mode = nullptr, *bev_mode = nullptr;
   QPlainTextEdit *details = nullptr;
@@ -624,13 +619,14 @@ private:
 } // namespace
 
 int main(int argc, char **argv) {
-  std::string bag, config, topic, transport = "auto", screenshot, profile;
+  std::string bag, config, topic, screenshot, profile;
   int64_t start_frame = 0;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (a == "--help") {
       std::cout << "lane_lite_tuner [--profile sim|real] [--bag URI] [--frame N] [--topic NAME] "
-                   "[--transport auto|raw|compressed] [--config YAML] [--screenshot PNG]\n"
+                   "[--config YAML] [--screenshot PNG]\n"
+                   "  live input: sensor_msgs/CompressedImage, default /camera/color/image_raw/compressed\n"
                    "  --profile NAME loads config/NAME/lane.yaml from the package source tree\n";
       return 0;
     }
@@ -639,7 +635,6 @@ int main(int argc, char **argv) {
     if (a == "--bag") bag = argv[++i];
     else if (a == "--frame") start_frame = std::stoll(argv[++i]);
     else if (a == "--topic") topic = argv[++i];
-    else if (a == "--transport") transport = argv[++i];
     else if (a == "--config") config = argv[++i];
     else if (a == "--profile") profile = argv[++i];
     else if (a == "--screenshot") screenshot = argv[++i];
@@ -662,28 +657,15 @@ int main(int argc, char **argv) {
   if (s.live)
     s.status = "Live ROS camera | preview only";
   auto node = std::make_shared<rclcpp::Node>("lane_lite_tuner");
-  // Default: the team's compressed colour topic; raw is explicit or inferred
-  // from a custom topic name without "compressed".
-  const bool raw = transport == "raw" ||
-                   (transport == "auto" && !topic.empty() && topic.find("compressed") == std::string::npos);
-  const auto qos = rclcpp::SensorDataQoS().keep_last(1);
-  rclcpp::SubscriptionBase::SharedPtr subscription;
-  if (raw)
-    subscription = node->create_subscription<sensor_msgs::msg::Image>(
-        topic.empty() ? "/camera/color/image_raw" : topic, qos,
-        [&](sensor_msgs::msg::Image::ConstSharedPtr m) {
-          std::lock_guard<std::mutex> lock(s.mutex);
-          s.raw = m, s.compressed.reset(), s.received = wall(), ++s.incoming;
-          s.cv.notify_one();
-        });
-  else
-    subscription = node->create_subscription<sensor_msgs::msg::CompressedImage>(
-        topic.empty() ? "/camera/color/image_raw/compressed" : topic, qos,
-        [&](sensor_msgs::msg::CompressedImage::ConstSharedPtr m) {
-          std::lock_guard<std::mutex> lock(s.mutex);
-          s.compressed = m, s.raw.reset(), s.received = wall(), ++s.incoming;
-          s.cv.notify_one();
-        });
+  // Live input is the team's JPEG colour topic (CompressedImage only).
+  auto subscription = node->create_subscription<sensor_msgs::msg::CompressedImage>(
+      topic.empty() ? "/camera/color/image_raw/compressed" : topic,
+      rclcpp::SensorDataQoS().keep_last(1),
+      [&](sensor_msgs::msg::CompressedImage::ConstSharedPtr m) {
+        std::lock_guard<std::mutex> lock(s.mutex);
+        s.compressed = m, s.raw.reset(), s.received = wall(), ++s.incoming;
+        s.cv.notify_one();
+      });
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
   std::thread ros([&] { executor.spin(); });

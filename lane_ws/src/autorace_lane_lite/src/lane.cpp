@@ -38,6 +38,8 @@ const std::vector<Spec> &specs() {
       {"bev_top_right", "ROI·BEV", "BEV 위 오른쪽 x", .65, 0, 1, .001},
       {"bev_bottom_left", "ROI·BEV", "BEV 아래 왼쪽 x(화면 밖 가능)", -.64, -2, 1, .001},
       {"bev_bottom_right", "ROI·BEV", "BEV 아래 오른쪽 x(화면 밖 가능)", 1.62, 0, 3, .001},
+      {"white_max_width", "색상",
+       "이보다 두꺼운 흰 덩어리(BEV px) 제거: 횡단보도 블록·노면 글자. 0=끔", 0, 0, 120, 1},
       {"line_width_max", "Sliding Window",
        "BEV에서 차선 띠의 최대 두께(px). Top-hat 크기와 윈도우 안 띠 폭", 40, 4, 120, 1},
       {"min_area", "Sliding Window", "BEV 특징 연결요소 최소 면적(px²)", 60, 0, 3000, 1},
@@ -51,6 +53,9 @@ const std::vector<Spec> &specs() {
        "시작점 히스토그램을 계산할 BEV 하단 영역의 시작(0=맨 위)", .5, 0, .95, .01},
       {"lane_width_px", "차로·추적", "BEV에서 좌우 경계 사이 차로 폭(px)", 320, 40, 1200, 1},
       {"width_tolerance", "차로·추적", "차로 폭 허용 오차 비율", .35, .05, .9, .01},
+      {"max_angle_deg", "차로·추적",
+       "좌우 경계 방향 차이 허용치(도). 넘으면 평행하지 않은 쪽(횡단보도·정지선 조각) 제외",
+       30, 5, 90, 1},
       {"role_by_color", "차로·추적",
        "1=노랑은 왼쪽·흰색은 오른쪽 경계로 고정, 0=위치·폭으로 판단", 0, 0, 1, 1},
       {"vehicle_center_u", "차로·추적", "BEV에서 차량 중심선 가로 위치(0-1)", .5, 0, 1, .001},
@@ -100,7 +105,7 @@ Config Config::load(const std::string &path) {
       c.values[key] = kv.second.as<double>();
     }
   } else {
-    // Reuse a calibration saved by the autorace_lane_single GUI.
+    // Reuse a calibration saved by the old lane GUI.
     const bool sliding = root["algorithm"] &&
                          root["algorithm"].as<std::string>() == "sliding_window";
     auto legacy = root[sliding && root["sliding_window"] ? "sliding_window" : "lane"];
@@ -167,10 +172,12 @@ size_t nearest(const Path &p, cv::Point2f q, float *distance = nullptr) {
     *distance = d;
   return best;
 }
+cv::Point2f nearDirection(const Path &p) {
+  return unit(p[std::max<size_t>(1, p.size() / 3)] - p.front());
+}
 // Near third of the path runs more than 60 deg from the driving direction.
 bool transverse(const Path &p) {
-  const cv::Point2f d = unit(p[std::max<size_t>(1, p.size() / 3)] - p.front());
-  return std::abs(d.y) < .5f;
+  return std::abs(nearDirection(p).y) < .5f;
 }
 bool interior(const Path &p, size_t i) { return i > 0 && i + 1 < p.size(); }
 Path offset(const Path &p, float distance) {
@@ -195,6 +202,20 @@ float median(std::vector<float> v) {
     return NAN;
   std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
   return v[v.size() / 2];
+}
+// Median direction difference (deg) between two near -> far paths where they
+// overlap; near-third directions when they do not. Lane boundaries are
+// parallel even in a bend; a stop line or crosswalk stripe edge is not.
+float angleBetween(const Path &a, const Path &b) {
+  std::vector<float> out;
+  for (size_t i = 0; i < a.size(); ++i) {
+    const size_t j = nearest(b, a[i]);
+    if (interior(b, j))
+      out.push_back(std::acos(std::clamp(tangent(a, i).dot(tangent(b, j)), -1.f, 1.f)));
+  }
+  if (out.size() < 3)
+    out = {std::acos(std::clamp(nearDirection(a).dot(nearDirection(b)), -1.f, 1.f))};
+  return median(out) * float(180 / CV_PI);
 }
 // Move `fresh` toward `old` by (1 - alpha) where the two overlap.
 Path blend(const Path &fresh, const Path &old, double alpha, float gate) {
@@ -500,6 +521,15 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
   cv::morphologyEx(value, tophat, cv::MORPH_TOPHAT,
                    cv::getStructuringElement(cv::MORPH_RECT, {k, k}));
   white = white_raw & (tophat >= c["white_tophat"]);
+  // Crosswalk stripes and road text are white like a lane line but much
+  // thicker; their long edges otherwise pass as a parallel boundary.
+  if (const int t = c["white_max_width"]; t > 0) {
+    cv::Mat thick;
+    cv::morphologyEx(white, thick, cv::MORPH_OPEN,
+                     cv::getStructuringElement(cv::MORPH_RECT, {t, t}));
+    cv::dilate(thick, thick, cv::getStructuringElement(cv::MORPH_RECT, {7, 7}));
+    white &= ~thick;
+  }
   if (!c["yellow_enabled"])
     yellow.setTo(0);
   if (!c["white_enabled"])
@@ -637,16 +667,43 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
     for (const auto &p : search.pixels)
       yellow_pixels += yellow.at<uchar>(p) != 0;
     lines[side]->yellow = 2 * yellow_pixels > search.pixels.size();
-    // A white marking lying across the road (stop line, crosswalk edge) is
-    // never acquired as a new boundary. A tracked boundary may still turn
-    // transverse gradually through a bend, so curves keep working.
-    if (auto &line = *lines[side]; line.state == LineState::Detected && !line.yellow &&
-                                   prior[side].empty() && transverse(line.path)) {
-      line.rejected = line.path;
-      line.path.clear();
-      line.state = LineState::Lost;
-      line.note = "가로 흰 선(정지선·횡단보도)으로 보고 제외";
-      used[side].clear();
+  }
+
+  // A white boundary whose near part lies across the road is a stop line or
+  // crosswalk edge, also when a track crept onto it gradually. Only when the
+  // other boundary (detected now, or still tracked) turns the same way is it
+  // a bend. The track is forgotten so the next frame re-seeds from the
+  // histogram instead of searching around the stop line for track_memory.
+  auto reject = [&](int side, const std::string &why) {
+    auto &line = *lines[side];
+    line.rejected = line.path;
+    line.path.clear();
+    line.state = LineState::Lost;
+    line.note = why;
+    used[side].clear();
+  };
+  // Colour of the near third only: a search that starts on a yellow bend
+  // and runs onto a stop line is mostly yellow but its path is the line.
+  auto crossing = [&](int side) {
+    const auto &line = *lines[side];
+    if (line.state != LineState::Detected || !transverse(line.path))
+      return false;
+    int yellow_count = 0, all = 0;
+    for (size_t i = 0; i <= line.path.size() / 3; ++i) {
+      const cv::Rect box = cv::Rect(cvRound(line.path[i].x) - 4, cvRound(line.path[i].y) - 4, 9, 9) &
+                           cv::Rect(0, 0, w, h);
+      yellow_count += cv::countNonZero(yellow(box));
+      all += cv::countNonZero(mask(box));
+    }
+    return 2 * yellow_count <= all;
+  };
+  for (int side = 0; side < 2; ++side) {
+    const auto &other = lines[1 - side]->state == LineState::Detected ? lines[1 - side]->path
+                                                                       : prior[1 - side];
+    if (crossing(side) && !(other.size() > 1 && transverse(other))) {
+      reject(side, "가로 흰 선(정지선·횡단보도)으로 보고 제외");
+      tracks_[side] = {};
+      prior[side].clear();
     }
   }
 
@@ -679,23 +736,28 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
       ws.push_back((r.right.path.front() - r.left.path.front())
                        .dot(rightOf(tangent(r.left.path, 0))));
     const auto [mn, mx] = std::minmax_element(ws.begin(), ws.end());
-    if (*mn < width_ * (1 - tol) || *mx > width_ * (1 + tol)) {
+    const float angle = angleBetween(r.left.path, r.right.path);
+    const bool bad_width = *mn < width_ * (1 - tol) || *mx > width_ * (1 + tol);
+    if (bad_width || angle > c["max_angle_deg"]) {
       // Drop the side that disagrees more with its own track; without
-      // tracks, the one with fewer observed windows.
+      // tracks, the one with fewer observed windows. A white line lying
+      // across the road always goes first; then the shorter of a crossing
+      // pair (a crosswalk stripe fragment is short).
       auto disagreement = [&](int side) {
+        if (crossing(side) && !crossing(1 - side))
+          return 1e9;
+        if (!bad_width)
+          return 1e6 - lines[side]->observed;
         const double d = prior[side].empty()
                              ? NAN
                              : std::abs(median(separation(lines[side]->path, prior[side])));
         return std::isnan(d) ? 1e6 - lines[side]->observed : d;
       };
       const int drop = disagreement(0) > disagreement(1) ? 0 : 1;
-      auto &line = *lines[drop];
-      line.rejected = line.path;
-      line.path.clear();
-      line.state = LineState::Lost;
-      line.note = "차로 폭 " + std::to_string(int(*mn)) + "~" + std::to_string(int(*mx)) +
-                  " px 불일치로 제외";
-      used[drop].clear();
+      reject(drop, bad_width ? "차로 폭 " + std::to_string(int(*mn)) + "~" +
+                                   std::to_string(int(*mx)) + " px 불일치로 제외"
+                             : "좌우 방향 차이 " + std::to_string(int(angle)) +
+                                   "° > max_angle_deg로 제외");
     } else {
       // Learn only from pairs close to the calibrated width and only within
       // +-10 %: road text or arrows paired with a boundary must not shrink
@@ -775,6 +837,12 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
                            ? (base.path[i] + other.path[j]) * .5f
                            : base.path[i] + rightOf(tangent(base.path, i)) * half);
     }
+    // Near -> far, like the boundaries: a reversed centre flips the heading.
+    if (center.size() > 1) {
+      const cv::Point2f vehicle(float(cu), float(h - 1));
+      if (length(center.front() - vehicle) > length(center.back() - vehicle))
+        std::reverse(center.begin(), center.end());
+    }
     confidence = dl && dr ? (r.left.quality + r.right.quality) / 2 : .7 * base.quality;
     r.state = dl && dr ? "both" : dl ? "left only" : "right only";
     if (!center_.empty() && time - center_seen_ <= c["track_memory"])
@@ -793,7 +861,7 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
   }
   r.lane_width_px = width_;
 
-  // 8. Pure-pursuit style target: the first centre point at the straight-line
+  // 8. Lookahead target: the first centre point at the straight-line
   // distance of lookahead_row from the vehicle, within the observed support.
   const double m_px = c["lane_width_m"] / c["lane_width_px"];
   const double m_row = (c["bev_far_m"] - c["bev_near_m"]) / (h - 1);
@@ -822,6 +890,15 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
     const double ab = cv::norm(b - a), at = cv::norm(target - a), tb = cv::norm(b - target);
     const double cross = (target - a).x * (b - a).y - (target - a).y * (b - a).x;
     r.curvature = ab * at * tb > 1e-9 ? 2 * cross / (ab * at * tb) : 0; // left positive
+    // Near point: first centre point, heading over the first ~0.25 m of path.
+    const auto n0 = metric(center[0]);
+    size_t k = 1;
+    while (k + 1 < center.size() && cv::norm(metric(center[k]) - n0) < .25)
+      ++k;
+    const auto n1 = metric(center[k]);
+    r.near_lateral_m = n0.y;
+    r.near_m = n0.x;
+    r.near_heading = std::atan2(n1.y - n0.y, n1.x - n0.x);
   } else if (!center.empty()) {
     r.notes.push_back("중앙 경로가 너무 짧음");
   }

@@ -11,17 +11,6 @@ find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Threads REQUIRED)
 
-# The Qt tuner and bag evaluator reuse the ROI/BEV drag view and rosbag reader
-# from the sibling autorace_lane_single sources (not modified). Without that
-# package only the headless perception node is built.
-set(SINGLE ${CMAKE_CURRENT_SOURCE_DIR}/../autorace_lane_single)
-if(EXISTS ${SINGLE}/src/roi_view.cpp)
-  set(LANE_LITE_GUI ON)
-else()
-  set(LANE_LITE_GUI OFF)
-  message(STATUS "autorace_lane_single not found: building headless lane_lite_node only")
-endif()
-
 add_library(lane_lite_core STATIC src/lane.cpp)
 set_target_properties(lane_lite_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(lane_lite_core PUBLIC include ${OpenCV_INCLUDE_DIRS})
@@ -31,25 +20,30 @@ add_executable(lane_lite_node src/node.cpp)
 target_link_libraries(lane_lite_node lane_lite_core Threads::Threads)
 ament_target_dependencies(lane_lite_node rclcpp sensor_msgs std_msgs cv_bridge)
 
-if(LANE_LITE_GUI)
-  find_package(Qt5 REQUIRED COMPONENTS Widgets)
-  find_package(rosbag2_cpp REQUIRED)
-  find_package(rosbag2_storage REQUIRED)
-  add_library(lane_lite_reuse STATIC ${SINGLE}/src/roi_view.cpp ${SINGLE}/src/bag.cpp
-              ${SINGLE}/src/core.cpp)
-  set_target_properties(lane_lite_reuse PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  target_include_directories(lane_lite_reuse PUBLIC ${SINGLE}/include ${OpenCV_INCLUDE_DIRS})
-  target_link_libraries(lane_lite_reuse PUBLIC ${OpenCV_LIBS} yaml-cpp Qt5::Widgets)
-  ament_target_dependencies(lane_lite_reuse PUBLIC rclcpp sensor_msgs std_msgs cv_bridge rosbag2_cpp rosbag2_storage)
+# Qt tuner + bag evaluator. Skipped automatically on PCs without Qt5/rosbag2.
+find_package(Qt5 QUIET COMPONENTS Widgets)
+find_package(rosbag2_cpp QUIET)
+find_package(rosbag2_storage QUIET)
+if(Qt5_FOUND AND rosbag2_cpp_FOUND AND rosbag2_storage_FOUND)
+  add_library(lane_lite_bag STATIC src/bag.cpp)
+  set_target_properties(lane_lite_bag PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_link_libraries(lane_lite_bag PUBLIC lane_lite_core)
+  ament_target_dependencies(lane_lite_bag PUBLIC rclcpp sensor_msgs cv_bridge rosbag2_cpp rosbag2_storage)
+
+  add_library(lane_lite_roi_view STATIC src/roi_view.cpp)
+  set_target_properties(lane_lite_roi_view PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_link_libraries(lane_lite_roi_view PUBLIC lane_lite_core Qt5::Widgets)
 
   add_executable(lane_lite_tuner src/tuner.cpp)
-  target_link_libraries(lane_lite_tuner lane_lite_core lane_lite_reuse Threads::Threads)
+  target_link_libraries(lane_lite_tuner lane_lite_bag lane_lite_roi_view Threads::Threads)
   target_compile_definitions(lane_lite_tuner PRIVATE LANE_LITE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   ament_target_dependencies(lane_lite_tuner rclcpp sensor_msgs)
 
   add_executable(lane_lite_eval src/eval.cpp)
-  target_link_libraries(lane_lite_eval lane_lite_core lane_lite_reuse)
+  target_link_libraries(lane_lite_eval lane_lite_bag)
   install(TARGETS lane_lite_tuner lane_lite_eval DESTINATION lib/${PROJECT_NAME})
+else()
+  message(STATUS "Qt5/rosbag2 not found: building headless lane_lite_node only")
 endif()
 
 install(TARGETS lane_lite_node DESTINATION lib/${PROJECT_NAME})

@@ -21,7 +21,7 @@ struct Config {
   Config();
   double operator[](const std::string &key) const { return values.at(key); }
   void validate() const;
-  // Reads `lane_lite:`. A legacy autorace_lane_single YAML (`lane:` or
+  // Reads `lane_lite:`. A legacy lane GUI YAML (`lane:` or
   // `sliding_window:`) is accepted; only its ROI/BEV/width/colour are reused.
   static Config load(const std::string &path);
   void save(const std::string &path) const;
@@ -56,6 +56,9 @@ struct Result {
   // Control-facing measurement at the lookahead point. Left is positive.
   double target_x = 0, target_y = 0, lateral_px = 0, lateral_m = 0;
   double heading = 0, curvature = 0, lookahead_m = 0, confidence = 0;
+  // Same quantities at the NEAREST centre-path point (BEV bottom side):
+  // lateral offset (m, left +), path heading over the first ~0.25 m, distance.
+  double near_lateral_m = 0, near_heading = 0, near_m = 0;
   double lane_width_px = 0, processing_ms = 0;
   std::string state = "lost";
   std::vector<std::string> notes;
