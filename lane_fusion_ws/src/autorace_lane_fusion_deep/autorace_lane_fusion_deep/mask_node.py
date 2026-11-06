@@ -27,16 +27,25 @@ class LaneDeepMaskNode(Node):
         p = self.declare_parameter
         self.backend_name = p('backend', 'auto').value  # auto (by suffix) | tensorrt | onnx | torch
         self.model_path = p('model_path', '').value
-        self.device = p('device', 'cuda').value
+        self.device = p('device', 'auto').value  # auto | cuda | cpu
         self.width = p('input_width', 640).value
         self.height = p('input_height', 480).value
         self.threshold = p('confidence_threshold', 0.5).value
         self.retry = p('retry_seconds', 5.0).value
         camera = p('camera_topic', '/camera/color/image_raw/compressed').value
         output = p('mask_topic', '/lane_fusion/deep_mask').value
-        if not self.model_path:  # bundled ONNX (PC); pass the Jetson .engine explicitly
-            self.model_path = str(Path(get_package_share_directory('autorace_lane_fusion_deep'))
-                                  / 'model' / 'lane_640.onnx')
+        if not self.model_path:
+            # Installed model: the TensorRT engine built on this machine
+            # (model/lane_640.engine before colcon build) if present, else the ONNX.
+            share = Path(get_package_share_directory('autorace_lane_fusion_deep')) / 'model'
+            engine = share / 'lane_640.engine'
+            self.model_path = str(engine if engine.is_file() else share / 'lane_640.onnx')
+        if self.device == 'auto':
+            self.device = 'cuda'
+            if self.model_path.endswith('.onnx'):
+                import onnxruntime
+                if 'CUDAExecutionProvider' not in onnxruntime.get_available_providers():
+                    self.device = 'cpu'
         self.backend, self.retry_after = None, 0.0
         self.latest, self.processed = None, None
         self.count, self.ms, self.report = 0, 0.0, time.monotonic()

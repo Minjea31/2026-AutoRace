@@ -41,20 +41,25 @@ PYTHONNOUSERSITE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 ## 실차 (Jetson)
 
-1. TensorRT 엔진을 **Jetson에서** 빌드합니다(처음 한 번, 모델이 바뀔 때마다).
+1. TensorRT 엔진을 **Jetson에서** 패키지 model 폴더로 빌드하고, 다시 colcon build해서 설치합니다(처음 한 번, 모델이 바뀔 때마다). `*.engine`은 git에 올리지 않습니다.
    ```bash
    cd ~/2026-AutoRace/lane_fusion_ws
    python3 tools/build_tensorrt.py --onnx src/autorace_lane_fusion_deep/model/lane_640.onnx \
-     --output model/lane_640.engine --workspace-mib 1024
+     --output src/autorace_lane_fusion_deep/model/lane_640.engine --workspace-mib 1024
+   PYTHONNOUSERSITE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
    ```
-2. 센서와 mux는 기존 방법으로 띄우고, 차선은 이것 하나만 실행합니다(`lane_ws/lane.sh`와 동시에 띄우지 않음).
+2. 센서와 mux는 기존 방법으로 띄우고, 차선은 이것 하나만 실행합니다(`lane_ws`의 lane과 동시에 띄우지 않음).
    ```bash
-   ./fusion.sh real model_path:=$PWD/model/lane_640.engine
+   source ~/2026-AutoRace/lane_fusion_ws/install/setup.bash
+   ros2 launch autorace_lane_fusion_pid lane_fusion_pid.launch.py profile:=real
    ```
+   딥 마스크 노드·퓨전 인식·PID가 한 번에 뜹니다. 모델은 설치된 `lane_640.engine`을 자동으로 쓰고, 없으면 ONNX를 씁니다(로그 첫 줄 `tensorrt 640x480: ...`로 확인).
    - `deep:=false`: 딥 노드 없이 실행(HSV만)
    - `lane_gui:=true` / `gui:=true`: 인식 / PID 튜너
-   - `deep_device:=cpu`: CUDA 없는 ONNX Runtime
-   - `model_path`를 비우면 패키지에 든 `lane_640.onnx`를 씁니다.
+   - `enable_vehicle_output:=false`: `/mission/lane` 대신 `/lane_fusion_pid/command` 미리보기만
+   - `model_path:=/abs/model.engine`, `deep_device:=cpu|cuda`: 모델·장치 직접 지정
+   - 따로 띄우기: `ros2 launch autorace_lane_fusion_deep deep_mask.launch.py`, `ros2 launch autorace_lane_fusion lane_fusion.launch.py profile:=real`
+   - `./fusion.sh real`은 위 launch를 감싼 단축 스크립트입니다.
 3. 로그에서 `lane_fusion: xx Hz, deep-fused ...`와 `lane_fusion_deep_mask: xx masks/s`를 확인합니다. YOLO와 함께 돌릴 때 15 Hz보다 낮으면 YOLO 입력 크기나 512×288 모델을 검토합니다.
 
 ## 튜너·오프라인 비교

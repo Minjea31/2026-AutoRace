@@ -3,7 +3,7 @@
 #   ./fusion.sh sim  [launch args]   simulator: DDS domain of simul/, use_sim_time (deep off)
 #   ./fusion.sh real [launch args]   real car: config/real, deep mask node on
 # Publishes /mission/lane like lane_ws/lane.sh — run only ONE of the two.
-# e.g. ./fusion.sh real model_path:=$PWD/model/lane_640.engine lane_gui:=true
+# e.g. ./fusion.sh real lane_gui:=true   (engine: see README, installed automatically)
 set -eo pipefail
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 profile="${1:-}"

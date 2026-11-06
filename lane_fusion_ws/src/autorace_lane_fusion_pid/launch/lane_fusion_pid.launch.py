@@ -11,8 +11,9 @@ Run directly with ros2 launch (no wrapper script needed):
   (sim: source simul/ros_env.sh first so the simulator DDS domain is used)
 
 Deep mask node (lane_fusion_deep_mask -> /lane_fusion/deep_mask):
-  deep:=true (default real) / false; model_path:=<.engine|.onnx|.pt> (default: bundled
-  lane_640.onnx; on the Jetson pass the TensorRT engine built with tools/build_tensorrt.py).
+  deep:=true (default real) / false; model_path:=<.engine|.onnx|.pt> (default: the engine
+  built into src/autorace_lane_fusion_deep/model/lane_640.engine and installed by colcon
+  build, else the bundled lane_640.onnx).
   Without masks lane_fusion_node runs HSV-only, so deep:=false is still drivable.
 
 Two separate windows (both optional):
@@ -63,9 +64,9 @@ def generate_launch_description():
             ["'true' if '", profile, "' == 'real' else 'false'"]),
             description='start lane_fusion_deep_mask (U-Net) for gated fusion'),
         DeclareLaunchArgument('model_path', default_value='',
-                              description='U-Net model (.engine/.onnx/.pt); empty = bundled ONNX'),
-        DeclareLaunchArgument('deep_device', default_value='cuda',
-                              description='cuda | cpu (ONNX Runtime without CUDA provider needs cpu)'),
+                              description='U-Net model (.engine/.onnx/.pt); empty = installed lane_640.engine, else ONNX'),
+        DeclareLaunchArgument('deep_device', default_value='auto',
+                              description='auto | cuda | cpu (auto: cpu for ONNX without CUDA provider)'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([deep_share, 'launch', 'deep_mask.launch.py'])),
             condition=IfCondition(arg('deep')),

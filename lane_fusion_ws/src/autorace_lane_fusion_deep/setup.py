@@ -8,7 +8,7 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/autorace_lane_fusion_deep']),
         ('share/autorace_lane_fusion_deep', ['package.xml']),
         ('share/autorace_lane_fusion_deep/launch', ['launch/deep_mask.launch.py']),
-        ('share/autorace_lane_fusion_deep/model', glob('model/*.onnx') + glob('model/*.json')),
+        ('share/autorace_lane_fusion_deep/model', glob('model/*.onnx') + glob('model/*.json') + glob('model/*.engine')),
     ],
     install_requires=['setuptools'], zip_safe=True,
     maintainer='ms-c-h', maintainer_email='alstjd5571@cbnu.ac.kr',
