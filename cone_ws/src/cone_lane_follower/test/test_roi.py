@@ -643,3 +643,70 @@ def test_projection_accepts_reported_endpoint_overrun(harness):
     assert all(b == pytest.approx(roi.right_boundary[-1]) for _, b in pairs)
     roi.update_center_path(roi.get_clock().now().to_msg())
     assert roi.center_path and roi.center_path_mode == 'Nearest Projection'
+
+
+@pytest.mark.parametrize('speed', [.1, .4])
+def test_control_holds_last_command_without_renewal_and_recovers(harness, speed):
+    roi, *_ = harness
+    messages = []
+    class Capture:
+        def publish(self, msg):
+            messages.append(msg)
+    roi.command_pub = Capture()
+    roi.set_parameters_atomically([Parameter('control_speed', value=speed)])
+    roi.mission_cone = True
+    roi.center_path = [(.1, .1, 0.), (.8, .1, 0.)]
+    roi.control_scan_stamp = roi.get_clock().now().nanoseconds
+    roi.control_received = time.monotonic()
+    roi.update_control_activation()
+    roi.last_control_tick = time.monotonic()-.05
+    roi.control_tick()
+    valid = roi.last_valid_control
+    previous = messages[-1]
+    roi.center_path = []
+    roi.update_control_activation()
+    assert roi.control_mode == 'Hold Last Steering'
+    assert messages[-1].drive.speed == pytest.approx(min(previous.drive.speed, .15))
+    assert messages[-1].drive.steering_angle == previous.drive.steering_angle
+    roi.control_tick()
+    assert roi.last_valid_control == valid
+    roi.center_path = [(.1, -.1, 0.), (.8, -.1, 0.)]
+    roi.control_tick()
+    assert roi.control_mode == 'Path Feedback'
+    assert roi.last_valid_control != valid
+    roi.center_path = []
+    h = roi.last_valid_control
+    roi.last_valid_control = (h[0]-.31, h[1]-310_000_000, h[2], h[3])
+    roi.control_tick()
+    assert messages[-1].drive.speed == messages[-1].drive.steering_angle == 0.
+    assert roi.last_valid_control is None
+
+
+@pytest.mark.parametrize('failure', ['tf', 'stale', 'mission', 'clock_reverse', 'unusable_path'])
+def test_hold_does_not_override_hard_stop(harness, failure):
+    roi, *_ = harness
+    messages = []
+    class Capture:
+        def publish(self, msg):
+            messages.append(msg)
+    roi.command_pub = Capture()
+    roi.mission_cone = roi.control_engaged = True
+    roi.center_path = []
+    now = roi.get_clock().now().nanoseconds
+    roi.control_scan_stamp = now
+    roi.control_received = time.monotonic()
+    roi.last_valid_control = (time.monotonic(), now, .3, .2)
+    if failure == 'tf':
+        roi.control_fault = True
+    elif failure == 'stale':
+        roi.control_received -= 1.
+    elif failure == 'mission':
+        roi.mission_cone = False
+    elif failure == 'clock_reverse':
+        h = roi.last_valid_control
+        roi.last_valid_control = (h[0], now+1_000_000_000, h[2], h[3])
+    else:
+        roi.center_path = [(-.8, .1, 0.), (-.1, .1, 0.)]
+    roi.control_tick()
+    assert messages[-1].drive.speed == messages[-1].drive.steering_angle == 0.
+    assert roi.last_valid_control is None

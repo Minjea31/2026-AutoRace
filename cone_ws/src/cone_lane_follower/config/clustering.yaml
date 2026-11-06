@@ -25,3 +25,5 @@ cone_lane_roi:
     control_max_steering_rate: 1.0
     control_timeout: 0.20
     control_max_path_distance: 0.50
+    control_hold_timeout: 0.30
+    control_hold_speed: 0.15

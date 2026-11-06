@@ -17,7 +17,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 
-ROI_DEFAULTS = dict(roi_x_min=0.05, roi_x_max=1.0, roi_y_min=-0.5, roi_y_max=0.5)
+ROI_DEFAULTS = dict(roi_x_min=0.02, roi_x_max=1.0, roi_y_min=-0.5, roi_y_max=0.5)
 CLUSTER_DEFAULTS = dict(cluster_threshold=0.10, min_cluster_points=2,
                         max_cluster_width=0.28, cluster_point_size=0.05,
                         cone_center_size=0.08)
@@ -36,7 +36,8 @@ BOUNDARY_DEFAULTS = dict(boundary_connect_distance=0.30, boundary_max_turn=80.0,
 CONTROL_DEFAULTS = dict(control_speed=0.15, control_reference_x=0.25,
                         control_lateral_gain=2.0, control_heading_gain=1.0,
                         control_max_steering=0.48, control_max_steering_rate=1.0,
-                        control_timeout=0.20, control_max_path_distance=0.50)
+                        control_timeout=0.20, control_max_path_distance=0.50,
+                        control_hold_timeout=0.30, control_hold_speed=0.15)
 
 
 class RoiNode(Node):
@@ -73,6 +74,8 @@ class RoiNode(Node):
         self.control_received = None
         self.last_control_tick = None
         self.last_steering = 0.
+        self.last_valid_control = None
+        self.control_mode = 'Idle'
         self.control_lateral_error = self.control_heading_error = 0.
         self.mission_cone = False
         self.all_clusters, self.candidate_clusters = [], []
@@ -171,7 +174,7 @@ class RoiNode(Node):
                 f'Cone Candidates: {len(centers)}\n'
                 f'mission_cone: {self.mission_cone}\n'
                 f'Center path: points={len(self.center_path)}, mode={self.center_path_mode}\n'
-                f'Control: active={self.control_engaged}, lateral_error={self.control_lateral_error:.3f} m, '
+                f'Control: active={self.control_engaged}, mode={self.control_mode}, lateral_error={self.control_lateral_error:.3f} m, '
                 f'heading_error={self.control_heading_error:.3f} rad')
             details = [f'Cluster {i}: points={len(cluster)}'
                        for i, cluster in enumerate(self.all_clusters)]
@@ -563,35 +566,56 @@ class RoiNode(Node):
         message.drive.speed, message.drive.steering_angle = float(speed), float(steering)
         self.command_pub.publish(message)
 
+    def stop_control(self):
+        """Stop immediately and discard history so faults cannot revive old commands."""
+        self.publish_drive(0., 0.)
+        self.last_steering = 0.
+        self.last_valid_control = None
+        self.control_mode = 'Stopped'
+
     def update_control_activation(self):
         # A zero-speed command is active in the mux: idle must eventually be silent.
         if self.mission_cone:
             self.control_engaged = True
         elif self.control_engaged and not self.control_fault:
-            self.publish_drive(0., 0.)
+            self.stop_control()
             self.control_engaged = False
-            self.last_steering = 0.
-        if self.control_engaged and (self.control_fault or not self.center_path):
-            self.publish_drive(0., 0.)
-            self.last_steering = 0.
+        if self.control_engaged and self.control_fault:
+            self.stop_control()
+        elif self.control_engaged and not self.center_path:
+            self.control_tick()
 
     def control_tick(self):
-        """20 Hz error feedback; stale/invalid paths stop without steering-rate delay."""
+        """20 Hz feedback; briefly hold a valid command only during path-generation loss."""
         steady, now = time.monotonic(), self.get_clock().now().nanoseconds
         dt = .05 if self.last_control_tick is None else max(0., min(.1, steady-self.last_control_tick))
         self.last_control_tick = steady
         if not self.control_engaged:
             self.last_steering = 0.
+            self.last_valid_control = None
+            self.control_mode = 'Idle'
             return
         p = {name: self.get_parameter(name).value for name in CONTROL_DEFAULTS}
         fresh = (self.control_received is not None and self.control_scan_stamp is not None
                  and self.control_scan_stamp > 0
                  and 0 <= steady-self.control_received <= p['control_timeout']
                  and 0 <= (now-self.control_scan_stamp)/1e9 <= p['control_timeout'])
-        errors = self.path_errors(self.center_path, p['control_reference_x'], p['control_max_path_distance']) if fresh and not self.control_fault else None
+        if not fresh or self.control_fault or not self.mission_cone:
+            self.stop_control()
+            return
+        errors = self.path_errors(self.center_path, p['control_reference_x'], p['control_max_path_distance'])
         if errors is None:
-            self.publish_drive(0., 0.)
-            self.last_steering = 0.
+            # Only empty generated paths qualify: an existing but unusable path stops.
+            history = self.last_valid_control
+            if not self.center_path and history is not None:
+                saved_steady, saved_ros, speed, steering = history
+                if (0 <= steady-saved_steady <= p['control_hold_timeout']
+                        and 0 <= (now-saved_ros)/1e9 <= p['control_hold_timeout']):
+                    self.last_steering = steering
+                    self.control_mode = 'Hold Last Steering'
+                    self.publish_drive(min(speed, p['control_hold_speed']), steering)
+                    return  # Never renew the valid-control timestamp while holding.
+            self.stop_control()
             return
         self.control_lateral_error, self.control_heading_error = errors
         target = p['control_lateral_gain']*errors[0]+p['control_heading_gain']*errors[1]
@@ -601,6 +625,8 @@ class RoiNode(Node):
         self.last_steering += max(-step, min(step, target-self.last_steering))
         self.last_steering = max(-limit, min(limit, self.last_steering))
         speed = p['control_speed']*(1.-.7*abs(target)/limit)
+        self.last_valid_control = (steady, now, speed, self.last_steering)
+        self.control_mode = 'Path Feedback'
         self.publish_drive(speed, self.last_steering)
 
     def marker_array(self, stamp=None):
