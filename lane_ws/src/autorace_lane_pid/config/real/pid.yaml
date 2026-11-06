@@ -1,4 +1,6 @@
 # Lane PID controller (REAL CAR). NOT closed-loop validated on the car yet.
+# 2026-11-06: speed 0.15 -> 0.5, steer_slowdown 1.0 -> 0.5 from the user's tuner
+#   save (pid1106.yaml). mux caps forward speed at 0.5 m/s.
 # max_steering 0.40 -> 0.65: matches mux max_steering_angle_rad 0.65 and the
 #   limo_base inner-wheel limit raised to 0.80 rad (RC reaches ~38 deg centre).
 # 2026-11-05: kp 0.4 -> 1.0, lateral_weight 0.5 -> 0.3, heading_weight 0.10 -> 0.15,
@@ -32,9 +34,9 @@ lane_pid_controller:
     wheelbase: 0.2
     max_steering: 0.65
     steering_rate: 2.0
-    speed: 0.15
+    speed: 0.5
     min_speed: 0.06
-    steer_slowdown: 1.0
+    steer_slowdown: 0.5
     curvature_slowdown: 0.0
     acceleration: 0.5
     confidence_stop: 0.1
