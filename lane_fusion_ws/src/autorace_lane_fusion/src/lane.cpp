@@ -72,7 +72,8 @@ const std::vector<Spec> &specs() {
        .25, 0, 5, .01},
       {"bev_far_m", "거리 보정", "BEV 맨 위 행의 전방 거리(m), 실측", 1.2, .05, 10, .01},
       {"deep_mode", "딥 퓨전",
-       "딥 mask 사용(mask가 있을 때만): 0=HSV만, 1=gated(HSV∧딥), 2=딥만", 0, 0, 2, 1},
+       "딥 mask 사용(mask가 있을 때만): 0=HSV만, 1=gated(HSV∧딥), 2=딥만, "
+       "3=딥 우선(양쪽 경계를 다 놓친 프레임만 HSV로 다시 처리)", 0, 0, 3, 1},
       {"deep_dilate", "딥 퓨전", "gated에서 딥 mask를 넓히는 반경(BEV px)", 6, 0, 40, 1},
   };
   return s;
@@ -476,6 +477,27 @@ void Pipeline::reset() {
   width_ = config_["lane_width_px"];
 }
 Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const cv::Mat &deep) {
+  const int mode = config_["deep_mode"];
+  if (mode == 0 || deep.empty())
+    return run(bgr, time, views, cv::Mat(), 0);
+  if (mode != 3)
+    return run(bgr, time, views, deep, mode);
+  // 3: deep only (no HSV work). If it sees neither boundary, redo the same
+  // frame with HSV from the tracking state before it (lighting the network
+  // was not trained on, etc.).
+  const Pipeline before = *this;
+  auto r = run(bgr, time, views, deep, 2);
+  if (r.left.state == LineState::Detected || r.right.state == LineState::Detected)
+    return r;
+  *this = before;
+  auto fallback = run(bgr, time, views, cv::Mat(), 0);
+  fallback.source = "hsv_fallback";
+  fallback.processing_ms += r.processing_ms;
+  return fallback;
+}
+
+// source: 0 HSV, 1 gated (HSV ∧ deep), 2 deep only (HSV and the colour BEV are skipped).
+Result Pipeline::run(const cv::Mat &bgr, double time, bool views, const cv::Mat &deep, int source) {
   const auto start_clock = std::chrono::steady_clock::now();
   if (bgr.empty() || bgr.type() != CV_8UC3 || !std::isfinite(time))
     throw std::invalid_argument("Expected a BGR8 image and finite time");
@@ -487,6 +509,11 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const cv::
   last_time_ = time;
   const int w = c["width"], h = c["height"];
   Result r;
+  if (deep.empty())
+    source = 0;
+  static const char *source_names[] = {"hsv", "gated", "deep"};
+  r.source = source_names[source];
+  const bool deep_only = source == 2;
   cv::resize(bgr, r.original, {w, h});
 
   // 1. Geometry: ROI ∩ trapezoid in the source image, then one homography.
@@ -507,8 +534,10 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const cv::
   valid &= roi;
   cv::Mat bev_valid;
   // Replicated borders keep the warp free of artificial black/bright edges.
-  cv::warpPerspective(r.original, r.bev, H, {w, h}, cv::INTER_LINEAR,
-                      cv::BORDER_REPLICATE);
+  // The colour BEV feeds only HSV and the display views (17 ms on the Jetson).
+  if (!deep_only || views)
+    cv::warpPerspective(r.original, r.bev, H, {w, h}, cv::INTER_LINEAR,
+                        cv::BORDER_REPLICATE);
   cv::warpPerspective(valid, bev_valid, H, {w, h}, cv::INTER_NEAREST);
   cv::erode(bev_valid, bev_valid, cv::Mat(), {-1, -1}, 2);
 
@@ -516,6 +545,7 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const cv::
   // own surroundings (top-hat); both colours must be thin along a row or a
   // column, so broad glare on a glossy floor does not pass.
   cv::Mat hsv, blurred, yellow, yellow_raw, white, white_raw, tophat, value;
+  if (!deep_only) {
   cv::GaussianBlur(r.bev, blurred, {5, 5}, 0);
   cv::cvtColor(blurred, hsv, cv::COLOR_BGR2HSV);
   cv::inRange(hsv, cv::Scalar(c["yellow_h_min"], c["yellow_s_min"], c["yellow_v_min"]),
@@ -548,19 +578,20 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const cv::
           cv::drawContours(white, std::vector<std::vector<cv::Point>>{part}, 0, 0, cv::FILLED);
       }
   }
+  } // !deep_only
   // 2b. Deep fusion: class mask (0 bg, 1 yellow/orange, 2 white dashed) in
   // source coordinates, warped into the same BEV. gated keeps only HSV pixels
   // the network also calls lane paint (drops text, arrows, crosswalks).
-  if (const int mode = c["deep_mode"]; mode > 0 && !deep.empty()) {
+  if (source > 0) {
     if (deep.type() != CV_8U)
       throw std::invalid_argument("Deep mask must be CV_8U class ids");
     cv::Mat d, bev_deep;
     cv::resize(deep, d, {w, h}, 0, 0, cv::INTER_NEAREST);
     cv::warpPerspective(d, bev_deep, H, {w, h}, cv::INTER_NEAREST, cv::BORDER_CONSTANT, 0);
     cv::Mat deep_yellow = bev_deep == 1, deep_white = bev_deep == 2;
-    if (mode == 2) {
+    if (deep_only) {
       yellow = deep_yellow;
-      white = deep_white;
+      white = white_raw = deep_white;
     } else {
       if (const int k = c["deep_dilate"]; k > 0) {
         const auto disk = cv::getStructuringElement(cv::MORPH_ELLIPSE, {2 * k + 1, 2 * k + 1});

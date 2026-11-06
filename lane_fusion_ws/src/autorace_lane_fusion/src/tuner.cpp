@@ -259,10 +259,10 @@ void worker(Shared &s) {
       auto d = std::make_shared<Display>();
       d->result = pipeline.process(frame.image, frame.time, true, deep);
       const auto &r = d->result;
-      static const char *modes[] = {"끔 (HSV만)", "gated (HSV∧딥)", "딥만"};
-      d->deep = std::string("딥 퓨전: ") + modes[std::clamp(int(config["deep_mode"]), 0, 2)] +
-                (deep.empty() ? " | 이 프레임 딥 마스크 없음 → HSV만"
-                              : r.deep_used ? " | 딥 마스크 적용" : " | 딥 마스크 있음 (미사용)");
+      static const char *modes[] = {"끔 (HSV만)", "gated (HSV∧딥)", "딥만", "딥 우선 (놓치면 HSV)"};
+      d->deep = std::string("딥 퓨전: ") + modes[std::clamp(int(config["deep_mode"]), 0, 3)] +
+                " | 이 프레임: " + r.source +
+                (deep.empty() ? " (딥 마스크 없음)" : r.source == "hsv_fallback" ? " (딥이 경계를 놓쳐 HSV로 다시 처리)" : "");
       cv::Mat compare;
       cv::hconcat(r.color_mask, r.feature_mask, compare);
       cv::putText(compare, "COLOR (HSV)", {12, 26}, cv::FONT_HERSHEY_SIMPLEX, .7, 150, 2);

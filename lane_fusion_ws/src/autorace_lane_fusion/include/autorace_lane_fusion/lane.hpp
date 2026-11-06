@@ -55,6 +55,7 @@ struct Result {
   Path center_path;
   bool valid = false;
   bool deep_used = false; // a deep class mask was fused into the colour features
+  std::string source = "hsv"; // features from: hsv | gated | deep | hsv_fallback (mode 3)
   // Control-facing measurement at the lookahead point. Left is positive.
   double target_x = 0, target_y = 0, lateral_px = 0, lateral_m = 0;
   double heading = 0, curvature = 0, lookahead_m = 0, confidence = 0;
@@ -79,6 +80,7 @@ public:
                  const cv::Mat &deep = cv::Mat());
 
 private:
+  Result run(const cv::Mat &bgr, double time, bool views, const cv::Mat &deep, int source);
   struct Track {
     Path path;
     double seen = -1, quality = 0;

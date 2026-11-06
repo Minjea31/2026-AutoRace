@@ -193,12 +193,14 @@ private:
         processed_ = steady();
         ++processed_count_;
         fused_ += r.deep_used;
+        fallback_ += r.source == "hsv_fallback";
         if (processed_ - reported_ >= 5) {
           if (config["deep_mode"] > 0)
-            RCLCPP_INFO(get_logger(), "lane_fusion: %.1f Hz, deep-fused %zu / HSV-only %zu frames (5 s)",
-                        processed_count_ / (processed_ - reported_), fused_, hsv_only_);
+            RCLCPP_INFO(get_logger(), "lane_fusion: %.1f Hz, deep %zu / HSV-only (no mask) %zu / "
+                        "HSV fallback (deep lost lanes) %zu frames (5 s)",
+                        processed_count_ / (processed_ - reported_), fused_, hsv_only_, fallback_);
           reported_ = processed_;
-          processed_count_ = fused_ = hsv_only_ = 0;
+          processed_count_ = fused_ = hsv_only_ = fallback_ = 0;
         }
         if (views) {
           auto h = header;
@@ -219,7 +221,7 @@ private:
   size_t revision_ = 0;
   double timeout_ = .3, processed_ = 0, deep_wait_ = .15, deep_timeout_ = .5;
   double mask_seen_ = -1e9, reported_ = 0;
-  size_t processed_count_ = 0, fused_ = 0, hsv_only_ = 0;
+  size_t processed_count_ = 0, fused_ = 0, hsv_only_ = 0, fallback_ = 0;
   struct Pending {
     sensor_msgs::msg::CompressedImage::ConstSharedPtr msg;
     double arrival;

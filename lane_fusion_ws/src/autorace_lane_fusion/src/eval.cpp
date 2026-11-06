@@ -134,9 +134,7 @@ int main(int argc, char **argv) {
           cv::cvtColor(diff, drawn, cv::COLOR_BGR2GRAY);
           r.overlay.copyTo(frame_out, drawn > 0);
         }
-        static const char *modes[] = {"OpenCV", "gated HSV+deep", "deep only"};
-        const std::string label = std::string("lane_fusion (") +
-                                  modes[r.deep_used ? int(config["deep_mode"]) : 0] + ")  #" +
+        const std::string label = std::string("lane_fusion (") + r.source + ")  #" +
                                   std::to_string(i) + "  " + r.state;
         cv::putText(frame_out, label, {10, 28}, cv::FONT_HERSHEY_SIMPLEX, .7, {0, 0, 0}, 4);
         cv::putText(frame_out, label, {10, 28}, cv::FONT_HERSHEY_SIMPLEX, .7, {0, 255, 0}, 2);
