@@ -17,12 +17,14 @@ def build(onnx_path, output, workspace_mib):
     parser = trt.OnnxParser(network, logger)
     if not parser.parse(onnx_path.read_bytes()):
         raise RuntimeError('\n'.join(str(parser.get_error(i)) for i in range(parser.num_errors)))
-    if network.num_inputs != 1 or network.num_outputs != 1:
-        raise ValueError('Lane engine needs one input and one logits output')
-    image, logits = network.get_input(0), network.get_output(0)
+    # LOGITS model: rgb -> logits. MASK model (tools/export_mask_onnx.py): image -> label, prob.
+    image = network.get_input(0)
     shape = tuple(image.shape)
-    if image.name != 'rgb' or logits.name != 'logits' or shape not in ((1, 3, 480, 640), (1, 3, 288, 512)) or tuple(logits.shape) != shape:
-        raise ValueError('Unexpected ONNX interface; export the lane model at a supported static size')
+    outputs = {network.get_output(i).name: tuple(network.get_output(i).shape) for i in range(network.num_outputs)}
+    logits_ok = image.name == 'rgb' and outputs == {'logits': shape}
+    mask_ok = image.name == 'image' and outputs == {'label': (1,) + shape[2:], 'prob': (1,) + shape[2:]}
+    if network.num_inputs != 1 or shape not in ((1, 3, 480, 640), (1, 3, 288, 512)) or not (logits_ok or mask_ok):
+        raise ValueError(f'Unexpected ONNX interface {image.name}{shape} -> {outputs}')
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_mib * 1024 * 1024)
     if not builder.platform_has_fast_fp16:
@@ -35,7 +37,8 @@ def build(onnx_path, output, workspace_mib):
     output.write_bytes(bytes(serialized))
     metadata = {'tensorrt': trt.__version__, 'precision': 'FP16 enabled; TensorRT may retain FP32 layers',
                 'workspace_mib': workspace_mib, 'onnx': onnx_path.name,
-                'input_shape': list(network.get_input(0).shape), 'build_on_target_required': True}
+                'input_shape': list(network.get_input(0).shape), 'interface': 'mask' if mask_ok else 'logits',
+                'build_on_target_required': True}
     output.with_suffix('.json').write_text(json.dumps(metadata, indent=2) + '\n')
     return metadata
 

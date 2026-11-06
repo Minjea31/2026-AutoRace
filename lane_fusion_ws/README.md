@@ -15,7 +15,9 @@
 | `autorace_lane_fusion_pid` | `lane_ws/src/autorace_lane_pid` (입력만 `/lane_fusion/target`) | `lane_fusion_pid_controller`, `lane_fusion_pid_tuner` |
 | `autorace_lane_fusion_deep` | `lanedeep_ws`의 추론 코드(`runtime.py`, `model.py`, `constants.py`) + 마스크 전용 노드 | `lane_fusion_deep_mask` |
 
-모델: `src/autorace_lane_fusion_deep/model/best.pt`(lanedeep 학습 결과, 640×480, 3 epoch)와 그 ONNX `lane_640.onnx`(PyTorch와 mask 일치 확인). 설정 YAML 형식은 원본과 같아 `lane_ws` 튜닝 값을 그대로 옮길 수 있습니다.
+모델: `src/autorace_lane_fusion_deep/model/best.pt`(lanedeep 학습 결과, 640×480, 3 epoch)와 ONNX 두 가지.
+- `lane_640_mask.onnx` (기본): 정규화·softmax·argmax를 모델 안에 넣어 `label`/`prob`를 바로 출력합니다. Jetson에서 픽셀 단위 후처리가 GPU로 가고 CPU는 JPEG 디코딩·`blobFromImage`·임계값 비교만 합니다. `tools/export_mask_onnx.py`로 만들며 실제 프레임 20장에서 logits 방식과 mask가 100% 같습니다.
+- `lane_640.onnx`: lanedeep 원래 형식(`rgb` → `logits`, CPU 후처리). 런타임은 두 형식을 모두 지원합니다. 설정 YAML 형식은 원본과 같아 `lane_ws` 튜닝 값을 그대로 옮길 수 있습니다.
 
 ## 퓨전 방식
 
@@ -44,8 +46,8 @@ PYTHONNOUSERSITE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 1. TensorRT 엔진을 **Jetson에서** 패키지 model 폴더로 빌드하고, 다시 colcon build해서 설치합니다(처음 한 번, 모델이 바뀔 때마다). `*.engine`은 git에 올리지 않습니다.
    ```bash
    cd ~/2026-AutoRace/lane_fusion_ws
-   python3 tools/build_tensorrt.py --onnx src/autorace_lane_fusion_deep/model/lane_640.onnx \
-     --output src/autorace_lane_fusion_deep/model/lane_640.engine --workspace-mib 1024
+   python3 tools/build_tensorrt.py --onnx src/autorace_lane_fusion_deep/model/lane_640_mask.onnx \
+     --output src/autorace_lane_fusion_deep/model/lane_640_mask.engine --workspace-mib 1024
    PYTHONNOUSERSITE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
    ```
 2. 센서와 mux는 기존 방법으로 띄우고, 차선은 이것 하나만 실행합니다(`lane_ws`의 lane과 동시에 띄우지 않음).
@@ -53,7 +55,7 @@ PYTHONNOUSERSITE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
    source ~/2026-AutoRace/lane_fusion_ws/install/setup.bash
    ros2 launch autorace_lane_fusion_pid lane_fusion_pid.launch.py profile:=real
    ```
-   딥 마스크 노드·퓨전 인식·PID가 한 번에 뜹니다. 모델은 설치된 `lane_640.engine`을 자동으로 쓰고, 없으면 ONNX를 씁니다(로그 첫 줄 `tensorrt 640x480: ...`로 확인).
+   딥 마스크 노드·퓨전 인식·PID가 한 번에 뜹니다. 모델은 설치된 것 중 `lane_640_mask.engine` > `lane_640.engine` > `lane_640_mask.onnx` > `lane_640.onnx` 순으로 자동 선택합니다(로그 첫 줄 `tensorrt (mask output) ...`로 확인).
    - `deep:=false`: 딥 노드 없이 실행(HSV만)
    - `lane_gui:=true` / `gui:=true`: 인식 / PID 튜너
    - `enable_vehicle_output:=false`: `/mission/lane` 대신 `/lane_fusion_pid/command` 미리보기만

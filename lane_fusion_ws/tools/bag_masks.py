@@ -34,7 +34,7 @@ def main():
     p.add_argument('--masks', type=Path)
     a = p.parse_args()
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/autorace_lane_fusion_deep'))
-    from autorace_lane_fusion_deep.runtime import create_backend, decode, preprocess
+    from autorace_lane_fusion_deep.runtime import create_backend, segment
     size = (640, 480)
     if a.model.endswith('.pt'):
         import torch
@@ -62,7 +62,9 @@ def main():
     for i, data in enumerate(frames):
         bgr = to_bgr(deserialize_message(data, cls))
         t0 = time.perf_counter()
-        mask = decode(backend.logits(preprocess(bgr, *size)), (bgr.shape[1], bgr.shape[0]), a.threshold)
+        mask = segment(backend, bgr, *size, a.threshold)
+        if mask.shape != bgr.shape[:2]:
+            mask = cv2.resize(mask, (bgr.shape[1], bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
         if getattr(backend, 'device', None) is not None and getattr(backend.device, 'type', '') == 'cuda':
             __import__('torch').cuda.synchronize()
         ms.append((time.perf_counter() - t0) * 1000)

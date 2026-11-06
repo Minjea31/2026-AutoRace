@@ -18,7 +18,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 
-from .runtime import create_backend, decode, preprocess
+from .runtime import create_backend, segment
 
 
 class LaneDeepMaskNode(Node):
@@ -38,8 +38,11 @@ class LaneDeepMaskNode(Node):
             # Installed model: the TensorRT engine built on this machine
             # (model/lane_640.engine before colcon build) if present, else the ONNX.
             share = Path(get_package_share_directory('autorace_lane_fusion_deep')) / 'model'
-            engine = share / 'lane_640.engine'
-            self.model_path = str(engine if engine.is_file() else share / 'lane_640.onnx')
+            # Preference: GPU post-processing engine > logits engine > ONNX.
+            for name in ('lane_640_mask.engine', 'lane_640.engine', 'lane_640_mask.onnx', 'lane_640.onnx'):
+                if (share / name).is_file():
+                    self.model_path = str(share / name)
+                    break
         if self.device == 'auto':
             self.device = 'cuda'
             if self.model_path.endswith('.onnx'):
@@ -48,7 +51,7 @@ class LaneDeepMaskNode(Node):
                     self.device = 'cpu'
         self.backend, self.retry_after = None, 0.0
         self.latest, self.processed = None, None
-        self.count, self.ms, self.report = 0, 0.0, time.monotonic()
+        self.count, self.ms, self.jpeg_ms, self.report = 0, 0.0, 0.0, time.monotonic()
         self.pub = self.create_publisher(Image, output, qos_profile_sensor_data)
         self.create_subscription(CompressedImage, camera, self._image, qos_profile_sensor_data)
         self.create_timer(0.005, self._tick)
@@ -58,7 +61,8 @@ class LaneDeepMaskNode(Node):
         try:
             self.backend = create_backend(self.backend_name, self.model_path,
                                           self.width, self.height, self.device)
-            self.get_logger().info(f'{self.backend_name} {self.width}x{self.height}: {self.model_path}')
+            self.get_logger().info(f'{self.backend.name} ({getattr(self.backend, "interface", "logits")} output) '
+                                   f'{self.width}x{self.height} on {self.device}: {self.model_path}')
         except Exception as error:
             self.backend, self.retry_after = None, time.monotonic() + self.retry
             self.get_logger().error(f'model load failed ({error}); retry in {self.retry:.0f}s')
@@ -80,8 +84,8 @@ class LaneDeepMaskNode(Node):
             bgr = cv2.imdecode(np.frombuffer(message.data, np.uint8), cv2.IMREAD_COLOR)
             if bgr is None:
                 raise ValueError('camera decode failed')
-            mask = decode(self.backend.logits(preprocess(bgr, self.width, self.height)),
-                          (self.width, self.height), self.threshold)
+            decoded = time.perf_counter()
+            mask = segment(self.backend, bgr, self.width, self.height, self.threshold)
         except Exception as error:
             self.get_logger().warning(f'inference failed: {error}', throttle_duration_sec=2.0)
             return
@@ -93,11 +97,13 @@ class LaneDeepMaskNode(Node):
         self.pub.publish(out)
         self.count += 1
         self.ms += (time.perf_counter() - start) * 1000
+        self.jpeg_ms += (decoded - start) * 1000
         now = time.monotonic()
         if now - self.report >= 5.0:
+            n = max(1, self.count)
             self.get_logger().info(f'{self.count / (now - self.report):.1f} masks/s, '
-                                   f'{self.ms / max(1, self.count):.1f} ms/frame')
-            self.count, self.ms, self.report = 0, 0.0, now
+                                   f'{self.ms / n:.1f} ms/frame (jpeg {self.jpeg_ms / n:.1f} ms)')
+            self.count, self.ms, self.jpeg_ms, self.report = 0, 0.0, 0.0, now
 
     def destroy_node(self):
         if self.backend is not None and hasattr(self.backend, 'close'):

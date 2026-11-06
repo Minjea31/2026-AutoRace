@@ -21,6 +21,23 @@ def preprocess(bgr, width, height):
     return output
 
 
+def blob(bgr, width, height):
+    """Input of a MASK model: RGB 0..255 NCHW float32, resized in C++ (INTER_LINEAR).
+    Normalisation, softmax and argmax run inside the model (on the GPU)."""
+    return cv2.dnn.blobFromImage(bgr, 1.0, (width, height), swapRB=True)
+
+
+def segment(backend, bgr, width, height, threshold=0.5):
+    """Class mask (uint8 0/1/2, width x height) for either model interface:
+    MASK (image -> label, prob: post-processing on the GPU) or LOGITS (rgb -> logits)."""
+    if getattr(backend, 'interface', 'logits') == 'mask':
+        out = backend.run(blob(bgr, width, height))
+        mask = out['label'].reshape(height, width).astype(np.uint8)
+        mask[out['prob'].reshape(height, width) < threshold] = 0
+        return mask
+    return decode(backend.logits(preprocess(bgr, width, height)), (width, height), threshold)
+
+
 def decode(logits, original_size, threshold=0.5):
     if logits.ndim != 4 or logits.shape[0] != 1 or logits.shape[1] != 3 or not np.isfinite(logits).all():
         raise ValueError('Expected finite logits [1,3,H,W]')
@@ -90,7 +107,13 @@ class ONNXBackend:
         shape = self.session.get_inputs()[0].shape
         if shape != [1, 3, height, width]:
             raise ValueError(f'ONNX shape {shape} differs from configured size')
+        self.input_name = self.session.get_inputs()[0].name
+        self.output_names = [o.name for o in self.session.get_outputs()]
+        self.interface = 'mask' if self.input_name == 'image' else 'logits'
         self.width, self.height = width, height
+
+    def run(self, x):
+        return dict(zip(self.output_names, self.session.run(self.output_names, {self.input_name: x})))
 
     def logits(self, rgb):
         return self.session.run(['logits'], {'rgb': rgb})[0]
@@ -154,7 +177,9 @@ class TensorRTBackend:
                 return np.float32
             if value == trt.DataType.HALF:
                 return np.float16
-            raise ValueError('Lane engine I/O must use float32/float16')
+            if value == trt.DataType.INT32:
+                return np.int32
+            raise ValueError('Lane engine I/O must use float32/float16/int32')
         self.modern = hasattr(self.engine, 'num_io_tensors') and hasattr(self.context, 'execute_async_v3')
         if self.modern:
             names = [self.engine.get_tensor_name(i) for i in range(self.engine.num_io_tensors)]
@@ -164,15 +189,22 @@ class TensorRTBackend:
             names = [self.engine.get_binding_name(i) for i in range(self.engine.num_bindings)]
             shape = lambda name: tuple(self.engine.get_binding_shape(self.engine.get_binding_index(name)))
             dtype = lambda name: numpy_dtype(self.engine.get_binding_dtype(self.engine.get_binding_index(name)))
-        if set(names) != {'rgb', 'logits'} or shape('rgb') != (1, 3, height, width) or shape('logits') != (1, 3, height, width):
-            raise ValueError('Engine must have static rgb/logits tensors matching configured resolution')
-        self.input = np.empty(shape('rgb'), dtype=dtype('rgb'))
-        self.output = np.empty(shape('logits'), dtype=dtype('logits'))
-        if self.input.dtype not in (np.float32, np.float16) or self.output.dtype not in (np.float32, np.float16):
-            raise ValueError('Engine I/O must use float32/float16 logits')
+        # LOGITS interface: rgb -> logits [1,3,H,W]. MASK interface: image (RGB 0..255)
+        # -> label int32 [1,H,W] + prob [1,H,W] (normalise/softmax/argmax on the GPU).
+        if set(names) == {'rgb', 'logits'} and shape('logits') == (1, 3, height, width):
+            self.interface, self.input_name, self.output_names = 'logits', 'rgb', ['logits']
+        elif set(names) == {'image', 'label', 'prob'} and shape('label') == shape('prob') == (1, height, width):
+            self.interface, self.input_name, self.output_names = 'mask', 'image', ['label', 'prob']
+        else:
+            raise ValueError('Engine must be rgb->logits or image->label/prob at the configured resolution')
+        if shape(self.input_name) != (1, 3, height, width):
+            raise ValueError('Engine input does not match configured resolution')
+        self.input = np.empty(shape(self.input_name), dtype=dtype(self.input_name))
+        self.outputs = {n: np.empty(shape(n), dtype=dtype(n)) for n in self.output_names}
+        self.output = self.outputs.get('logits')
         self.cuda.call('cudaStreamCreate', ctypes.byref(self.stream))
         self.pointers = {}
-        for name, array in (('rgb', self.input), ('logits', self.output)):
+        for name, array in ((self.input_name, self.input), *self.outputs.items()):
             pointer = ctypes.c_void_p()
             self.cuda.call('cudaMalloc', ctypes.byref(pointer), array.nbytes)
             self.allocations.append(pointer)
@@ -182,9 +214,9 @@ class TensorRTBackend:
         self.bindings = [self.pointers[name].value for name in names]
         self.width, self.height = width, height
 
-    def logits(self, rgb):
-        np.copyto(self.input, rgb, casting='same_kind')
-        self.cuda.call('cudaMemcpy', self.pointers['rgb'], self.input.ctypes.data, self.input.nbytes, 1)
+    def run(self, x):
+        np.copyto(self.input, x, casting='same_kind')
+        self.cuda.call('cudaMemcpy', self.pointers[self.input_name], self.input.ctypes.data, self.input.nbytes, 1)
         if self.modern:
             ok = self.context.execute_async_v3(stream_handle=self.stream.value)
         else:
@@ -192,8 +224,12 @@ class TensorRTBackend:
         if not ok:
             raise RuntimeError('TensorRT execution failed')
         self.cuda.call('cudaStreamSynchronize', self.stream)
-        self.cuda.call('cudaMemcpy', self.output.ctypes.data, self.pointers['logits'], self.output.nbytes, 2)
-        return self.output.astype(np.float32, copy=True)
+        for name, array in self.outputs.items():
+            self.cuda.call('cudaMemcpy', array.ctypes.data, self.pointers[name], array.nbytes, 2)
+        return self.outputs
+
+    def logits(self, rgb):
+        return self.run(rgb)['logits'].astype(np.float32, copy=True)
 
     def close(self):
         if getattr(self, 'stream', None) and self.stream.value:
