@@ -71,6 +71,26 @@ Visualization Manager:
       Namespaces:
         cone_candidate_centers: true
         cone_candidate_labels: false
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Cone boundaries (left red, right blue)
+      Enabled: true
+      Topic:
+        Value: /cone_lane/boundaries
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Center path and cross sections
+      Enabled: true
+      Topic:
+        Value: /cone_lane/center_path
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
     - Class: rviz_default_plugins/TF
       Name: TF
       Enabled: true

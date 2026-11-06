@@ -1,9 +1,11 @@
 """Visualize a base_link LiDAR ROI, scan clusters, and unconfirmed cone candidates."""
 import colorsys
 import math
+from statistics import median
 import time
 
 import rclpy
+from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import Point
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.duration import Duration
@@ -16,22 +18,41 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 
-ROI_DEFAULTS = dict(roi_x_min=0.1, roi_x_max=0.8, roi_y_min=-0.5, roi_y_max=0.5)
+ROI_DEFAULTS = dict(roi_x_min=0.5, roi_x_max=1.0, roi_y_min=-0.5, roi_y_max=0.5)
 CLUSTER_DEFAULTS = dict(cluster_threshold=0.10, min_cluster_points=2,
                         max_cluster_width=0.28, cluster_point_size=0.05,
                         cone_center_size=0.08)
 
 
+CENTER_DEFAULTS = dict(center_sample_step=0.05, center_min_width=0.10,
+                       center_max_width=1.50, center_max_gap=0.30,
+                       center_max_turn=75.0, center_smoothing_weight=0.25,
+                       fallback_width_timeout=0.5, fallback_max_length=0.6,
+                       fallback_speed_scale=0.5, fallback_width_min_samples=3,
+                       fallback_width_max_spread=0.25)
+
+
+BOUNDARY_DEFAULTS = dict(boundary_connect_distance=0.30, boundary_max_turn=80.0,
+                         boundary_initial_max_turn=110.0, boundary_direction_window=3,
+                         boundary_distance_weight=1.0, boundary_direction_weight=2.0)
+
+
+CONTROL_DEFAULTS = dict(control_speed=0.15, control_reference_x=0.25,
+                        control_lateral_gain=2.0, control_heading_gain=1.0,
+                        control_max_steering=0.48, control_max_steering_rate=1.0,
+                        control_timeout=0.20, control_max_path_distance=0.50)
+
+
 class RoiNode(Node):
     def __init__(self, **kwargs):
         super().__init__('cone_lane_roi', **kwargs)
-        for name, default in {**ROI_DEFAULTS, **CLUSTER_DEFAULTS}.items():
+        for name, default in {**ROI_DEFAULTS, **CLUSTER_DEFAULTS, **CENTER_DEFAULTS, **BOUNDARY_DEFAULTS, **CONTROL_DEFAULTS}.items():
             self.declare_parameter(name, default)
         reason = self.validate_roi(self.roi_bounds())
         if reason:
             raise ValueError(reason)
         reason = self.validate_cluster_parameters(
-            {name: self.get_parameter(name).value for name in CLUSTER_DEFAULTS})
+            {name: self.get_parameter(name).value for name in (*CLUSTER_DEFAULTS, *CENTER_DEFAULTS, *BOUNDARY_DEFAULTS, *CONTROL_DEFAULTS)})
         if reason:
             raise ValueError(reason)
         self.add_on_set_parameters_callback(self.validate_parameters)
@@ -43,11 +64,29 @@ class RoiNode(Node):
         self.points_pub = self.create_publisher(Marker, '/cone_lane/roi_points', 1)
         self.clusters_pub = self.create_publisher(MarkerArray, '/cone_lane/clusters', 1)
         self.centers_pub = self.create_publisher(MarkerArray, '/cone_lane/cone_centers', 1)
+        self.boundaries_pub = self.create_publisher(MarkerArray, '/cone_lane/boundaries', 1)
+        self.center_pub = self.create_publisher(MarkerArray, '/cone_lane/center_path', 1)
+        self.center_pairs, self.center_points, self.center_path = [], [], []
+        self.lane_width = self.lane_width_stamp = None
+        self.last_center_stamp = None
+        self.center_path_estimated = False
+        self.left_boundary, self.right_boundary = [], []
+        self.command_pub = self.create_publisher(
+            AckermannDriveStamped, '/mission/cone/command_04', 1)
+        self.control_engaged = False
+        self.control_fault = False
+        self.control_scan_stamp = None
+        self.control_received = None
+        self.last_control_tick = None
+        self.last_steering = 0.
+        self.control_lateral_error = self.control_heading_error = 0.
+        self.mission_cone = False
         self.all_clusters, self.candidate_clusters = [], []
         self.scan_sub = self.create_subscription(
             LaserScan, '/scan', self.scan_callback, qos_profile_sensor_data)
         self.last_stats = self.last_warning = -math.inf
         self.outline_timer = self.create_timer(0.2, self.publish_roi_marker)
+        self.control_timer = self.create_timer(.05, self.control_tick)
         self.publish_roi_marker()
 
     def roi_bounds(self):
@@ -65,7 +104,7 @@ class RoiNode(Node):
 
     def validate_parameters(self, parameters):
         bounds = self.roi_bounds()
-        cluster_parameters = {name: self.get_parameter(name).value for name in CLUSTER_DEFAULTS}
+        cluster_parameters = {name: self.get_parameter(name).value for name in (*CLUSTER_DEFAULTS, *CENTER_DEFAULTS, *BOUNDARY_DEFAULTS, *CONTROL_DEFAULTS)}
         for parameter in parameters:
             if parameter.name in bounds:
                 bounds[parameter.name] = parameter.value
@@ -77,15 +116,28 @@ class RoiNode(Node):
     @staticmethod
     def validate_cluster_parameters(parameters):
         for name, value in parameters.items():
-            if name == 'min_cluster_points':
+            if name in ('min_cluster_points', 'boundary_direction_window', 'fallback_width_min_samples'):
                 if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                    return 'min_cluster_points must be an integer >= 1'
+                    return f'{name} must be an integer >= 1'
             elif (isinstance(value, bool) or not isinstance(value, (int, float))
                   or not math.isfinite(value) or value <= 0):
                 return f'{name} must be finite and > 0'
+        if parameters['center_min_width'] >= parameters['center_max_width']:
+            return 'center_min_width must be smaller than center_max_width'
+        if parameters['center_smoothing_weight'] > .5 or parameters['center_max_turn'] > 180:
+            return 'smoothing weight must be <= 0.5 and center_max_turn <= 180'
+        if parameters['boundary_max_turn'] >= 180 or parameters['boundary_initial_max_turn'] > 180:
+            return 'boundary_max_turn must be < 180 and initial turn <= 180 degrees'
+        if parameters['fallback_speed_scale'] > 1 or parameters['fallback_width_min_samples'] < 2:
+            return 'fallback speed scale must be <= 1 and width samples >= 2'
+        if parameters['control_max_steering'] >= math.pi/2:
+            return 'control_max_steering must be < pi/2 radians'
         return ''
 
     def scan_callback(self, msg):
+        self.control_received = time.monotonic()
+        self.control_scan_stamp = Time.from_msg(msg.header.stamp).nanoseconds
+        self.control_fault = False
         points, indices = self.scan_to_points(msg, with_indices=True)
         try:
             if not msg.header.frame_id:
@@ -99,7 +151,10 @@ class RoiNode(Node):
             if time.monotonic() - self.last_warning >= 1.0:
                 self.get_logger().warning(f'Skipping scan: cannot transform to base_link: {exc}')
                 self.last_warning = time.monotonic()
+            self.control_fault = True
             self.publish_roi_points([], msg.header.stamp)
+            self.mission_cone = False
+            self.update_boundary_markers([], msg.header.stamp)
             self.all_clusters, self.candidate_clusters = [], []
             self.publish_cluster_markers([], msg.header.stamp)
             self.publish_cone_center_markers([], msg.header.stamp)
@@ -107,7 +162,9 @@ class RoiNode(Node):
         roi_points, roi_indices = self.filter_roi(points_base, indices)
         self.all_clusters = self.cluster_points(roi_points, roi_indices)
         self.candidate_clusters = self.filter_clusters(self.all_clusters)
+        self.mission_cone = len(self.candidate_clusters) > 6
         centers = [self.calculate_cluster_center(cluster) for cluster in self.candidate_clusters]
+        self.update_boundary_markers(centers, msg.header.stamp)
         self.publish_roi_points(roi_points, msg.header.stamp)
         self.publish_roi_marker()
         self.publish_cluster_markers(self.all_clusters, msg.header.stamp)
@@ -119,7 +176,12 @@ class RoiNode(Node):
                 f'ROI Points: {len(roi_points)}\n'
                 f'Outside ROI Points: {len(points) - len(roi_points)}\n'
                 f'Total Clusters: {len(self.all_clusters)}\n'
-                f'Cone Candidates: {len(centers)}')
+                f'Cone Candidates: {len(centers)}\n'
+                f'mission_cone: {self.mission_cone}\n'
+                f'Center path: points={len(self.center_path)}, estimated={self.center_path_estimated}, '
+                f'width={self.lane_width}\n'
+                f'Control: active={self.control_engaged}, lateral_error={self.control_lateral_error:.3f} m, '
+                f'heading_error={self.control_heading_error:.3f} rad')
             details = [f'Cluster {i}: points={len(cluster)}'
                        for i, cluster in enumerate(self.all_clusters)]
             details += [f'Cone Candidate {i}: x={center[0]:.3f}, y={center[1]:.3f}, '
@@ -200,6 +262,379 @@ class RoiNode(Node):
         if not cluster:
             raise ValueError('Cannot calculate an empty cluster center')
         return tuple(sum(p[axis] for p in cluster)/len(cluster) for axis in range(3))
+
+    @staticmethod
+    def select_boundary_chain(cones, parameters=None, opposite=()):
+        """Seed by origin distance, then minimize normalized distance and turn cost.
+
+        Average recent unit segment directions to reduce jitter; also gate against
+        the last segment so averaging cannot hide a sharp reversal. No X-order gate.
+        Opposite is an already ordered boundary whose segments must not be crossed.
+        """
+        p = dict(BOUNDARY_DEFAULTS, **(parameters or {}))
+        remaining = sorted(set(cones), key=lambda q: (math.hypot(q[0], q[1]), q))
+        if not remaining:
+            return []
+        chain, directions = [remaining.pop(0)], []
+        def turn(a, b):
+            return math.degrees(math.acos(max(-1., min(1., a[0]*b[0]+a[1]*b[1]))))
+        while remaining:
+            recent = directions[-p['boundary_direction_window']:]
+            hx, hy = (sum(v[0] for v in recent), sum(v[1] for v in recent)) if recent else (1., 0.)
+            length = math.hypot(hx, hy)
+            heading = (hx/length, hy/length) if length > 1e-9 else directions[-1]
+            limit = p['boundary_max_turn'] if directions else p['boundary_initial_max_turn']
+            options = []
+            for q in remaining:
+                dx, dy = q[0]-chain[-1][0], q[1]-chain[-1][1]
+                gap = math.hypot(dx, dy)
+                if not 1e-9 < gap <= p['boundary_connect_distance']:
+                    continue
+                direction = (dx/gap, dy/gap)
+                deviation = turn(heading, direction)
+                if deviation > limit or (directions and turn(directions[-1], direction) > p['boundary_max_turn']):
+                    continue
+                if any(RoiNode.segments_cross(chain[-1], q, a, b)
+                       for a, b in list(zip(chain, chain[1:]))[:-1]+list(zip(opposite, opposite[1:]))):
+                    continue
+                score = (p['boundary_distance_weight']*gap/p['boundary_connect_distance']
+                         + p['boundary_direction_weight']*deviation/limit)
+                options.append((score, q, direction))
+            if not options:
+                break
+            _, q, direction = min(options)
+            chain.append(q)
+            directions.append(direction)
+            remaining.remove(q)
+        return chain
+
+    def update_boundary_markers(self, centers, stamp):
+        # ROS base_link: positive Y is left, negative Y is right.
+        parameters = {name: self.get_parameter(name).value for name in BOUNDARY_DEFAULTS}
+        self.left_boundary = self.select_boundary_chain(
+            [p for p in centers if p[1] > 0], parameters) if self.mission_cone else []
+        self.right_boundary = self.select_boundary_chain(
+            [p for p in centers if p[1] < 0], parameters, self.left_boundary) if self.mission_cone else []
+        markers = self.marker_array(stamp)
+        for name, boundary, color in (
+                ('left_boundary', self.left_boundary, (1., 0., 0.)),
+                ('right_boundary', self.right_boundary, (0., 0., 1.))):
+            if not boundary:
+                continue
+            marker = self.new_marker(name, Marker.LINE_STRIP if len(boundary) >= 2 else Marker.POINTS, stamp)
+            marker.scale.x = .03 if len(boundary) >= 2 else .10
+            marker.scale.y = .10
+            marker.color.r, marker.color.g, marker.color.b = color
+            marker.points = [Point(x=x, y=y, z=z) for x, y, z in boundary]
+            marker.lifetime = Duration(seconds=.5).to_msg()
+            markers.markers.append(marker)
+        self.boundaries_pub.publish(markers)
+        self.update_center_path(stamp)
+        self.update_control_activation()
+
+    @staticmethod
+    def sample_boundary(line, step):
+        """Return points at cumulative XY arc lengths; preserve order, no extrapolation."""
+        if len(line) < 2:
+            return []
+        result, target, total = [line[0]], step, 0.
+        for a, b in zip(line, line[1:]):
+            length = math.hypot(b[0]-a[0], b[1]-a[1])
+            while length > 1e-9 and target < total+length:
+                t = (target-total)/length
+                result.append(tuple(a[k]+t*(b[k]-a[k]) for k in range(3)))
+                target += step
+                if len(result) >= 1000:
+                    return []  # Reject excessive sampling rather than silently bridge a gap.
+            total += length
+        if math.dist(result[-1][:2], line[-1][:2]) > 1e-8:
+            result.append(line[-1])
+        return result
+
+    @staticmethod
+    def segments_cross(a, b, c, d):
+        def cross(p, q, r):
+            return (q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0])
+        if (max(a[0], b[0]) < min(c[0], d[0]) or max(c[0], d[0]) < min(a[0], b[0])
+                or max(a[1], b[1]) < min(c[1], d[1]) or max(c[1], d[1]) < min(a[1], b[1])):
+            return False
+        return cross(a, b, c)*cross(a, b, d) <= 0 and cross(c, d, a)*cross(c, d, b) <= 0
+
+    @staticmethod
+    def match_cross_sections(left, right, step, min_width, max_width):
+        """Intersect left local normals with right segments in increasing right arc order.
+
+        With ROS positive-Y left, the inward normal is the right-hand normal
+        of the forward tangent, directed from the left boundary into the lane. Ambiguous intersections are skipped.
+        """
+        refs = RoiNode.sample_boundary(left, step)
+        if len(refs) < 2 or len(right) < 2:
+            return []
+        pairs, previous = [], -1.
+        for i, q in enumerate(refs):
+            a, b = refs[max(0, i-1)], refs[min(len(refs)-1, i+1)]
+            dx, dy = b[0]-a[0], b[1]-a[1]
+            length = math.hypot(dx, dy)
+            if length < 1e-9:
+                continue
+            nx, ny = dy/length, -dx/length
+            hits, arc = [], 0.
+            for a, b in zip(right, right[1:]):
+                vx, vy = b[0]-a[0], b[1]-a[1]
+                segment_length = math.hypot(vx, vy)
+                denominator = nx*vy-ny*vx
+                if abs(denominator) > 1e-9 and dx*vx+dy*vy > 0:
+                    ax, ay = a[0]-q[0], a[1]-q[1]
+                    width = (ax*vy-ay*vx)/denominator
+                    t = (ax*ny-ay*nx)/denominator
+                    progress = arc+max(0., min(1., t))*segment_length
+                    if min_width <= width <= max_width and -1e-8 <= t <= 1.+1e-8 and progress > previous+1e-8:
+                        p = tuple(a[k]+max(0., min(1., t))*(b[k]-a[k]) for k in range(3))
+                        if not any(math.dist(p[:2], h[1][:2]) < 1e-8 for h in hits):
+                            hits.append((progress, p))
+                arc += segment_length
+            if len(hits) == 1:
+                previous, opposite = hits[0]
+                pairs.append((q, opposite))
+        return pairs
+
+    @staticmethod
+    def smooth_center_path(centers, left, right, weight, max_gap, max_turn):
+        """Keep correspondence order; average neighbours only inside a simple lane polygon."""
+        if len(centers) < 2:
+            return []
+        polygon = left+list(reversed(right))
+        edges = list(zip(polygon, polygon[1:]+polygon[:1]))
+        if any(RoiNode.segments_cross(a, b, c, d) for i, (a, b) in enumerate(edges)
+               for j, (c, d) in enumerate(edges) if j > i+1 and not (i == 0 and j == len(edges)-1)):
+            return []
+        def inside(p):
+            count = 0
+            for a, b in edges:
+                if (a[1] > p[1]) != (b[1] > p[1]):
+                    x = a[0]+(p[1]-a[1])*(b[0]-a[0])/(b[1]-a[1])
+                    count += x > p[0]
+            return count % 2 == 1
+        def safe_segment(a, b):
+            return inside(a) and inside(b) and not any(RoiNode.segments_cross(a, b, c, d) for c, d in edges)
+        # Separate invalid gaps; do not reconnect them by nearest-neighbour sorting.
+        runs, run = [], []
+        for p in centers:
+            if not inside(p):
+                runs.append(run)
+                run = []
+                continue
+            if run and (math.dist(run[-1][:2], p[:2]) > max_gap or not safe_segment(run[-1], p)):
+                runs.append(run)
+                run = []
+            run.append(p)
+        runs.append(run)
+        path = list(max(runs, key=len))
+        if len(path) < 2:
+            return []
+        for i in range(1, len(path)-1):
+            p = tuple((1.-weight)*path[i][k]+weight*(path[i-1][k]+path[i+1][k])/2 for k in range(3))
+            if safe_segment(path[i-1], p) and safe_segment(p, path[i+1]):
+                path[i] = p
+        for a, b, c in zip(path, path[1:], path[2:]):
+            u, v = (b[0]-a[0], b[1]-a[1]), (c[0]-b[0], c[1]-b[1])
+            cosine = (u[0]*v[0]+u[1]*v[1])/max(1e-12, math.hypot(*u)*math.hypot(*v))
+            if math.degrees(math.acos(max(-1., min(1., cosine)))) > max_turn:
+                return []
+        segments = list(zip(path, path[1:]))
+        if any(RoiNode.segments_cross(a, b, c, d) for i, (a, b) in enumerate(segments) for c, d in segments[i+2:]):
+            return []
+        return path
+
+    @staticmethod
+    def boundary_length(line):
+        return sum(math.dist(a[:2], b[:2]) for a, b in zip(line, line[1:]))
+
+    @staticmethod
+    def boundaries_safe(left, right):
+        """Reject observed self/cross intersections before enabling width fallback."""
+        for line in (left, right):
+            segs = list(zip(line, line[1:]))
+            if any(RoiNode.segments_cross(a, b, c, d) for i, (a, b) in enumerate(segs) for c, d in segs[i+2:]):
+                return False
+        return not any(RoiNode.segments_cross(a, b, c, d) for a, b in zip(left, left[1:]) for c, d in zip(right, right[1:]))
+
+    @staticmethod
+    def offset_boundary_path(boundary, other, side, width, p):
+        """Offset current observations only; limit length, validate against visible other side.
+
+        The virtual full-width boundary is a validation corridor, not a new observation.
+        Returns raw center samples and a smoothed path; never extrapolates endpoints.
+        """
+        samples = RoiNode.sample_boundary(boundary, p['center_sample_step'])
+        source, length = [], 0.
+        for i, q in enumerate(samples):
+            if i:
+                length += math.dist(samples[i-1][:2], q[:2])
+            if length > p['fallback_max_length']+1e-8:
+                break
+            source.append(q)
+        if len(source) < 3:
+            return [], []
+        centers, virtual = [], []
+        for i, q in enumerate(source):
+            a, b = source[max(0, i-1)], source[min(len(source)-1, i+1)]
+            dx, dy = b[0]-a[0], b[1]-a[1]
+            norm = math.hypot(dx, dy)
+            if norm < 1e-8:
+                return [], []
+            nx, ny = (dy/norm, -dx/norm) if side == 'left' else (-dy/norm, dx/norm)
+            centers.append((q[0]+nx*width/2, q[1]+ny*width/2, q[2]))
+            virtual.append((q[0]+nx*width, q[1]+ny*width, q[2]))
+            # A visible opposite side must not lie between the source and the offset.
+            evidence = []
+            for a, b in zip(other, other[1:]):
+                vx, vy = b[0]-a[0], b[1]-a[1]
+                length2 = vx*vx+vy*vy
+                if length2 < 1e-12:
+                    continue
+                t = max(0., min(1., ((q[0]-a[0])*vx+(q[1]-a[1])*vy)/length2))
+                rx, ry = a[0]+t*vx-q[0], a[1]+t*vy-q[1]
+                if abs((rx*dx+ry*dy)/norm) <= p['center_sample_step']*2:
+                    evidence.append(rx*nx+ry*ny)
+            if evidence and min(evidence) <= width/2:
+                return [], []
+        corridor = (source, virtual) if side == 'left' else (virtual, source)
+        path = RoiNode.smooth_center_path(centers, *corridor, p['center_smoothing_weight'],
+                                          p['center_max_gap'], p['center_max_turn'])
+        if not path or not RoiNode.boundaries_safe(path, other):
+            return [], []
+        # Also validate crossings against source portions beyond the cropped horizon.
+        if not RoiNode.boundaries_safe(path, boundary):
+            return [], []
+        return centers, path
+
+    def update_center_path(self, stamp):
+        p = {name: self.get_parameter(name).value for name in CENTER_DEFAULTS}
+        now = Time.from_msg(stamp).nanoseconds/1e9
+        self.center_path_estimated = False
+        if (not self.mission_cone or self.control_fault or now <= 0
+                or (self.last_center_stamp is not None and now < self.last_center_stamp)
+                or (self.lane_width_stamp is not None and now-self.lane_width_stamp > p['fallback_width_timeout'])):
+            self.lane_width = self.lane_width_stamp = None
+        self.last_center_stamp = now
+        self.center_pairs = self.match_cross_sections(
+            self.left_boundary, self.right_boundary, p['center_sample_step'],
+            p['center_min_width'], p['center_max_width'])
+        self.center_points = [tuple((a[k]+b[k])/2 for k in range(3)) for a, b in self.center_pairs]
+        self.center_path = self.smooth_center_path(
+            self.center_points, self.left_boundary, self.right_boundary,
+            p['center_smoothing_weight'], p['center_max_gap'], p['center_max_turn'])
+        safe = self.boundaries_safe(self.left_boundary, self.right_boundary)
+        if self.center_path and safe and self.mission_cone and not self.control_fault and now > 0:
+            widths = [math.dist(a[:2], b[:2]) for a, b in self.center_pairs]
+            if len(widths) >= p['fallback_width_min_samples']:
+                measured = median(widths)
+                if max(abs(w-measured) for w in widths)/measured <= p['fallback_width_max_spread']:
+                    self.lane_width, self.lane_width_stamp = measured, now
+        elif (not self.center_pairs and safe and self.mission_cone and not self.control_fault
+              and self.lane_width is not None and self.lane_width_stamp is not None
+              and 0 <= now-self.lane_width_stamp <= p['fallback_width_timeout']
+              and p['center_min_width'] <= self.lane_width <= p['center_max_width']):
+            side = 'left' if self.boundary_length(self.left_boundary) >= self.boundary_length(self.right_boundary) else 'right'
+            boundary, other = ((self.left_boundary, self.right_boundary) if side == 'left'
+                               else (self.right_boundary, self.left_boundary))
+            self.center_points, self.center_path = self.offset_boundary_path(boundary, other, side, self.lane_width, p)
+            self.center_path_estimated = bool(self.center_path)
+        markers = self.marker_array(stamp)
+        for name, points, kind, color, size in (
+                ('cross_sections', [p for pair in self.center_pairs for p in pair], Marker.LINE_LIST, (1., 1., 0.), .01),
+                ('center_points', self.center_points, Marker.POINTS, (1., 0., 1.), .05),
+                ('center_path', self.center_path, Marker.LINE_STRIP,
+                 (1., .5, 0.) if self.center_path_estimated else (0., 1., 0.), .03)):
+            if not points:
+                continue
+            marker = self.new_marker(name, kind, stamp)
+            marker.points = [Point(x=x, y=y, z=z) for x, y, z in points]
+            marker.scale.x = marker.scale.y = size
+            marker.color.r, marker.color.g, marker.color.b = color
+            marker.lifetime = Duration(seconds=.5).to_msg()
+            markers.markers.append(marker)
+        self.center_pub.publish(markers)
+
+    @staticmethod
+    def path_errors(path, reference_x, max_distance=0.50):
+        """Return signed lateral metres and heading radians at a forward reference point.
+
+        Project (reference_x, 0) onto the closest forward-directed finite segment.
+        Positive lateral error means the path lies to the left of the reference.
+        No extrapolation or reverse-driving segment is accepted.
+        """
+        if len(path) < 2 or not all(math.isfinite(v) for q in path for v in q):
+            return None
+        choices = []
+        for a, b in zip(path, path[1:]):
+            dx, dy = b[0]-a[0], b[1]-a[1]
+            length = math.hypot(dx, dy)
+            if length < 1e-8 or dx/length <= .1:
+                continue
+            t = max(0., min(1., ((reference_x-a[0])*dx-a[1]*dy)/(length*length)))
+            x, y = a[0]+t*dx, a[1]+t*dy
+            if x <= 0:
+                continue
+            lateral = (dx*y-dy*(x-reference_x))/length
+            choices.append((math.hypot(x-reference_x, y), lateral, math.atan2(dy, dx)))
+        if not choices:
+            return None
+        distance, lateral, heading = min(choices)
+        return (lateral, heading) if distance <= max_distance else None
+
+    def publish_drive(self, speed, steering):
+        message = AckermannDriveStamped()
+        message.header.frame_id = 'base_link'
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.drive.speed, message.drive.steering_angle = float(speed), float(steering)
+        self.command_pub.publish(message)
+
+    def update_control_activation(self):
+        # A zero-speed command is active in the mux: idle must eventually be silent.
+        if self.mission_cone:
+            self.control_engaged = True
+        elif self.control_engaged and not self.control_fault:
+            self.publish_drive(0., 0.)
+            self.control_engaged = False
+            self.last_steering = 0.
+        if self.control_engaged and (self.control_fault or not self.center_path):
+            self.publish_drive(0., 0.)
+            self.last_steering = 0.
+
+    def control_tick(self):
+        """20 Hz error feedback; stale/invalid paths stop without steering-rate delay."""
+        steady, now = time.monotonic(), self.get_clock().now().nanoseconds
+        dt = .05 if self.last_control_tick is None else max(0., min(.1, steady-self.last_control_tick))
+        self.last_control_tick = steady
+        if not self.control_engaged:
+            self.last_steering = 0.
+            return
+        p = {name: self.get_parameter(name).value for name in CONTROL_DEFAULTS}
+        fresh = (self.control_received is not None and self.control_scan_stamp is not None
+                 and self.control_scan_stamp > 0
+                 and 0 <= steady-self.control_received <= p['control_timeout']
+                 and 0 <= (now-self.control_scan_stamp)/1e9 <= p['control_timeout'])
+        errors = self.path_errors(self.center_path, p['control_reference_x'], p['control_max_path_distance']) if fresh and not self.control_fault else None
+        if self.center_path_estimated and (self.lane_width_stamp is None or
+                not 0 <= now/1e9-self.lane_width_stamp <= self.get_parameter('fallback_width_timeout').value):
+            errors = None
+        if errors is None:
+            self.publish_drive(0., 0.)
+            self.last_steering = 0.
+            return
+        self.control_lateral_error, self.control_heading_error = errors
+        target = p['control_lateral_gain']*errors[0]+p['control_heading_gain']*errors[1]
+        limit = p['control_max_steering']
+        target = max(-limit, min(limit, target))
+        step = p['control_max_steering_rate']*dt
+        self.last_steering += max(-step, min(step, target-self.last_steering))
+        self.last_steering = max(-limit, min(limit, self.last_steering))
+        speed = p['control_speed']*(1.-.7*abs(target)/limit)
+        if self.center_path_estimated:
+            speed *= self.get_parameter('fallback_speed_scale').value
+        self.publish_drive(speed, self.last_steering)
 
     def marker_array(self, stamp=None):
         # Each topic owns its MarkerArray; DELETEALL cannot clear the ROI Marker topics.

@@ -5,3 +5,28 @@ cone_lane_roi:
     max_cluster_width: 0.28
     cluster_point_size: 0.05
     cone_center_size: 0.08
+    center_sample_step: 0.05
+    center_min_width: 0.10
+    center_max_width: 1.50
+    center_max_gap: 0.30
+    center_max_turn: 75.0
+    center_smoothing_weight: 0.25
+    boundary_connect_distance: 0.30
+    boundary_max_turn: 80.0
+    boundary_initial_max_turn: 110.0
+    boundary_direction_window: 3
+    boundary_distance_weight: 1.0
+    boundary_direction_weight: 2.0
+    control_speed: 0.4
+    control_reference_x: 0.25
+    control_lateral_gain: 2.0
+    control_heading_gain: 1.0
+    control_max_steering: 0.48
+    control_max_steering_rate: 1.0
+    control_timeout: 0.20
+    control_max_path_distance: 0.50
+    fallback_width_timeout: 5.0
+    fallback_max_length: 0.6
+    fallback_speed_scale: 0.5
+    fallback_width_min_samples: 3
+    fallback_width_max_spread: 0.25

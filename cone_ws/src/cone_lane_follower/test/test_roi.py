@@ -145,7 +145,7 @@ def test_dds_tf_markers_empty_scan_failure_and_dynamic_outline(harness):
     until(lambda: len(points) > count)
     assert points[-1].action == Marker.DELETE
     topics = {name for name, _ in roi.get_publisher_names_and_types_by_node(roi.get_name(), '/')}
-    assert not any('command' in name or 'cmd_vel' in name for name in topics)
+    assert {name for name in topics if 'command' in name or 'cmd_vel' in name} == {'/mission/cone/command_04'}
 
 
 def test_missing_tf_does_not_publish_untransformed_points(harness):
@@ -289,3 +289,359 @@ def test_cluster_center_dds_marker_replacement_and_tf_failure(harness):
     # Rejected singleton stays in all-cluster visualization, but produces no center.
     send([1.])
     assert len(clusters[-1].markers) == 2 and len(centers[-1].markers) == 1
+
+
+@pytest.mark.parametrize('count', [0, 5, 6, 7])
+def test_mission_cone_candidate_count_and_reset(harness, monkeypatch, count):
+    roi, *_ = harness
+    assert roi.mission_cone is False
+    class IdentityTF:
+        def lookup_transform(self, *args):
+            return transform()
+    monkeypatch.setattr(roi, 'tf_buffer', IdentityTF())
+    candidates = [[(1., .2, 0.), (1.01, .2, 0.)] for _ in range(count)]
+    monkeypatch.setattr(roi, 'filter_clusters', lambda clusters: candidates)
+    roi.scan_callback(scan([1.]))
+    assert roi.mission_cone is (count > 6)
+    candidates[:] = candidates[:6]
+    roi.scan_callback(scan([1.]))
+    assert roi.mission_cone is False
+    roi.mission_cone = True
+    msg = scan([1.])
+    msg.header.frame_id = ''
+    roi.scan_callback(msg)
+    assert roi.mission_cone is False
+
+
+def test_boundary_chain_direction_priority_and_distance_limit():
+    seed, near, origin = (.2, -.2, 0.), (.3, -.2, 0.), (.1, -.3, 0.)
+    assert RoiNode.select_boundary_chain([near, origin, seed]) == [seed, near]
+    assert RoiNode.select_boundary_chain([]) == []
+    assert RoiNode.select_boundary_chain([(0., 0., 0.), (.3, 0., 0.)]) == [(0., 0., 0.), (.3, 0., 0.)]
+    assert RoiNode.select_boundary_chain([seed, (1., -.2, 0.), seed]) == [seed]
+
+
+def test_mission_boundary_sides_colors_and_clearing(harness):
+    roi, *_ = harness
+    class Capture:
+        def publish(self, array):
+            self.array = array
+    capture = Capture()
+    roi.boundaries_pub = capture
+    centers = [(.2, -.2, 0.), (.3, -.2, 0.), (.2, .2, 0.), (.3, .2, 0.), (.1, 0., 0.)]
+    stamp = roi.get_clock().now().to_msg()
+    roi.update_boundary_markers(centers, stamp)
+    assert len(capture.array.markers) == 1
+    roi.mission_cone = True
+    roi.update_boundary_markers(centers, stamp)
+    assert roi.left_boundary == centers[2:4] and roi.right_boundary == centers[:2]
+    clear, left, right = capture.array.markers
+    assert clear.action == Marker.DELETEALL
+    assert left.type == right.type == Marker.LINE_STRIP
+    assert left.color.r == right.color.b == 1. and left.color.b == right.color.r == 0.
+    roi.update_boundary_markers([centers[0]], stamp)
+    assert capture.array.markers[1].type == Marker.POINTS
+    roi.mission_cone = False
+    roi.update_boundary_markers(centers, stamp)
+    assert not roi.left_boundary and len(capture.array.markers) == 1
+    roi.mission_cone = True
+    msg = scan([1.])
+    msg.header.frame_id = ''
+    roi.scan_callback(msg)
+    assert not roi.mission_cone and len(capture.array.markers) == 1
+
+
+def test_boundary_chain_extends_from_last_point_and_stops_at_gap():
+    points = [(x, -.2, 0.) for x in (.1, .3, .5, .7, 1.2)]
+    assert RoiNode.select_boundary_chain(list(reversed(points))+[points[1]]) == points[:4]
+
+
+def test_long_boundary_is_line_strip(harness):
+    roi, *_ = harness
+    class Capture:
+        def publish(self, array):
+            self.array = array
+    capture = Capture()
+    roi.boundaries_pub = capture
+    roi.mission_cone = True
+    left = [(x, .2, 0.) for x in (.1, .3, .5, .7)]
+    right = [(x, -.2, 0.) for x in (.1, .3, .5, .7)]
+    roi.update_boundary_markers(left+right, roi.get_clock().now().to_msg())
+    assert roi.left_boundary == left and roi.right_boundary == right
+    assert all(m.type == Marker.LINE_STRIP and len(m.points) == 4 and m.scale.x == .03
+               for m in capture.array.markers[1:])
+
+
+def test_cross_sections_staggered_spacing_and_order():
+    left = [(x, .4, 0.) for x in (.2, .8, 1.4)]
+    right = [(x, -.4, 0.) for x in (.3, 1., 1.6)]
+    pairs = RoiNode.match_cross_sections(left, right, .05, .1, 1.5)
+    assert len(pairs) > 10
+    assert all(abs(a[0]-b[0]) < 1e-8 for a, b in pairs)
+    centers = [tuple((a[k]+b[k])/2 for k in range(3)) for a, b in pairs]
+    path = RoiNode.smooth_center_path(centers, left, right, .25, .3, 75.)
+    assert len(path) > 10 and all(abs(p[1]) < 1e-8 for p in path)
+    assert all(a[0] < b[0] for a, b in zip(path, path[1:]))
+
+
+def test_cross_sections_curve_and_invalid_inputs():
+    # ROS naming: left is the inner side of this left turn.
+    left = [(1.6*math.sin(t), 2.-1.6*math.cos(t), 0.) for t in [.1*i for i in range(12)]]
+    right = [(2.4*math.sin(t), 2.-2.4*math.cos(t), 0.) for t in [.1*i for i in range(12)]]
+    pairs = RoiNode.match_cross_sections(left, right, .05, .1, 1.5)
+    centers = [tuple((a[k]+b[k])/2 for k in range(3)) for a, b in pairs]
+    path = RoiNode.smooth_center_path(centers, left, right, .25, .3, 75.)
+    assert len(path) > 10
+    assert max(abs(math.hypot(p[0], p[1]-2.)-2.) for p in path) < .04
+    assert RoiNode.match_cross_sections(left, [], .05, .1, 1.5) == []
+    assert RoiNode.match_cross_sections(left, right, .05, 2., 3.) == []
+    assert RoiNode.smooth_center_path([(0., 0., 0.), (1., 0., 0.)],
+        [(0., -.5, 0.), (1., .5, 0.)], [(0., .5, 0.), (1., -.5, 0.)], .25, .3, 75.) == []
+
+
+def test_center_output_clears_when_mission_stops(harness):
+    roi, *_ = harness
+    class Capture:
+        def publish(self, message):
+            self.message = message
+    output = Capture()
+    roi.center_pub = output
+    roi.mission_cone = True
+    cones = [(x, y, 0.) for y in (-.3, .3) for x in (.2, .4, .6, .8)]
+    roi.update_boundary_markers(cones, roi.get_clock().now().to_msg())
+    assert roi.center_path
+    assert any(m.ns == 'center_path' and m.color.g == 1. for m in output.message.markers)
+    roi.mission_cone = False
+    roi.update_boundary_markers(cones, roi.get_clock().now().to_msg())
+    assert not roi.center_path and not roi.center_pairs
+    assert len(output.message.markers) == 1 and output.message.markers[0].action == Marker.DELETEALL
+
+
+def test_direction_cost_prefers_forward_over_nearer_sharp_candidate():
+    seed, bad, forward = (.1, -.2, 0.), (.12, -.26, 0.), (.28, -.2, 0.)
+    assert RoiNode.select_boundary_chain([bad, forward, seed]) == [seed, forward]
+    # A separate first-link limit permits/rejects a lateral startup.
+    lateral = [(0., .2, 0.), (0., .4, 0.)]
+    assert len(RoiNode.select_boundary_chain(lateral)) == 2
+    assert len(RoiNode.select_boundary_chain(lateral, dict(boundary_initial_max_turn=60.))) == 1
+
+
+def test_direction_follows_curve_with_decreasing_x():
+    chain = [(.1, -.3, 0.)]
+    for angle in (0, 30, 60, 90, 120):
+        a = math.radians(angle)
+        x, y, z = chain[-1]
+        chain.append((x+.2*math.cos(a), y+.2*math.sin(a), z))
+    assert RoiNode.select_boundary_chain(list(reversed(chain))) == chain
+    assert chain[-1][0] < chain[-2][0]
+
+
+def test_boundary_crossing_candidate_is_rejected():
+    chain = RoiNode.select_boundary_chain([(.1, 0., 0.), (.3, 0., 0.)],
+        opposite=[(.2, -.2, 0.), (.2, .2, 0.)])
+    assert chain == [(.1, 0., 0.)]
+
+
+@pytest.mark.parametrize('name,value', [('boundary_direction_window', 0),
+    ('boundary_connect_distance', 0.), ('boundary_max_turn', 180.),
+    ('boundary_initial_max_turn', 181.), ('boundary_direction_weight', -1.)])
+def test_invalid_direction_parameters(harness, name, value):
+    roi, *_ = harness
+    assert not roi.set_parameters_atomically([Parameter(name, value=value)]).successful
+
+
+@pytest.mark.parametrize('offset,sign', [(0., 0), (.1, 1), (-.1, -1)])
+def test_control_signed_errors(offset, sign):
+    errors = RoiNode.path_errors([(.1, offset, 0.), (.8, offset, 0.)], .25)
+    assert errors == pytest.approx((offset, 0.))
+    if sign:
+        assert errors[0]*sign > 0
+
+
+def test_control_heading_and_invalid_path():
+    assert RoiNode.path_errors([(.1, -.1, 0.), (.4, .1, 0.)], .25)[1] > 0
+    assert RoiNode.path_errors([], .25) is None
+    assert RoiNode.path_errors([(.8, 0., 0.), (.1, 0., 0.)], .25) is None
+    assert RoiNode.path_errors([(2., 0., 0.), (3., 0., 0.)], .25) is None
+    assert RoiNode.path_errors([(.1, float('nan'), 0.), (.5, 0., 0.)], .25) is None
+
+
+def test_control_message_limits_stop_release_and_watchdog(harness):
+    import time
+    from ackermann_msgs.msg import AckermannDriveStamped
+    roi, *_ = harness
+    class Capture:
+        def __init__(self):
+            self.messages = []
+        def publish(self, msg):
+            self.messages.append(msg)
+    capture = Capture()
+    roi.command_pub = capture
+    roi.control_tick()
+    assert not capture.messages  # Idle cannot mask other mux missions.
+    roi.mission_cone = True
+    roi.center_path = [(.1, .1, 0.), (.8, .1, 0.)]
+    roi.control_scan_stamp = roi.get_clock().now().nanoseconds
+    roi.control_received = time.monotonic()
+    roi.update_control_activation()
+    roi.last_control_tick = time.monotonic()-.05
+    roi.control_tick()
+    msg = capture.messages[-1]
+    assert isinstance(msg, AckermannDriveStamped)
+    assert msg.header.frame_id == 'base_link' and msg.header.stamp.sec > 0
+    assert 0 < msg.drive.speed <= .15 and 0 < msg.drive.steering_angle <= .051
+    roi.center_path = [(.1, .49, 0.), (.8, .49, 0.)]
+    roi.last_steering = .48
+    roi.control_tick()
+    assert abs(capture.messages[-1].drive.steering_angle) <= .48
+    roi.control_received = time.monotonic()-1.
+    roi.control_tick()
+    assert capture.messages[-1].drive.speed == capture.messages[-1].drive.steering_angle == 0.
+    roi.control_received = time.monotonic()
+    roi.control_scan_stamp = roi.get_clock().now().nanoseconds+1_000_000_000
+    roi.control_tick()
+    assert capture.messages[-1].drive.speed == 0.
+    roi.control_fault = True
+    roi.mission_cone = False
+    roi.update_control_activation()
+    assert roi.control_engaged and capture.messages[-1].drive.speed == 0.
+    roi.control_fault = False
+    roi.update_control_activation()
+    assert not roi.control_engaged
+    count = len(capture.messages)
+    roi.control_tick()
+    assert len(capture.messages) == count
+
+
+def test_control_empty_path_and_zero_stamp_stop(harness):
+    roi, *_ = harness
+    messages = []
+    class Capture:
+        def publish(self, msg):
+            messages.append(msg)
+    roi.command_pub = Capture()
+    roi.mission_cone = True
+    roi.update_control_activation()
+    assert messages[-1].drive.speed == 0.
+    roi.center_path = [(.1, 0., 0.), (.8, 0., 0.)]
+    roi.control_scan_stamp = 0
+    roi.control_received = time.monotonic()
+    roi.control_tick()
+    assert messages[-1].drive.speed == 0.
+
+
+def test_ackermann_command_dds_delivery(harness):
+    from ackermann_msgs.msg import AckermannDriveStamped
+    roi, probe, _, _, _, until = harness
+    received = []
+    subscription = probe.create_subscription(AckermannDriveStamped,
+        '/mission/cone/command_04', received.append, 1)
+    until(lambda: roi.command_pub.get_subscription_count() == 1)
+    roi.mission_cone = True
+    roi.center_path = [(.1, -.1, 0.), (.8, -.1, 0.)]
+    roi.control_scan_stamp = roi.get_clock().now().nanoseconds
+    roi.control_received = time.monotonic()
+    roi.update_control_activation()
+    roi.last_control_tick = time.monotonic()-.05
+    roi.control_tick()
+    until(lambda: bool(received))
+    assert 0 < received[0].drive.speed <= .15
+    assert received[0].drive.steering_angle < 0
+    assert received[0].header.frame_id == 'base_link'
+
+
+@pytest.mark.parametrize('name,value', [('control_speed', -1.),
+    ('control_max_steering', 1.6), ('control_timeout', 0.), ('control_lateral_gain', float('nan'))])
+def test_invalid_control_parameters(harness, name, value):
+    roi, *_ = harness
+    assert not roi.set_parameters_atomically([Parameter(name, value=value)]).successful
+
+
+@pytest.mark.parametrize('side', ['left', 'right'])
+def test_width_fallback_both_sides_and_timeout(harness, side):
+    roi, *_ = harness
+    def stamp(seconds):
+        from builtin_interfaces.msg import Time
+        return Time(sec=int(seconds), nanosec=int((seconds-int(seconds))*1e9))
+    roi.mission_cone = True
+    roi.left_boundary = [(x, .3, 0.) for x in (.1, .3, .5, .7, .9)]
+    roi.right_boundary = [(x, -.3, 0.) for x in (.1, .3, .5, .7, .9)]
+    roi.update_center_path(stamp(10.))
+    assert roi.center_path and not roi.center_path_estimated
+    assert roi.lane_width == pytest.approx(.6)
+    assert roi.lane_width_stamp == 10.
+    if side == 'left':
+        roi.right_boundary = []
+    else:
+        roi.left_boundary = []
+    roi.update_center_path(stamp(10.1))
+    assert not roi.center_pairs and roi.center_path_estimated and roi.center_path
+    assert all(abs(p[1]) < 1e-8 for p in roi.center_path)
+    assert RoiNode.boundary_length(roi.center_path) <= .6+1e-8
+    assert roi.lane_width_stamp == 10.  # Estimates cannot renew their own prior.
+    roi.update_center_path(stamp(10.6))
+    assert not roi.center_path and roi.lane_width is None
+
+
+def test_fallback_requires_width_and_selects_arc_length(harness):
+    roi, *_ = harness
+    roi.mission_cone = True
+    stamp = roi.get_clock().now().to_msg()
+    # Non-overlapping X ranges produce no measured cross sections.
+    roi.left_boundary = [(1., .3, 0.), (1.1, .3, 0.), (1.2, .3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.7, -.3, 0.)]
+    roi.update_center_path(stamp)
+    assert not roi.center_path and not roi.center_path_estimated
+    roi.lane_width, roi.lane_width_stamp = .6, (stamp.sec*1_000_000_000+stamp.nanosec)/1e9
+    roi.update_center_path(stamp)
+    assert roi.center_path_estimated
+    assert max(p[0] for p in roi.center_path) < .8  # Longer right, despite fewer points.
+    roi.mission_cone = False
+    roi.left_boundary = roi.right_boundary = []
+    roi.update_center_path(stamp)
+    assert roi.lane_width is None and not roi.center_path
+
+
+def test_fallback_rejects_crossing_and_visible_conflict(harness):
+    from cone_lane_follower.node import CENTER_DEFAULTS
+    p = dict(CENTER_DEFAULTS)
+    line = [(.1, .3, 0.), (.7, .3, 0.)]
+    other = [(.1, .2, 0.), (.7, .2, 0.)]
+    assert RoiNode.offset_boundary_path(line, other, 'left', .6, p) == ([], [])
+    assert not RoiNode.boundaries_safe([(.1, .3, 0.), (.7, -.3, 0.)],
+                                      [(.1, -.3, 0.), (.7, .3, 0.)])
+
+
+def test_fallback_control_speed_and_expiry(harness):
+    roi, *_ = harness
+    messages = []
+    class Capture:
+        def publish(self, message):
+            messages.append(message)
+    roi.command_pub = Capture()
+    roi.control_engaged = True
+    roi.center_path = [(.1, 0., 0.), (.7, 0., 0.)]
+    roi.center_path_estimated = True
+    roi.control_received = time.monotonic()
+    roi.control_scan_stamp = roi.get_clock().now().nanoseconds
+    roi.lane_width_stamp = roi.control_scan_stamp/1e9
+    roi.control_tick()
+    assert messages[-1].drive.speed == pytest.approx(.15*.5)
+    roi.lane_width_stamp -= 1.
+    roi.control_tick()
+    assert messages[-1].drive.speed == 0.
+
+
+def test_one_measured_center_does_not_trigger_fallback(harness, monkeypatch):
+    roi, *_ = harness
+    roi.mission_cone = True
+    stamp = roi.get_clock().now().to_msg()
+    roi.lane_width, roi.lane_width_stamp = .6, (stamp.sec*1_000_000_000+stamp.nanosec)/1e9
+    roi.left_boundary = [(.1, .3, 0.), (.7, .3, 0.)]
+    roi.right_boundary = []
+    monkeypatch.setattr(roi, 'match_cross_sections', lambda *args: [((.2, .3, 0.), (.2, -.3, 0.))])
+    roi.update_center_path(stamp)
+    assert len(roi.center_points) == 1 and not roi.center_path_estimated and not roi.center_path
+    roi.control_fault = True
+    roi.update_center_path(stamp)
+    assert roi.lane_width is None
