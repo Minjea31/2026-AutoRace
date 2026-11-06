@@ -6,6 +6,7 @@ unchanged so lane_fusion_node can pair mask and frame by stamp. No tracking, no
 control output and no OpenCV fallback: if the model is unavailable nothing is
 published and lane_fusion_node keeps running on its own HSV features.
 """
+import array
 import time
 from pathlib import Path
 
@@ -93,7 +94,9 @@ class LaneDeepMaskNode(Node):
         out.header = message.header
         out.height, out.width = mask.shape
         out.encoding, out.step = 'mono8', mask.shape[1]
-        out.data = mask.tobytes()
+        # array('B') skips rclpy's per-element check of uint8[]: bytes took ~57 ms
+        # per 640x480 mask on the Jetson (more than the inference itself).
+        out.data = array.array('B', mask.tobytes())
         self.pub.publish(out)
         self.count += 1
         self.ms += (time.perf_counter() - start) * 1000
