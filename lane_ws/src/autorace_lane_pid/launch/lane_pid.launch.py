@@ -45,6 +45,8 @@ def generate_launch_description():
             [lane_share, 'config', profile, 'lane.yaml'])),
         DeclareLaunchArgument('image_topic', default_value='/camera/color/image_raw/compressed'),
         DeclareLaunchArgument('lane_gui', default_value='false', description='open lane_lite_tuner'),
+        DeclareLaunchArgument('debug', default_value='false',
+                              description='lane_lite_node publishes /lane_lite/debug (BEV picture)'),
         DeclareLaunchArgument('gui', default_value=PythonExpression(
             ["'true' if '", profile, "' == 'sim' else 'false'"]), description='open lane_pid_tuner'),
         DeclareLaunchArgument('use_sim_time', default_value=PythonExpression(
@@ -56,7 +58,8 @@ def generate_launch_description():
             condition=IfCondition(arg('lane')),
             launch_arguments={'profile': profile, 'config_file': arg('lane_config'),
                               'image_topic': arg('image_topic'),
-                              'use_sim_time': arg('use_sim_time'), 'gui': arg('lane_gui')}.items()),
+                              'use_sim_time': arg('use_sim_time'), 'gui': arg('lane_gui'),
+                              'debug': arg('debug')}.items()),
         Node(package='autorace_lane_pid', executable='lane_pid_controller', output='screen',
              parameters=[arg('pid_config'), {
                  'use_sim_time': sim_time,

@@ -69,7 +69,9 @@ public:
   explicit Pipeline(const Config &config = {});
   void configure(const Config &config);
   void reset();
-  Result process(const cv::Mat &bgr, double time);
+  // views=false skips every display image (search/path/overlay/masks); the
+  // driving node uses it when nobody needs the debug picture.
+  Result process(const cv::Mat &bgr, double time, bool views = true);
 
 private:
   struct Track {

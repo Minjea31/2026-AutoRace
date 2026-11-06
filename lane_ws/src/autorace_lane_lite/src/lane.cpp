@@ -472,7 +472,7 @@ void Pipeline::reset() {
   center_confidence_ = 0;
   width_ = config_["lane_width_px"];
 }
-Result Pipeline::process(const cv::Mat &bgr, double time) {
+Result Pipeline::process(const cv::Mat &bgr, double time, bool views) {
   const auto start_clock = std::chrono::steady_clock::now();
   if (bgr.empty() || bgr.type() != CV_8UC3 || !std::isfinite(time))
     throw std::invalid_argument("Expected a BGR8 image and finite time");
@@ -930,6 +930,11 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
       r.notes.push_back(std::string(line == &r.left ? "왼쪽: " : "오른쪽: ") + line->note);
 
   // 9. Views: BEV search trace, BEV path, and the path projected back.
+  if (!views) {
+    r.processing_ms = std::chrono::duration<double, std::milli>(
+                          std::chrono::steady_clock::now() - start_clock).count();
+    return r;
+  }
   r.search_view = r.bev * .45;
   r.search_view.setTo(cv::Scalar(230, 230, 230), mask & ~yellow);
   r.search_view.setTo(cv::Scalar(0, 210, 255), yellow);

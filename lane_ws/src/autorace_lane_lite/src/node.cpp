@@ -29,8 +29,11 @@ public:
     timeout_ = declare_parameter<double>("image_timeout", .3);
     target_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_lite/target",
                                                                 rclcpp::QoS(1));
-    debug_ = create_publisher<sensor_msgs::msg::Image>(
-        "/lane_lite/debug", rclcpp::SensorDataQoS().keep_last(1));
+    // Debug picture (/lane_lite/debug) only on request: off, the node neither
+    // advertises the topic nor builds any display image (saves CPU on the car).
+    if (declare_parameter<bool>("debug", false))
+      debug_ = create_publisher<sensor_msgs::msg::Image>(
+          "/lane_lite/debug", rclcpp::SensorDataQoS().keep_last(1));
     // Team camera input is JPEG CompressedImage only (real Orbbec and simulator).
     compressed_ = create_subscription<sensor_msgs::msg::CompressedImage>(
         topic, rclcpp::SensorDataQoS().keep_last(1),
@@ -121,11 +124,12 @@ private:
         const cv::Mat bgr = cv::imdecode(compressed->data, cv::IMREAD_COLOR);
         if (bgr.empty())
           throw std::runtime_error("cannot decode image");
-        const auto r = pipeline.process(bgr, stamp);
+        const bool views = debug_ && debug_->get_subscription_count() > 0;
+        const auto r = pipeline.process(bgr, stamp, views);
         std::lock_guard<std::mutex> lock(mutex_);
         publish(&r);
         processed_ = steady();
-        if (debug_->get_subscription_count()) {
+        if (views) {
           auto h = header;
           h.frame_id = "lane_lite_bev";
           debug_->publish(*cv_bridge::CvImage(h, "bgr8", r.path_view).toImageMsg());

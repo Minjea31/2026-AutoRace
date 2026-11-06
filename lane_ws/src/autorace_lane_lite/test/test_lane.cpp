@@ -175,6 +175,21 @@ TEST(LaneLite, YellowPairSkipsAngleLimitWhitePairDoesNot) {
     EXPECT_EQ(r.state, white ? "left only" : "both") << white;
   }
 }
+TEST(LaneLite, NoViewsGivesSameResult) {
+  // The driving node skips display images; the measurement must not change.
+  lane_lite::Pipeline a(identity()), b(identity());
+  for (int i = 0; i < 5; ++i) {
+    const auto img = scene(170 + 4 * i, 300);
+    const auto ra = a.process(img, i * .05), rb = b.process(img, i * .05, false);
+    ASSERT_EQ(ra.valid, rb.valid) << i;
+    EXPECT_EQ(ra.state, rb.state) << i;
+    EXPECT_DOUBLE_EQ(ra.lateral_m, rb.lateral_m) << i;
+    EXPECT_DOUBLE_EQ(ra.heading, rb.heading) << i;
+    EXPECT_DOUBLE_EQ(ra.near_lateral_m, rb.near_lateral_m) << i;
+    EXPECT_TRUE(rb.path_view.empty() && rb.overlay.empty()) << i;
+    EXPECT_FALSE(ra.path_view.empty()) << i;
+  }
+}
 TEST(LaneLite, ConfigRoundTrip) {
   auto c = identity();
   c.values["margin"] = 61;
