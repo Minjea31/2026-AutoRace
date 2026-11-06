@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>autorace_lane_fusion_pid</name><version>0.1.0</version>
+  <description>Error-based PID lane keeping (simulator) on /lane_fusion/target, with a separate Qt PID tuner window.</description>
+  <maintainer email="alstjd5571@cbnu.ac.kr">AutoRace team</maintainer><license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend><depend>std_msgs</depend><depend>ackermann_msgs</depend>
+  <depend>yaml-cpp</depend><depend>qtbase5-dev</depend>
+  <exec_depend>launch_ros</exec_depend><exec_depend>autorace_lane_fusion</exec_depend><exec_depend>autorace_lane_fusion_deep</exec_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
