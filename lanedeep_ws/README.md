@@ -1,4 +1,130 @@
-# lanedeep_ws — Lightweight U-Net 차선 인식
+# 딥러닝 차선 노드 실행 안내
+
+현재 주행용 구성은 **`lane_ws`의 `autorace_lane_lite` + `autorace_lane_pid`**입니다. 모델 원본은 이 디렉터리의 `model/best.pt`이며, 딥러닝이 원본 영상에서 차선을 이진화한 뒤 기존 C++ BEV·탐색·경로·PID를 사용합니다. HSV·형태학·폭/길이/면적 기반 마스크 보정은 사용하지 않습니다.
+
+`lanedeep_ws`의 이전 `lane_deep_node`는 별도 Python 추적·제어 구현입니다. 아래 주행용 노드와 동시에 실행하지 마세요. 이 문서 후반의 이전 구현 설명은 학습·개발 참고용입니다.
+
+## 1. 빌드
+
+처음 또는 소스를 수정한 뒤 실행합니다. 모델과 engine은 이미 준비되어 있습니다.
+
+```bash
+cd ~/2026-AutoRace/lane_ws
+source env.sh
+CMAKE_BUILD_PARALLEL_LEVEL=2 colcon build --symlink-install \
+  --packages-select autorace_lane_lite autorace_lane_pid \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+source env.sh
+```
+
+## 2. 실제 주행 실행 순서
+
+터미널마다 같은 DDS 설정을 사용합니다. 아래 `53`은 현재 차량에서 사용하는 도메인이며, 다른 도메인을 사용할 경우 모든 터미널을 함께 변경합니다. `ROS_LOCALHOST_ONLY=1`은 같은 PC에서만 통신합니다. 원격 PC에서 영상을 보려면 양쪽 네트워크·DDS 설정을 별도로 맞춰야 합니다.
+
+각 터미널에서 먼저:
+
+```bash
+export ROS_DOMAIN_ID=53
+export ROS_LOCALHOST_ONLY=1
+```
+
+**터미널 1 — 센서·차량 드라이버**
+
+```bash
+source /opt/ros/humble/setup.bash
+cd ~/2026-AutoRace/sensor_ws
+source install/setup.bash
+ros2 launch autorace_sensor_bringup sensors.launch.py
+```
+
+**터미널 2 — 딥러닝 차선 인식 + PID**
+
+```bash
+cd ~/2026-AutoRace/lane_ws
+./lane.sh debug:=true
+```
+
+`lane.sh`는 `profile:=real`로 인식 노드 `lane_lite_node`와 제어 노드 `lane_pid_controller`를 하나씩 실행합니다. `lane_ws/models/best_640x480_fp16.engine`이 있으면 TensorRT를 사용하고, 없으면 `lanedeep_ws/model/best.pt`를 사용합니다. BEV·PID 값은 `lane_ws/src` 두 패키지의 `config/real/` 설정을 사용합니다.
+
+차량 출력 없이 확인하려면 위 명령 대신 다음을 사용합니다:
+
+```bash
+./lane.sh debug:=true enable_vehicle_output:=false
+```
+
+이 경우 `/lane_pid/command`만 미리보기로 출력합니다. 실제 주행으로 바꿀 때는 해당 launch를 종료하고 일반 실행 명령으로 다시 시작합니다.
+
+**터미널 3 — mux, 마지막에 실행**
+
+```bash
+source /opt/ros/humble/setup.bash
+cd ~/2026-AutoRace/mux_ws
+source install/setup.bash
+ros2 launch autorace_mux mux.launch.py
+```
+
+현재 real PID는 `active: 1.0`, `speed: 0.81`입니다. mux를 켜면 유효 차선이 잡히는 즉시 출발할 수 있으며, 최종 속도는 mux 제한을 받습니다. 첫 조향 확인은 바퀴를 띄운 상태에서 수행합니다. 종료는 mux → 차선/PID → 센서 순서로 각 터미널에서 `Ctrl+C`를 누릅니다.
+
+## 3. 인식 노드만 실행
+
+PID가 필요 없는 추론·시각화 확인용입니다. 통합 `lane.sh`와 동시에 실행하지 않습니다.
+
+```bash
+source ~/2026-AutoRace/lane_ws/env.sh
+ros2 launch autorace_lane_lite lane_lite.launch.py profile:=real \
+  backend:=tensorrt \
+  model_path:=$HOME/2026-AutoRace/lane_ws/models/best_640x480_fp16.engine \
+  debug:=true
+```
+
+## 4. rqt 시각화
+
+추가 터미널에서도 위 DDS 설정을 적용합니다.
+
+```bash
+source ~/2026-AutoRace/lane_ws/env.sh
+ros2 run rqt_image_view rqt_image_view /lane_lite/bev_mask
+```
+
+| 토픽 | 내용 |
+| --- | --- |
+| `/lane_lite/segmentation` | 원본 좌표의 클래스 색상 분할 |
+| `/lane_lite/class_mask` | 클래스 ID 0/1/2, 일반 표시에서는 거의 검게 보일 수 있음 |
+| `/lane_lite/bev_mask` | BEV 흑백 이진화 |
+| `/lane_lite/bev` | BEV 영상 |
+| `/lane_lite/path` | BEV 탐색·목표 경로 |
+| `/lane_lite/debug` | BEV 경로 디버그 영상 |
+| `/lane_lite/overlay` | 원본 영상 위 차선·경로 |
+
+rqt에서 새로고침 후 원하는 토픽을 선택하고 transport는 `raw`로 설정합니다. `debug:=true`일 때만 영상 토픽을 만들며, 구독자가 있을 때만 시각화 계산을 합니다. 영상이 없으면 DDS 도메인, `debug` 설정, 카메라 입력을 확인합니다. 영상은 나오지만 이진화가 모두 검정이면 모델의 차선 검출 결과를 `/lane_lite/segmentation`과 함께 확인합니다.
+
+## 5. 상태 확인
+
+```bash
+source ~/2026-AutoRace/lane_ws/env.sh
+ros2 topic echo /lane_lite/status
+ros2 topic echo /lane_lite/target --once
+ros2 topic echo /lane_pid/state --once
+ros2 topic echo /cmd_vel --once
+ros2 topic info /mission/lane -v
+```
+
+- `backend`: engine 실행 시 `tensorrt`.
+- `processed_fps`: 영상 처리량. 상태 토픽 자체의 발행 주기와 다릅니다.
+- `valid_lane_fps`, `neural_lane_fps`: 실제 유효 차선 처리량.
+- `errors`, `stale_frames`: 추론·입력 오류 및 만료 프레임 확인.
+- `/lane_lite/target` 첫 값: `1`은 유효 차선, `0`은 무효.
+- `/mission/lane` 발행자는 PID 하나여야 합니다. 이전 딥러닝 노드를 중복 실행하지 않습니다.
+
+실제 주행 정확도와 YOLO 동시 실행 성능은 별도 검증이 필요합니다. 구현·테스트·모델 변환 상세는 [DL 통합 문서](../lane_ws/docs/DL_INTEGRATION.md)를 참고하세요.
+
+---
+
+## 이전 Python 구현·학습 참고
+
+아래 실행·토픽·fallback 설명은 이전 `autorace_lane_deep` 구현에 관한 내용입니다. 현재 주행 실행은 위 안내를 사용하세요.
+
+# 이전 lanedeep_ws — Lightweight U-Net 차선 인식
 
 MobileNetV3-Small encoder + U-Net decoder로 **배경 / 주황 차선 / 흰색 점선**을 분할하고, 같은 BEV·차선 추적·조향 모듈로 주행 명령을 만듭니다. 대상은 WeGo LIMO Pro의 Jetson Orin Nano 8GB입니다. 카메라는 640×480 RGB이며 ROS 압축 영상은 OpenCV로 디코딩한 뒤 RGB로 변환합니다.
 

@@ -12,20 +12,27 @@ from .constants import MEAN, STD
 
 
 def preprocess(bgr, width, height):
-    rgb = cv2.cvtColor(cv2.resize(bgr, (width, height), interpolation=cv2.INTER_LINEAR), cv2.COLOR_BGR2RGB)
-    normalized = (rgb.astype(np.float32) / 255.0 - np.array(MEAN, np.float32)) / np.array(STD, np.float32)
-    return np.ascontiguousarray(normalized.transpose(2, 0, 1)[None])
+    image = cv2.resize(bgr, (width, height), interpolation=cv2.INTER_LINEAR)
+    output = np.empty((1, 3, height, width), dtype=np.float32)
+    for channel in range(3):
+        np.multiply(image[:, :, 2 - channel], np.float32(1 / (255 * STD[channel])),
+                    out=output[0, channel], casting='unsafe')
+        output[0, channel] -= np.float32(MEAN[channel] / STD[channel])
+    return output
 
 
 def decode(logits, original_size, threshold=0.5):
     if logits.ndim != 4 or logits.shape[0] != 1 or logits.shape[1] != 3 or not np.isfinite(logits).all():
         raise ValueError('Expected finite logits [1,3,H,W]')
     values = logits[0].astype(np.float32)
-    values -= values.max(axis=0, keepdims=True)
-    probability = np.exp(values)
-    probability /= probability.sum(axis=0, keepdims=True)
-    mask = probability.argmax(axis=0).astype(np.uint8)
-    mask[probability.max(axis=0) < threshold] = 0
+    maximum = cv2.max(cv2.max(values[0], values[1]), values[2])
+    mask = np.zeros(maximum.shape, np.uint8)
+    mask[values[1] > values[0]] = 1
+    mask[(values[2] > values[0]) & (values[2] > values[1])] = 2
+    denominator = np.zeros_like(maximum)
+    for channel in values:
+        denominator += np.exp(channel - maximum)
+    mask[1.0 / denominator < threshold] = 0
     return cv2.resize(mask, original_size, interpolation=cv2.INTER_NEAREST)
 
 
