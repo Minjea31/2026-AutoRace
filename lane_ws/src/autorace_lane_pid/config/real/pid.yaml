@@ -1,4 +1,6 @@
 # Lane PID controller (REAL CAR). NOT closed-loop validated on the car yet.
+# 2026-11-06 (pid11061.yaml, tuned on the car): heading_weight 0.27, lookahead_weight 0.95,
+#   kd 0.2, max_steering 0.6, steering_rate 3.6, speed 0.81, steer_slowdown 0.35.
 # 2026-11-06: speed 0.15 -> 0.5, steer_slowdown 1.0 -> 0.5 from the user's tuner
 #   save (pid1106.yaml). mux caps forward speed at 0.5 m/s.
 # max_steering 0.40 -> 0.65: matches mux max_steering_angle_rad 0.65 and the
@@ -20,23 +22,23 @@
 lane_pid_controller:
   ros__parameters:
     lateral_weight: 0.3
-    heading_weight: 0.15
-    lookahead_weight: 1.0
+    heading_weight: 0.27
+    lookahead_weight: 0.95
     lateral_rate_limit: 0.6
     heading_rate_limit: 2.0
     error_deadband: 0.0
     kp: 1.0
     ki: 0.0
-    kd: 0.12
+    kd: 0.2
     d_filter_tau: 0.05
     integral_limit: 0.2
     curvature_ff: 0.0
     wheelbase: 0.2
-    max_steering: 0.65
-    steering_rate: 2.0
-    speed: 0.5
+    max_steering: 0.6
+    steering_rate: 3.6
+    speed: 0.81
     min_speed: 0.06
-    steer_slowdown: 0.5
+    steer_slowdown: 0.35
     curvature_slowdown: 0.0
     acceleration: 0.5
     confidence_stop: 0.1
