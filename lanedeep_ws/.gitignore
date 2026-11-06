@@ -13,3 +13,4 @@ models/
 *.engine
 *.pt
 *.pth
+!model/best.pt

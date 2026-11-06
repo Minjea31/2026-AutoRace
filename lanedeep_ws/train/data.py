@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import Dataset
 
 import _bootstrap  # noqa: F401
-from autorace_lane_lite.model import CLASSES, MEAN, STD
+from autorace_lane_deep.model import CLASSES, MEAN, STD
 
 
 class LaneDataset(Dataset):

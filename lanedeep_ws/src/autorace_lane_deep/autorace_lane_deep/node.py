@@ -17,10 +17,10 @@ from .configuration import image_is_fresh, load_config, validate_config
 from .pipeline import LanePipeline
 
 
-class LaneNode(Node):
+class LaneDeepNode(Node):
     def __init__(self):
-        super().__init__('lane_node')
-        defaults = load_config(Path(get_package_share_directory('autorace_lane_lite')) / 'config' / 'lane.yaml')
+        super().__init__('lane_deep_node')
+        defaults = load_config(Path(get_package_share_directory('autorace_lane_deep')) / 'config' / 'lane.yaml')
         for name, value in defaults.items():
             self.declare_parameter(name, value)
         self.config = {name: self.get_parameter(name).value for name in defaults}
@@ -52,7 +52,7 @@ class LaneNode(Node):
         # The model, geometry and timer are constructed together; avoid partial live updates.
         fixed = [p.name for p in parameters if p.name in self.config and p.value != self.config[p.name]]
         return SetParametersResult(successful=not fixed,
-                                   reason='Restart lane_node to change configuration' if fixed else '')
+                                   reason='Restart lane_deep_node to change configuration' if fixed else '')
 
     def _now(self):
         return self.get_clock().now().nanoseconds * 1e-9
@@ -157,7 +157,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = None
     try:
-        node = LaneNode()
+        node = LaneDeepNode()
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass

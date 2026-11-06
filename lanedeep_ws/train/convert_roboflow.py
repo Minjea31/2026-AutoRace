@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 
 import _bootstrap  # noqa: F401
-from autorace_lane_lite.constants import CLASSES
+from autorace_lane_deep.constants import CLASSES
 
 
 def polygon_mask(annotation, height, width):

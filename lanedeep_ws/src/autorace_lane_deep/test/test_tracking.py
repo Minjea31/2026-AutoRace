@@ -5,9 +5,9 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from autorace_lane_lite.configuration import image_is_fresh, load_config, validate_config
-from autorace_lane_lite.pipeline import LanePipeline
-from autorace_lane_lite.tracking import LaneTracker
+from autorace_lane_deep.configuration import image_is_fresh, load_config, validate_config
+from autorace_lane_deep.pipeline import LanePipeline
+from autorace_lane_deep.tracking import LaneTracker
 
 CONFIG = Path(__file__).resolve().parents[1] / 'config/lane.yaml'
 
@@ -57,7 +57,7 @@ class TrackingTests(unittest.TestCase):
     def test_pipeline_load_failure_falls_back_without_torch(self):
         settings = config()
         settings.update(backend='tensorrt', model_path='/missing.engine')
-        with patch('autorace_lane_lite.pipeline.create_backend', side_effect=RuntimeError('missing model')):
+        with patch('autorace_lane_deep.pipeline.create_backend', side_effect=RuntimeError('missing model')):
             pipeline = LanePipeline(settings)
             image = np.zeros((240, 320, 3), np.uint8)
             cv2.line(image, (87, 0), (87, 239), (0, 165, 255), 5)
@@ -70,7 +70,7 @@ class TrackingTests(unittest.TestCase):
     def test_strict_backend_does_not_hide_load_failure(self):
         settings = config()
         settings.update(backend='tensorrt', model_path='/missing.engine', fallback_enabled=False)
-        with patch('autorace_lane_lite.pipeline.create_backend', side_effect=RuntimeError('missing model')):
+        with patch('autorace_lane_deep.pipeline.create_backend', side_effect=RuntimeError('missing model')):
             with self.assertRaises(RuntimeError):
                 LanePipeline(settings)
 

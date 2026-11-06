@@ -19,15 +19,15 @@ MobileNetV3-Small encoder + U-Net decoder로 **배경 / 주황 차선 / 흰색 �
 
 | 위치 | 역할 |
 | --- | --- |
-| `src/autorace_lane_lite/autorace_lane_lite/model.py` | MobileNetV3-Small encoder, U-Net decoder |
+| `src/autorace_lane_deep/autorace_lane_deep/model.py` | MobileNetV3-Small encoder, U-Net decoder |
 | `runtime.py` | PyTorch / ONNX Runtime / TensorRT / OpenCV backend |
 | `tracking.py` | 모든 backend가 공유하는 BEV·sliding window·곡선 추적·조향 |
 | `pipeline.py` | neural 추론 및 OpenCV fallback 선택 |
 | `node.py` | 최신 영상 처리, 입력 유효시간, 기존 ROS 인터페이스 |
-| `src/autorace_lane_lite/config/lane.yaml` | 카메라·BEV·속도·조향·추론 설정 |
+| `src/autorace_lane_deep/config/lane.yaml` | 카메라·BEV·속도·조향·추론 설정 |
 | `train/` | Polygon 변환, 학습·평가, export, TensorRT 빌드, 추론·벤치마크 |
 
-딥러닝 차선 구현은 `lanedeep_ws`에서 관리하며 기존 `lane_ws`는 원래 상태로 유지합니다. 구현 당시 체크아웃에는 기존 `autorace_lane_lite` 소스가 없어 공통 BEV·추적 모듈을 새로 구성했습니다. 별도로 보관 중인 기존 BEV 코드가 있다면 `LaneTracker` 경계에 연결할 수 있습니다.
+딥러닝 차선 구현은 `lanedeep_ws`의 `autorace_lane_deep` 패키지에서 관리하며, 실행 파일과 ROS 노드 이름은 `lane_deep_node`입니다. 기존 `lane_ws`는 원래 상태로 유지합니다. 공통 BEV·추적 모듈은 새로 구성했으며, 별도로 보관 중인 기존 BEV 코드가 있다면 `LaneTracker` 경계에 연결할 수 있습니다.
 
 ## ROS 인터페이스
 
@@ -54,7 +54,7 @@ source env.sh
 # 필요한 ROS·CPU 의존성 설치: 처음 한 번
 sudo apt install ros-humble-ackermann-msgs python3-colcon-common-extensions \
   python3-opencv python3-numpy python3-yaml
-colcon build --symlink-install --packages-select autorace_lane_lite
+colcon build --symlink-install --packages-select autorace_lane_deep
 source env.sh
 ```
 
@@ -66,7 +66,7 @@ python3 -m venv --system-site-packages .ros-venv
 source .ros-venv/bin/activate
 python -m pip install 'numpy<2' 'onnxruntime>=1.16,<2'
 source env.sh
-python -m colcon build --symlink-install --packages-select autorace_lane_lite
+python -m colcon build --symlink-install --packages-select autorace_lane_deep
 source env.sh
 ```
 
@@ -200,20 +200,20 @@ cd ~/2026-AutoRace/lanedeep_ws
 source env.sh
 
 # Jetson, 512 모델
-ros2 launch autorace_lane_lite lane.launch.py backend:=tensorrt \
+ros2 launch autorace_lane_deep lane.launch.py backend:=tensorrt \
   model_path:="$PWD/models/lane_512.engine" input_width:=512 input_height:=288
 
 # 위 프로세스를 종료하고 640 모델 비교
-ros2 launch autorace_lane_lite lane.launch.py backend:=tensorrt \
+ros2 launch autorace_lane_deep lane.launch.py backend:=tensorrt \
   model_path:="$PWD/models/lane_640.engine" input_width:=640 input_height:=480
 
 # OpenCV만 사용
-ros2 launch autorace_lane_lite lane.launch.py backend:=opencv
+ros2 launch autorace_lane_deep lane.launch.py backend:=opencv
 
 # PC/시뮬레이터에서 ONNX 사용
 source ../simul/env.sh
 source env.sh
-ros2 launch autorace_lane_lite lane.launch.py backend:=onnx device:=cpu \
+ros2 launch autorace_lane_deep lane.launch.py backend:=onnx device:=cpu \
   model_path:="$PWD/train/exports/lane_512.onnx" use_sim_time:=true
 ```
 
@@ -231,7 +231,7 @@ OpenCV는 HSV와 형상에 기반한 대체 경로입니다. 흰색 실선 제�
 
 ## 7. BEV와 제어 보정
 
-`src/autorace_lane_lite/config/lane.yaml`을 수정하고 재시작합니다. 기본값은 예시이며 실차 보정값이 아닙니다.
+`src/autorace_lane_deep/config/lane.yaml`을 수정하고 재시작합니다. 기본값은 예시이며 실차 보정값이 아닙니다.
 
 - `bev_source`: 원본 영상의 **좌상·우상·우하·좌하** x,y를 0~1로 정규화한 네 점입니다. 카메라 위치를 고정하고 실측한 바닥 기준점으로 설정하세요. 렌즈 왜곡이 크면 보정한 입력을 사용해야 합니다.
 - `bev_lateral_m`, `bev_forward_m`: BEV 전체의 실제 가로 폭·앞쪽 거리입니다. `lane_width_ratio`는 차선 폭÷BEV 폭입니다.
@@ -274,8 +274,8 @@ python3 train/monitor_ros.py --seconds 60 --output train/runs/live_512_with_yolo
 # lanedeep_ws에서 ROS를 source하고 build한 뒤, 전용 테스트 DDS 도메인에서 실행
 source env.sh
 ROS_DOMAIN_ID=93 ROS_LOCALHOST_ONLY=1 PYTHONDONTWRITEBYTECODE=1 \
-  PYTHONPATH=src/autorace_lane_lite \
-  python3 -m unittest discover -s src/autorace_lane_lite/test -v
+  PYTHONPATH=src/autorace_lane_deep \
+  python3 -m unittest discover -s src/autorace_lane_deep/test -v
 
 # 학습용 Python 환경
 PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s train -v
@@ -285,4 +285,10 @@ ROS 통합 테스트는 카메라 수신→주행 명령, 영상 만료·미래 
 
 구현 시 PC(RTX 3070 Laptop, torch 2.2.2, TensorRT 10.7)에서 테스트 16개, ROS 패키지 빌드·launch, GPU 학습·체크포인트 복원, 두 해상도의 ONNX 수치 검증·TensorRT FP16 빌드·실행을 확인했습니다. ONNX 최대 절대오차는 약 `4.5e-8`, FP16은 약 `1.2e-4`였으며 검증 입력에서 mask가 일치했습니다. 이는 합성 데이터 및 단일 입력으로 구현 경로를 확인한 결과로, 실데이터 정확도나 Jetson 처리량 검증은 아닙니다.
 
-데이터·모델·변환 결과·미리보기·빌드 결과는 `.gitignore` 대상입니다. 임시 테스트 산출물은 저장소에 남기지 않고, 테스트 소스는 재검증용으로 관리합니다.
+데이터·모델·변환 결과·미리보기·빌드 결과는 `.gitignore` 대상이며, 100 epoch 학습 실험의 검증 성능 기준 최적 모델 `model/best.pt`만 저장소에 포함합니다. 임시 테스트 산출물은 저장소에 남기지 않고, 테스트 소스는 재검증용으로 관리합니다.
+
+## 로컬 자동 라벨링·검수·추가 학습
+
+검수 웹 도구는 프로젝트 밖의 [~/seg_annotation](/home/a/seg_annotation/README.md)으로 분리했습니다.
+`cd ~/seg_annotation && ./run.sh`로 실행하고 http://127.0.0.1:8765 에 접속합니다.
+이미지·승인 대기·삭제 보관·학습 데이터도 해당 폴더에서 관리합니다.

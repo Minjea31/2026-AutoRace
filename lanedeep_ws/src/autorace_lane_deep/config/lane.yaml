@@ -1,4 +1,4 @@
-lane_node:
+lane_deep_node:
   ros__parameters:
     backend: auto  # auto | tensorrt | onnx | torch | opencv
     model_path: ''

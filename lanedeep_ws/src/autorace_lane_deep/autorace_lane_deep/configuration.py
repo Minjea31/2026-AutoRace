@@ -4,7 +4,7 @@ import yaml
 
 
 def load_config(path):
-    config = yaml.safe_load(Path(path).read_text())['lane_node']['ros__parameters']
+    config = yaml.safe_load(Path(path).read_text())['lane_deep_node']['ros__parameters']
     validate_config(config)
     return config
 

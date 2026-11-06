@@ -7,8 +7,8 @@ import numpy as np
 import torch
 
 import _bootstrap  # noqa: F401
-from autorace_lane_lite.constants import CLASSES, MEAN, STD
-from autorace_lane_lite.model import load_checkpoint
+from autorace_lane_deep.constants import CLASSES, MEAN, STD
+from autorace_lane_deep.model import load_checkpoint
 
 
 def export(weights, output, size, verify=True):

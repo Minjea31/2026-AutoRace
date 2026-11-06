@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from infer import arguments, configuration
-from autorace_lane_lite.pipeline import LanePipeline
+from autorace_lane_deep.pipeline import LanePipeline
 
 
 def main():

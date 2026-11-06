@@ -9,7 +9,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     defaults = {
-        'params_file': str(Path(get_package_share_directory('autorace_lane_lite')) / 'config' / 'lane.yaml'),
+        'params_file': str(Path(get_package_share_directory('autorace_lane_deep')) / 'config' / 'lane.yaml'),
         'use_sim_time': 'false', 'backend': 'auto', 'model_path': '', 'device': 'cuda',
         'input_width': '512', 'input_height': '288', 'fallback_enabled': 'true',
     }
@@ -18,6 +18,6 @@ def generate_launch_description():
                  for name in defaults if name != 'params_file'}
     return LaunchDescription([
         *[DeclareLaunchArgument(name, default_value=value) for name, value in defaults.items()],
-        Node(package='autorace_lane_lite', executable='lane_node', name='lane_node', output='screen',
+        Node(package='autorace_lane_deep', executable='lane_deep_node', name='lane_deep_node', output='screen',
              parameters=[LaunchConfiguration('params_file'), overrides]),
     ])

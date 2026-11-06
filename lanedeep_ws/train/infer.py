@@ -7,10 +7,10 @@ import cv2
 import numpy as np
 
 import _bootstrap  # noqa: F401
-from autorace_lane_lite.configuration import load_config, validate_config
-from autorace_lane_lite.pipeline import LanePipeline
+from autorace_lane_deep.configuration import load_config, validate_config
+from autorace_lane_deep.pipeline import LanePipeline
 
-DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / 'src/autorace_lane_lite/config/lane.yaml'
+DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / 'src/autorace_lane_deep/config/lane.yaml'
 
 
 def arguments(description):

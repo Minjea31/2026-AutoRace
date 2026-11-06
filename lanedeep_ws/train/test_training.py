@@ -9,8 +9,8 @@ from PIL import Image
 import torch
 
 import _bootstrap  # noqa: F401
-from autorace_lane_lite.model import CLASSES, LaneUNet
-from autorace_lane_lite.runtime import preprocess
+from autorace_lane_deep.model import CLASSES, LaneUNet
+from autorace_lane_deep.runtime import preprocess
 from convert_roboflow import convert, polygon_mask
 from data import LaneDataset
 from losses import DiceCrossEntropy, iou_from_confusion

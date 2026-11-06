@@ -10,7 +10,7 @@ try:
     from rclpy.node import Node
     from ackermann_msgs.msg import AckermannDriveStamped
     from sensor_msgs.msg import CompressedImage
-    from autorace_lane_lite.node import LaneNode
+    from autorace_lane_deep.node import LaneDeepNode
     HAVE_ROS = True
 except ImportError:
     HAVE_ROS = False
@@ -22,7 +22,7 @@ class ROSSafetyTests(unittest.TestCase):
         rclpy.init(args=['--ros-args', '-p', 'backend:=opencv', '-p',
                         'bev_source:=[0.0,0.0,1.0,0.0,1.0,1.0,0.0,1.0]'])
         self.addCleanup(lambda: rclpy.shutdown() if rclpy.ok() else None)
-        self.lane = LaneNode()
+        self.lane = LaneDeepNode()
         self.peer = Node('lane_safety_test_peer')
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.lane)

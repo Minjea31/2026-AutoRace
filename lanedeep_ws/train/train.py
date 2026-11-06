@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import DataLoader
 
 import _bootstrap  # noqa: F401
-from autorace_lane_lite.model import CLASSES, LaneUNet, load_checkpoint
+from autorace_lane_deep.model import CLASSES, LaneUNet, load_checkpoint
 from data import LaneDataset
 from losses import DiceCrossEntropy, iou_from_confusion
 
