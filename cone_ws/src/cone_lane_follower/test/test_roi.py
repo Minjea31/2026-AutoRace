@@ -557,91 +557,89 @@ def test_invalid_control_parameters(harness, name, value):
     assert not roi.set_parameters_atomically([Parameter(name, value=value)]).successful
 
 
-@pytest.mark.parametrize('side', ['left', 'right'])
-def test_width_fallback_both_sides_and_timeout(harness, side):
+@pytest.mark.parametrize('missing_side', ['left', 'right', 'both'])
+def test_missing_cross_sections_clear_previous_path(harness, missing_side):
+    """A previous two-sided path cannot synthesize a path after observations disappear."""
     roi, *_ = harness
-    def stamp(seconds):
-        from builtin_interfaces.msg import Time
-        return Time(sec=int(seconds), nanosec=int((seconds-int(seconds))*1e9))
     roi.mission_cone = True
-    roi.left_boundary = [(x, .3, 0.) for x in (.1, .3, .5, .7, .9)]
-    roi.right_boundary = [(x, -.3, 0.) for x in (.1, .3, .5, .7, .9)]
-    roi.update_center_path(stamp(10.))
-    assert roi.center_path and not roi.center_path_estimated
-    assert roi.lane_width == pytest.approx(.6)
-    assert roi.lane_width_stamp == 10.
-    if side == 'left':
-        roi.right_boundary = []
-    else:
+    stamp = roi.get_clock().now().to_msg()
+    roi.left_boundary = [(x, .3, 0.) for x in (.1, .3, .5, .7)]
+    roi.right_boundary = [(x, -.3, 0.) for x in (.1, .3, .5, .7)]
+    roi.update_center_path(stamp)
+    assert roi.center_path
+    if missing_side in ('left', 'both'):
         roi.left_boundary = []
-    roi.update_center_path(stamp(10.1))
-    assert not roi.center_pairs and roi.center_path_estimated and roi.center_path
-    assert all(abs(p[1]) < 1e-8 for p in roi.center_path)
-    assert RoiNode.boundary_length(roi.center_path) <= .6+1e-8
-    assert roi.lane_width_stamp == 10.  # Estimates cannot renew their own prior.
-    roi.update_center_path(stamp(10.6))
-    assert not roi.center_path and roi.lane_width is None
+    if missing_side in ('right', 'both'):
+        roi.right_boundary = []
+    roi.update_center_path(stamp)
+    assert not roi.center_pairs and not roi.center_points and not roi.center_path
 
 
-def test_fallback_requires_width_and_selects_arc_length(harness):
+def test_projection_uses_segment_interiors_and_preserves_order():
+    left = [(0.2, .3, 0.), (.8, .3, 0.)]
+    right = [(0., -.3, 0.), (1., -.3, 0.)]
+    pairs = RoiNode.match_projected_sections(left, right, .05, .1, 1.5)
+    assert len(pairs) > 5
+    assert all(a[0] == pytest.approx(b[0]) for a, b in pairs)
+    assert all(0. < b[0] < 1. for _, b in pairs)
+    assert all(a[1][0] < b[1][0] for a, b in zip(pairs, pairs[1:]))
+    assert RoiNode.match_projected_sections(left, right, .05, .7, 1.5) == []
+    assert RoiNode.match_projected_sections(left, list(reversed(right)), .05, .1, 1.5) == []
+    assert RoiNode.match_projected_sections(left, [], .05, .1, 1.5) == []
+
+
+def test_projection_endpoint_clamps_without_overrun_gate():
+    left = [(.15, .3, 0.), (.5, .3, 0.)]
+    right = [(.2, -.3, 0.), (.4, -.3, 0.)]
+    pairs = RoiNode.match_projected_sections(left, right, .05, .1, 1.5)
+    assert pairs and all(.2 <= b[0] <= .4 for _, b in pairs)
+    assert pairs[0][1][0] == pytest.approx(.2)
+    assert len({round(b[0], 8) for _, b in pairs}) < len(pairs)
+    far_pairs = RoiNode.match_projected_sections([(-1., .3, 0.), (-.5, .3, 0.)], right, .05, .1, 1.5)
+    assert far_pairs and all(b == right[0] for _, b in far_pairs)
+
+
+def test_projection_fallback_after_invalid_primary_path(harness, monkeypatch):
     roi, *_ = harness
-    roi.mission_cone = True
-    stamp = roi.get_clock().now().to_msg()
-    # Non-overlapping X ranges produce no measured cross sections.
-    roi.left_boundary = [(1., .3, 0.), (1.1, .3, 0.), (1.2, .3, 0.)]
-    roi.right_boundary = [(.1, -.3, 0.), (.7, -.3, 0.)]
-    roi.update_center_path(stamp)
-    assert not roi.center_path and not roi.center_path_estimated
-    roi.lane_width, roi.lane_width_stamp = .6, (stamp.sec*1_000_000_000+stamp.nanosec)/1e9
-    roi.update_center_path(stamp)
-    assert roi.center_path_estimated
-    assert max(p[0] for p in roi.center_path) < .8  # Longer right, despite fewer points.
-    roi.mission_cone = False
-    roi.left_boundary = roi.right_boundary = []
-    roi.update_center_path(stamp)
-    assert roi.lane_width is None and not roi.center_path
+    roi.left_boundary = [(x, .3, 0.) for x in (.1, .4, .7)]
+    roi.right_boundary = [(x, -.3, 0.) for x in (.1, .4, .7)]
+    # Even a nonempty primary correspondence set may fail to form a path.
+    monkeypatch.setattr(roi, 'match_cross_sections', lambda *args: [((.2,.3,0.), (.2,-.3,0.))])
+    roi.update_center_path(roi.get_clock().now().to_msg())
+    assert roi.center_path and roi.center_path_mode == 'Nearest Projection'
+    assert all(abs(q[1]) < 1e-8 for q in roi.center_path)
 
 
-def test_fallback_rejects_crossing_and_visible_conflict(harness):
-    from cone_lane_follower.node import CENTER_DEFAULTS
-    p = dict(CENTER_DEFAULTS)
-    line = [(.1, .3, 0.), (.7, .3, 0.)]
-    other = [(.1, .2, 0.), (.7, .2, 0.)]
-    assert RoiNode.offset_boundary_path(line, other, 'left', .6, p) == ([], [])
-    assert not RoiNode.boundaries_safe([(.1, .3, 0.), (.7, -.3, 0.)],
-                                      [(.1, -.3, 0.), (.7, .3, 0.)])
-
-
-def test_fallback_control_speed_and_expiry(harness):
+def test_normal_path_has_priority_over_projection(harness, monkeypatch):
     roi, *_ = harness
-    messages = []
-    class Capture:
-        def publish(self, message):
-            messages.append(message)
-    roi.command_pub = Capture()
-    roi.control_engaged = True
-    roi.center_path = [(.1, 0., 0.), (.7, 0., 0.)]
-    roi.center_path_estimated = True
-    roi.control_received = time.monotonic()
-    roi.control_scan_stamp = roi.get_clock().now().nanoseconds
-    roi.lane_width_stamp = roi.control_scan_stamp/1e9
-    roi.control_tick()
-    assert messages[-1].drive.speed == pytest.approx(.15*.5)
-    roi.lane_width_stamp -= 1.
-    roi.control_tick()
-    assert messages[-1].drive.speed == 0.
+    roi.left_boundary = [(x, .3, 0.) for x in (.1, .4, .7)]
+    roi.right_boundary = [(x, -.3, 0.) for x in (.1, .4, .7)]
+    def unexpected(*args):
+        raise AssertionError('Projection must only run after primary path failure')
+    monkeypatch.setattr(roi, 'match_projected_sections', unexpected)
+    roi.update_center_path(roi.get_clock().now().to_msg())
+    assert roi.center_path and roi.center_path_mode == 'Normal Sections'
 
 
-def test_one_measured_center_does_not_trigger_fallback(harness, monkeypatch):
+def test_projection_reported_corner_and_crossing_rejection(harness):
     roi, *_ = harness
-    roi.mission_cone = True
-    stamp = roi.get_clock().now().to_msg()
-    roi.lane_width, roi.lane_width_stamp = .6, (stamp.sec*1_000_000_000+stamp.nanosec)/1e9
-    roi.left_boundary = [(.1, .3, 0.), (.7, .3, 0.)]
-    roi.right_boundary = []
-    monkeypatch.setattr(roi, 'match_cross_sections', lambda *args: [((.2, .3, 0.), (.2, -.3, 0.))])
-    roi.update_center_path(stamp)
-    assert len(roi.center_points) == 1 and not roi.center_path_estimated and not roi.center_path
-    roi.control_fault = True
-    roi.update_center_path(stamp)
-    assert roi.lane_width is None
+    roi.left_boundary = [(.132, .195, 0.), (.197, .359, 0.)]
+    roi.right_boundary = [(.166, -.189, 0.), (.352, -.164, 0.), (.479, -.030, 0.)]
+    assert not roi.match_cross_sections(roi.left_boundary, roi.right_boundary, .05, .1, 1.5)
+    roi.update_center_path(roi.get_clock().now().to_msg())
+    assert roi.center_path and roi.center_path_mode == 'Nearest Projection'
+    roi.left_boundary = [(.1, .3, 0.), (.7, -.3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.7, .3, 0.)]
+    roi.update_center_path(roi.get_clock().now().to_msg())
+    assert not roi.center_path and roi.center_path_mode == 'Invalid'
+
+
+def test_projection_accepts_reported_endpoint_overrun(harness):
+    roi, *_ = harness
+    roi.left_boundary = [(.131, .305, 0.), (.236, .448, 0.)]
+    roi.right_boundary = [(.087, -.237, 0.), (.250, -.160, 0.), (.360, -.022, 0.)]
+    pairs = roi.match_projected_sections(roi.left_boundary, roi.right_boundary, .05, .1, 1.5)
+    assert len(pairs) >= 2
+    assert all(b == pytest.approx(roi.right_boundary[-1]) for _, b in pairs)
+    roi.update_center_path(roi.get_clock().now().to_msg())
+    assert roi.center_path and roi.center_path_mode == 'Nearest Projection'
