@@ -24,17 +24,17 @@ from sign_ocr import DirectionOCR
 
 def default_model_path():
     # Keep direct source execution working, including --symlink-install builds.
-    source_model = Path(__file__).resolve().parents[1] / 'model/test_in_e87.pt'
+    source_model = Path(__file__).resolve().parents[1] / 'model/best.engine'
     if source_model.is_file():
         return source_model
     try:
-        return Path(get_package_share_directory('yolo_detect')) / 'model/test_in_e87.pt'
+        return Path(get_package_share_directory('yolo_detect')) / 'model/best.engine'
     except PackageNotFoundError:
         return source_model
 
 
 MODEL_PATH = default_model_path()
-IMAGE_TOPIC = '/camera/color/image_raw'
+IMAGE_TOPIC = '/camera/color/image_raw/compressed'
 SHOW_IMAGE = True  # True: show detection window; False: disable GUI.
 LEFT_RIGHT_YOLO = True  # False: ignore A/B overrides and use original YOLO classes.
 # - true: A/B가 읽히면 해당 bbox를 left/right로 지정
@@ -47,16 +47,15 @@ IMAGE_SIZE = 640
 MAX_IMAGE_AGE_SEC = 0.30
 CONFIRM_FRAMES = 2  # Require this many consecutive new frames, not timer ticks.
 
-# Tune each class independently here. These are initial values, not calibrated.
-# min_area_ratio = bounding-box area / original image area (NOT resized input).
-# Example: 0.002 at 640x480 means at least 614.4 pixels of bounding-box area.
+# Per-class minimum bounding-box area in original-image pixels squared.
+# Image resizing for inference does not change these thresholds.
 CLASS_THRESHOLDS = {
-    'bump':      {'confidence': 0.55, 'min_area_ratio': 0.0015},
-    'crosswalk': {'confidence': 0.60, 'min_area_ratio': 0.0020},
-    'left':      {'confidence': 0.65, 'min_area_ratio': 0.0020},
-    'parking':   {'confidence': 0.60, 'min_area_ratio': 0.0020},
-    'right':     {'confidence': 0.65, 'min_area_ratio': 0.0020},
-    'slow':      {'confidence': 0.55, 'min_area_ratio': 0.0015},
+    'bump': {'confidence': 0.55, 'min_area_pixels': 3800},
+    'crosswalk': {'confidence': 0.60, 'min_area_pixels': 3200},
+    'left': {'confidence': 0.65, 'min_area_pixels': 3400},
+    'parking': {'confidence': 0.60, 'min_area_pixels': 3900},
+    'right': {'confidence': 0.65, 'min_area_pixels': 3400},
+    'slow': {'confidence': 0.55, 'min_area_pixels': 3600},
 }
 
 PRESENCE_TOPICS = {
@@ -80,8 +79,8 @@ def filter_detections(rows, names, width, height):
             continue
         x0, x1 = np.clip((x0, x1), 0, width)
         y0, y1 = np.clip((y0, y1), 0, height)
-        area_ratio = max(0., x1-x0)*max(0., y1-y0)/(width*height)
-        if confidence >= threshold['confidence'] and area_ratio >= threshold['min_area_ratio']:
+        area_pixels = max(0., x1-x0)*max(0., y1-y0)
+        if confidence >= threshold['confidence'] and area_pixels >= threshold['min_area_pixels']:
             detected[name] = max(detected.get(name, 0.), float(confidence))
     return detected
 
@@ -114,7 +113,7 @@ class YoloDetect(Node):
         self.declare_parameter('model_path', str(MODEL_PATH))
         self.declare_parameter('image_topic', IMAGE_TOPIC)
         self.declare_parameter('device', 'auto')
-        self.declare_parameter('image_transport', 'raw')
+        self.declare_parameter('image_transport', 'compressed')
         self.declare_parameter('camera_timeout_sec', 2.0)
         self.declare_parameter('left_right_yolo', LEFT_RIGHT_YOLO)
         self.left_right_yolo = self.get_parameter('left_right_yolo').value
@@ -247,7 +246,7 @@ class YoloDetect(Node):
                 f'confidence={confidence:.3f}; {status}')
 
     def classify_detections(self, rows, image):
-        """An A/B reading overrides any YOLO class without additional YOLO gates."""
+        """A/B overrides the YOLO class, while retaining the direction pixel-area gate."""
         height, width = image.shape[:2]
         detected, annotations, rejected = {}, [], []
         for row in rows:
@@ -276,6 +275,10 @@ class YoloDetect(Node):
                         f'Direction OCR: letter={reading.letter}; class={name}; '
                         f'yolo_candidate={yolo_name}; confidence={confidence:.3f}; '
                         f'ocr_score={reading.score:.3f}; output_topic={LR_TOPIC}')
+                    if bbox_width * bbox_height < CLASS_THRESHOLDS[name]['min_area_pixels']:
+                        rejected.append((name, confidence, 'bbox area below direction threshold', reading.score))
+                        annotations.append(((int(x0), int(y0), int(x1), int(y1)), label))
+                        continue
                     detected[name] = max(detected.get(name, 0.), confidence)
                     annotations.append(((int(x0), int(y0), int(x1), int(y1)), label))
                     continue

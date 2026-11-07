@@ -1,6 +1,6 @@
 # yolo_ws
 
-기본적으로 `/camera/color/image_raw` (`sensor_msgs/msg/Image`)를 구독하고 다음 Bool 인지 결과를 발행합니다.
+기본적으로 `/camera/color/image_raw/compressed` (`sensor_msgs/msg/CompressedImage`)를 구독하고 다음 Bool 인지 결과를 발행합니다.
 
 | 토픽 | 구독 ws | false / true |
 | --- | --- | --- |
@@ -12,11 +12,11 @@
 
 모든 출력 타입은 `std_msgs/msg/Bool`입니다. 좌·우를 제외한 토픽은 미검출 시 false를 발행합니다. `/yolo/LR_sign`은 미검출 시 발행하지 않습니다. 인지 결과의 시간적 확인과 영상 시각 검사를 수행한 뒤 발행합니다. 갈림길 주행 동작은 `lane_ws`가 처리합니다.
 
-`src/yolo_detect.py`는 `model/test_in_e87.pt`를 사용하는 ROS 2 인지 노드입니다.
+`src/yolo_detect.py`는 `model/best.engine`를 사용하는 ROS 2 인지 노드입니다.
 
 ## YOLO 노드 실행
 
-`src/`는 `ament_cmake` 기반 `yolo_detect` 패키지입니다. 노드와 `model/*.pt`가 함께 설치됩니다. ROS 2 Humble의 Python 환경에서 아래 명령을 실행합니다.
+`src/`는 `ament_cmake` 기반 `yolo_detect` 패키지입니다. 노드와 `model/*.pt`, `model/*.onnx`, `model/*.engine`이 함께 설치됩니다. ROS 2 Humble의 Python 환경에서 아래 명령을 실행합니다.
 기존 conda 환경을 사용한다면 ROS Python 모듈을 import할 수 있어야 합니다.
 
 ```bash
@@ -32,15 +32,38 @@ ros2 run yolo_detect yolo_detect
 파라미터는 실행 시 지정할 수 있습니다.
 
 ```bash
-ros2 run yolo_detect yolo_detect --ros-args -p device:=cpu -p use_sim_time:=true
+ros2 run yolo_detect yolo_detect --ros-args -p model_path:=$HOME/2026-AutoRace/yolo_ws/model/best.pt -p device:=cpu -p use_sim_time:=true
 ```
 
 기존처럼 저장소 루트에서 `python3 yolo_ws/src/yolo_detect.py`로 직접 실행할 수도 있습니다.
 PyTorch와 Ultralytics는 실제 노드를 실행하는 Python 환경에 설치되어 있어야 합니다.
 
-카메라와 같은 `ROS_DOMAIN_ID`를 사용합니다. 시뮬레이션에서는 시뮬레이터의 도메인으로 맞추고 `--ros-args -p use_sim_time:=true`를 추가합니다. GPU가 있으면 GPU 0, 없으면 CPU를 사용합니다. 직접 지정하려면 `--ros-args -p device:=cpu` 또는 `-p device:=0`을 추가합니다. `model_path`, `image_topic`도 ROS 파라미터로 변경할 수 있습니다.
+카메라와 같은 `ROS_DOMAIN_ID`를 사용합니다. 실차 플랫폼은 현재 94를 사용합니다. 시뮬레이션은 해당 도메인과 `use_sim_time:=true`를 사용합니다. 기본 TensorRT 엔진은 CUDA GPU가 필요합니다. CPU 실행은 `model_path`를 `best.pt`로 바꾸고 `device:=cpu`를 지정하세요. `model_path`, `image_topic`, `image_transport`는 실행 시 변경할 수 있습니다.
 
-`yolo_detect.py` 상단의 **`CLASS_THRESHOLDS`**에서 6개 클래스 각각의 `confidence`와 `min_area_ratio`를 조정합니다. 크기는 원본 영상의 바운딩 박스 면적 비율이며, 예를 들어 640×480에서 `0.002`는 약 614 픽셀 면적입니다. 초기값은 실차에 맞춰 조정해야 합니다. `CONFIRM_FRAMES=2`로 서로 다른 연속 영상 2장에서 확인합니다.
+`yolo_detect.py` 상단의 **`CLASS_THRESHOLDS`**에서 클래스별 `confidence`와 `min_area_pixels`를 조정합니다. 크기는 **원본 영상 좌표로 복원하고 영상 경계로 제한한 bbox의 가로×세로 면적(px²)**입니다. 추론 입력 해상도 대비 비율이 아닙니다. 일반 YOLO 판정은 `CONFIRM_FRAMES=2`로 서로 다른 연속 영상 2장에서 확인합니다.
+
+| 클래스 | 최소 면적(px²) |
+| --- | ---: |
+| slow | 3600 |
+| bump | 3800 |
+| parking | 3900 |
+| crosswalk | 3200 |
+| left / right | 3400 |
+
+현재 기본 모델은 제공된 `best.pt`에서 변환한 TensorRT **`best.engine`**입니다. 입력은 고정 `(1,3,640,640)`, batch 1이며 내부 FP16 최적화와 FP32 입출력을 사용합니다. 목표 출력은 10Hz입니다. `best.pt`와 `best.onnx`도 함께 보관합니다. 엔진은 Jetson Orin / TensorRT 10.3에서 생성했으며 다른 GPU·TensorRT 환경에서는 대상 장치에서 다시 빌드해야 합니다.
+
+실차 실행 환경 예시:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate dl_env
+cd ~/2026-AutoRace/yolo_ws
+export PYTHONPATH="$PWD/yolo26:$PYTHONPATH"
+source install/setup.bash
+export ROS_DOMAIN_ID=94 ROS_LOCALHOST_ONLY=0
+ros2 run yolo_detect yolo_detect
+```
 
 | 모델 클래스 | 발행 토픽 | Bool 의미 |
 | --- | --- | --- |
@@ -84,7 +107,7 @@ python yolo_ws/train/train_baseline_model.py
 `ros2 run yolo_detect yolo_detect` 또는 저장소 루트에서
 `python3 yolo_ws/src/yolo_detect.py`로도 실행할 수 있습니다.
 
-기본 입력은 `/camera/color/image_raw` (`sensor_msgs/msg/Image`)입니다. 압축 입력은 다음처럼 선택합니다.
+기본 입력은 `/camera/color/image_raw/compressed` (`sensor_msgs/msg/CompressedImage`)입니다. 아래 명령은 기본값을 명시한 것입니다. 원본 영상이 필요하면 `image_transport:=raw`, `image_topic:=/camera/color/image_raw`를 함께 지정합니다.
 
 ```bash
 ros2 run yolo_detect yolo_detect --ros-args -p image_transport:=compressed -p image_topic:=/camera/color/image_raw/compressed
@@ -121,8 +144,8 @@ confidence·면적 기준을 통과한 클래스마다 매 추론에서 `class`,
 예를 들어 YOLO가 `parking` 또는 `right`라고 예측해도 A가 읽히면
 `left / A` bbox로 바뀌고 `/yolo/LR_sign`에 `false`를 바로 발행합니다.
 B는 `right / B`로 표시하고 `true`를 바로 발행합니다.
-A/B로 결정한 방향에는 추가 YOLO 클래스별 confidence·면적 조건이나
-연속 2프레임 확인을 적용하지 않습니다. 입력은 YOLO가 반환한 bbox를 사용합니다.
+A/B로 결정한 방향에도 **최소 3400px² 면적 조건**을 적용합니다. 추가 YOLO 클래스별 confidence 조건과
+연속 2프레임 확인은 적용하지 않습니다. 입력은 YOLO가 반환한 bbox를 사용합니다.
 영상 시각 유효성 검사는 유지하며 같은 프레임에 A/B가 모두 있으면 방향 발행을 생략합니다.
 
 A/B가 없는 다른 클래스는 기존 YOLO bbox와 발행 조건을 유지합니다.
