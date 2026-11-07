@@ -55,7 +55,9 @@ struct Result {
   Path center_path;
   bool valid = false;
   bool deep_used = false; // a deep class mask was fused into the colour features
-  std::string source = "hsv"; // features from: hsv | gated | deep | hsv_fallback (mode 3)
+  // Features from: hsv | gated | deep | deep+hsv (mode 3: HSV filled in a side
+  // the network missed, around where that boundary is expected).
+  std::string source = "hsv";
   // Control-facing measurement at the lookahead point. Left is positive.
   double target_x = 0, target_y = 0, lateral_px = 0, lateral_m = 0;
   double heading = 0, curvature = 0, lookahead_m = 0, confidence = 0;
@@ -80,13 +82,13 @@ public:
                  const cv::Mat &deep = cv::Mat());
 
 private:
-  Result run(const cv::Mat &bgr, double time, bool views, const cv::Mat &deep, int source);
   struct Track {
     Path path;
     double seen = -1, quality = 0;
     int jumps = 0, colour = -1; // -1 unknown, 0 white, 1 yellow
   };
   Config config_;
+  cv::Mat H_, Hinv_, bev_valid_; // BEV geometry, rebuilt only by configure()
   Track tracks_[2];
   Path center_;
   double center_seen_ = -1, center_confidence_ = 0, last_time_ = -1, width_ = 0;

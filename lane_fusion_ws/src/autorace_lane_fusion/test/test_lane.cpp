@@ -190,6 +190,58 @@ TEST(LaneLite, NoViewsGivesSameResult) {
     EXPECT_FALSE(ra.path_view.empty()) << i;
   }
 }
+TEST(LaneLite, TrackedBoundaryKeepsItsRoleAcrossTheCarCentre) {
+  // Zigzag / bend: the yellow LEFT boundary drifts to the right of the image
+  // centre. Continuity keeps it the left boundary; screen x must not swap it.
+  lane_lite::Pipeline p(identity());
+  for (int i = 0; i < 18; ++i) {
+    cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+    const int x = 200 + 15 * i; // up to 455 px, well right of 320
+    cv::line(img, {x, 479}, {x + 20, 0}, cv::Scalar(0, 200, 230), 14);
+    auto r = p.process(img, i * .05);
+    ASSERT_TRUE(r.valid) << i;
+    EXPECT_EQ(r.state, "left only") << i;
+    EXPECT_NEAR(r.target_x, x + 10 + 150, 35) << i; // smoothing lags a moving line
+  }
+}
+TEST(LaneLite, DeepFirstFillsTheMissedSideFromHsv) {
+  // The network sees only the yellow line; HSV also sees the white one. Mode 3
+  // adds the white line (it lies where the right boundary is expected), but
+  // not a white blob far from that corridor. Mode 2 stays deep-only.
+  cv::Mat img = scene(170, 300);
+  cv::rectangle(img, {20, 300}, {40, 470}, cv::Scalar(240, 240, 240), cv::FILLED); // outside
+  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
+  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
+  for (const int mode : {2, 3}) {
+    auto c = identity();
+    c.values["deep_mode"] = mode;
+    lane_lite::Pipeline p(c);
+    lane_lite::Result r;
+    for (int i = 0; i < 3; ++i)
+      r = p.process(img, i * .05, true, deep);
+    ASSERT_TRUE(r.valid) << mode;
+    EXPECT_EQ(r.state, mode == 3 ? "both" : "left only") << mode;
+    EXPECT_EQ(r.source, mode == 3 ? "deep+hsv" : "deep") << mode;
+    EXPECT_NEAR(r.target_x, 330, 12) << mode;
+    EXPECT_EQ(cv::countNonZero(r.feature_mask.colRange(10, 50)), 0) << mode;
+  }
+}
+TEST(LaneLite, CentreFollowsTheMiddleOfABend) {
+  // Concentric arcs (right-hand bend), radii 650 / 350 around (820, 479):
+  // the centre path must stay on radius 500, also at the lookahead point.
+  lane_lite::Pipeline p(identity());
+  cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+  cv::ellipse(img, {820, 479}, {650, 650}, 0, 180, 250, cv::Scalar(0, 200, 230), 14);
+  cv::ellipse(img, {820, 479}, {350, 350}, 0, 180, 270, cv::Scalar(240, 240, 240), 14);
+  lane_lite::Result r;
+  for (int i = 0; i < 3; ++i)
+    r = p.process(img, i * .05);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.state, "both");
+  for (const auto &q : r.center_path)
+    EXPECT_NEAR(std::hypot(q.x - 820, q.y - 479), 500, 15) << q;
+  EXPECT_LT(r.heading, -.1); // turns right
+}
 TEST(LaneLite, ConfigRoundTrip) {
   auto c = identity();
   c.values["margin"] = 61;

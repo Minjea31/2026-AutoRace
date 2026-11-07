@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
   if (argc < 3) {
     std::cerr << "lane_fusion_eval BAG|IMAGE CONFIG.yaml [OUT_DIR|OUT.png] [--topic T] "
                  "[--every N] [--start I] [--count N] [--no-views] [--video OUT.mp4] [--tracks]\n"
-                 "  [--deep-masks DIR (NNNNNN.png per bag frame)] [--deep-mode 0|1|2]\n";
+                 "  [--deep-masks DIR (NNNNNN.png per bag frame)] [--deep-mode 0|1|2|3]\n";
     return 1;
   }
   std::string bag_path = argv[1], config_path = argv[2], out, topic, video_path, deep_dir;

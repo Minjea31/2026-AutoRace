@@ -1,7 +1,7 @@
 // Perception only: camera -> /lane_fusion/target (+ debug image). No drive output.
+#include "autorace_lane_fusion/deep_pairing.hpp"
 #include "autorace_lane_fusion/lane.hpp"
 #include <condition_variable>
-#include <deque>
 #include <cv_bridge/cv_bridge.h>
 #include <mutex>
 #include <opencv2/imgcodecs.hpp>
@@ -17,11 +17,11 @@
 // state: 0=lost 1=held 2=detected. lateral/heading = lookahead target point,
 // near_* = nearest centre-path point.
 //
-// Deep fusion (deep_mode > 0): /lane_fusion/deep_mask (mono8 class ids, camera header
-// copied) is paired with the camera frame of the SAME stamp. While masks keep
-// arriving, a frame waits up to deep_wait for its mask; frames the network
-// skipped are dropped. If no mask came for deep_timeout, frames run HSV-only
-// at once until masks resume.
+// Deep fusion (deep_mode > 0): /lane_fusion/deep_mask is paired with the camera
+// frame of the same stamp (see deep_pairing.hpp). A frame waits for its own
+// mask only as long as the network normally takes (at most deep_wait, s); a frame
+// the network skipped runs with the latest earlier mask instead of being
+// dropped. If no mask came for deep_timeout, frames run HSV-only at once.
 class LaneLiteNode : public rclcpp::Node {
 public:
   LaneLiteNode() : Node("lane_fusion_node") {
@@ -34,7 +34,7 @@ public:
     const auto topic = declare_parameter<std::string>(
         "image_topic", "/camera/color/image_raw/compressed");
     timeout_ = declare_parameter<double>("image_timeout", .3);
-    deep_wait_ = declare_parameter<double>("deep_wait", .15);
+    deep_wait_ = declare_parameter<double>("deep_wait", .3);
     deep_timeout_ = declare_parameter<double>("deep_timeout", .5);
     const auto deep_topic = declare_parameter<std::string>("deep_topic", "/lane_fusion/deep_mask");
     target_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_fusion/target",
@@ -49,23 +49,15 @@ public:
         topic, rclcpp::SensorDataQoS().keep_last(1),
         [this](sensor_msgs::msg::CompressedImage::ConstSharedPtr m) {
           std::lock_guard<std::mutex> lock(mutex_);
-          frames_.push_back({m, steady()});
-          while (frames_.size() > 8)
-            frames_.pop_front();
+          pairing_.addFrame(m, steady());
           cv_.notify_one();
         });
     deep_ = create_subscription<sensor_msgs::msg::Image>(
         deep_topic, rclcpp::SensorDataQoS().keep_last(4),
         [this](sensor_msgs::msg::Image::ConstSharedPtr m) {
-          if (m->encoding != "mono8" || m->step < m->width ||
-              m->data.size() < size_t(m->step) * m->height)
-            return;
           std::lock_guard<std::mutex> lock(mutex_);
-          masks_.push_back(m);
-          while (masks_.size() > 8)
-            masks_.pop_front();
-          mask_seen_ = steady();
-          cv_.notify_one();
+          if (pairing_.addMask(m, steady()))
+            cv_.notify_one();
         });
     // The tuner's "Apply" sends every lane_lite key atomically.
     parameters_ = add_on_set_parameters_callback(
@@ -121,50 +113,20 @@ private:
                   r ? float(int(r->right.state)) : 0.f, 0, 0, 0};
     target_->publish(msg);
   }
-  static int64_t nanos(const builtin_interfaces::msg::Time &t) {
-    return int64_t(t.sec) * 1000000000 + t.nanosec;
-  }
-  // Under mutex_. Picks the next frame to process (and its mask, if any);
-  // returns false when the worker should keep waiting.
-  bool next(sensor_msgs::msg::CompressedImage::ConstSharedPtr &frame,
-            sensor_msgs::msg::Image::ConstSharedPtr &mask) {
-    if (frames_.empty())
-      return false;
-    const bool deep = config_["deep_mode"] > 0 && steady() - mask_seen_ < deep_timeout_;
-    if (deep) {
-      // Newest frame that has its mask.
-      for (auto f = frames_.rbegin(); f != frames_.rend(); ++f)
-        for (const auto &m : masks_)
-          if (nanos(m->header.stamp) == nanos(f->msg->header.stamp)) {
-            frame = f->msg;
-            mask = m;
-            const auto t = nanos(frame->header.stamp);
-            while (!frames_.empty() && nanos(frames_.front().msg->header.stamp) <= t)
-              frames_.pop_front();
-            while (!masks_.empty() && nanos(masks_.front()->header.stamp) <= t)
-              masks_.pop_front();
-            return true;
-          }
-      if (steady() - frames_.back().arrival < deep_wait_)
-        return false; // its mask may still come
-    }
-    frame = frames_.back().msg; // HSV only
-    frames_.clear();
-    ++hsv_only_;
-    return true;
-  }
   void work() {
     lane_lite::Pipeline pipeline;
     size_t applied = ~size_t(0);
     while (true) {
       sensor_msgs::msg::CompressedImage::ConstSharedPtr compressed;
       sensor_msgs::msg::Image::ConstSharedPtr mask_msg;
+      bool own = false;
       lane_lite::Config config;
       size_t revision;
       {
         std::unique_lock<std::mutex> lock(mutex_);
-        while (!stop_ && !next(compressed, mask_msg))
-          cv_.wait_for(lock, std::chrono::milliseconds(10));
+        while (!stop_ && !pairing_.next(config_["deep_mode"] > 0, steady(), deep_wait_,
+                                        deep_timeout_, compressed, mask_msg, own))
+          cv_.wait_for(lock, std::chrono::milliseconds(5));
         if (stop_)
           return;
         config = config_;
@@ -192,15 +154,18 @@ private:
         publish(&r);
         processed_ = steady();
         ++processed_count_;
-        fused_ += r.deep_used;
-        fallback_ += r.source == "hsv_fallback";
+        own_ += own;
+        stale_ += mask_msg && !own;
+        hsv_only_ += !mask_msg;
+        filled_ += r.source == "deep+hsv";
         if (processed_ - reported_ >= 5) {
           if (config["deep_mode"] > 0)
-            RCLCPP_INFO(get_logger(), "lane_fusion: %.1f Hz, deep %zu / HSV-only (no mask) %zu / "
-                        "HSV fallback (deep lost lanes) %zu frames (5 s)",
-                        processed_count_ / (processed_ - reported_), fused_, hsv_only_, fallback_);
+            RCLCPP_INFO(get_logger(), "lane_fusion: %.1f Hz | mask own %zu / previous %zu / none "
+                        "(HSV only) %zu | side filled by HSV %zu | mask latency %.0f ms (5 s)",
+                        processed_count_ / (processed_ - reported_), own_, stale_, hsv_only_,
+                        filled_, pairing_.latency() * 1000);
           reported_ = processed_;
-          processed_count_ = fused_ = hsv_only_ = fallback_ = 0;
+          processed_count_ = own_ = stale_ = hsv_only_ = filled_ = 0;
         }
         if (views) {
           auto h = header;
@@ -219,15 +184,10 @@ private:
   std::thread worker_;
   bool stop_ = false;
   size_t revision_ = 0;
-  double timeout_ = .3, processed_ = 0, deep_wait_ = .15, deep_timeout_ = .5;
-  double mask_seen_ = -1e9, reported_ = 0;
-  size_t processed_count_ = 0, fused_ = 0, hsv_only_ = 0, fallback_ = 0;
-  struct Pending {
-    sensor_msgs::msg::CompressedImage::ConstSharedPtr msg;
-    double arrival;
-  };
-  std::deque<Pending> frames_;
-  std::deque<sensor_msgs::msg::Image::ConstSharedPtr> masks_;
+  double timeout_ = .3, processed_ = 0, deep_wait_ = .3, deep_timeout_ = .5;
+  double reported_ = 0;
+  size_t processed_count_ = 0, own_ = 0, stale_ = 0, hsv_only_ = 0, filled_ = 0;
+  lane_lite::DeepPairing pairing_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr deep_;
   rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr compressed_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr target_;

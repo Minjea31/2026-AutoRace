@@ -2,6 +2,7 @@
 // separate autorace_lane_fusion_pid tuner window and never appear here.
 #include "autorace_lane_fusion/lane.hpp"
 #include "autorace_lane_fusion/bag.hpp"
+#include "autorace_lane_fusion/deep_pairing.hpp"
 #include "autorace_lane_fusion/roi_view.hpp"
 #include <QApplication>
 #include <QComboBox>
@@ -23,7 +24,6 @@
 #include <atomic>
 #include <filesystem>
 #include <condition_variable>
-#include <deque>
 #include <opencv2/imgcodecs.hpp>
 #include <mutex>
 #include <opencv2/imgproc.hpp>
@@ -36,10 +36,11 @@ double wall() {
   return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
       .count();
 }
+// Wraps (no copy) a BGR or grey Mat; valid while `mat` lives.
 QImage qimage(const cv::Mat &mat) {
-  cv::Mat rgb;
-  cv::cvtColor(mat, rgb, mat.channels() == 1 ? cv::COLOR_GRAY2RGB : cv::COLOR_BGR2RGB);
-  return QImage(rgb.data, rgb.cols, rgb.rows, int(rgb.step), QImage::Format_RGB888).copy();
+  return mat.channels() == 1
+             ? QImage(mat.data, mat.cols, mat.rows, int(mat.step), QImage::Format_Grayscale8)
+             : QImage(mat.data, mat.cols, mat.rows, int(mat.step), QImage::Format_BGR888);
 }
 const char *kGeometry[] = {"roi_left", "roi_top", "roi_right", "roi_bottom",
                            "bev_top_y", "bev_bottom_y", "bev_top_left", "bev_top_right",
@@ -52,9 +53,11 @@ const lane_lite::Spec &spec(const std::string &key) {
 }
 
 enum Image { Overlay, Colour, Feature, Used, Compare, Deep, Bev, BevMask, Search, PathView, Count };
+// One processed frame. Only the views on screen are converted, in the GUI
+// thread (compare / deep views are even built only when selected).
 struct Display {
-  std::array<QImage, Count> images;
   lane_lite::Result result;
+  cv::Mat deep_mask; // class mask used for this frame (empty: none)
   size_t frame = 0, count = 0, serial = 0;
   double time = 0, ready = 0, received = 0, total_ms = 0;
   std::string deep; // deep fusion status line
@@ -74,8 +77,28 @@ cv::Mat deepView(const cv::Mat &original, const cv::Mat &deep) {
   cv::putText(view, "DEEP (U-Net)", {12, 30}, cv::FONT_HERSHEY_SIMPLEX, .8, {0, 255, 0}, 2);
   return view;
 }
-int64_t nanos(const builtin_interfaces::msg::Time &t) {
-  return int64_t(t.sec) * 1000000000 + t.nanosec;
+// The view `i` of a processed frame (built for Compare / Deep).
+cv::Mat view(const Display &d, int i) {
+  const auto &r = d.result;
+  switch (i) {
+  case Overlay: return r.overlay;
+  case Colour: return r.color_mask;
+  case Feature: return r.feature_mask;
+  case Used: return r.line_mask;
+  case Compare: {
+    cv::Mat compare;
+    cv::hconcat(r.color_mask, r.feature_mask, compare);
+    cv::putText(compare, "COLOR (HSV)", {12, 26}, cv::FONT_HERSHEY_SIMPLEX, .7, 150, 2);
+    cv::putText(compare, "FEATURE (top-hat, thin, area)", {compare.cols / 2 + 12, 26},
+                cv::FONT_HERSHEY_SIMPLEX, .7, 150, 2);
+    return compare;
+  }
+  case Deep: return deepView(r.original, d.deep_mask);
+  case Bev: return r.bev;
+  case BevMask: return r.bev_mask;
+  case Search: return r.search_view;
+  default: return r.path_view;
+  }
 }
 #ifndef LANE_LITE_SOURCE_DIR
 #define LANE_LITE_SOURCE_DIR ""
@@ -100,17 +123,13 @@ struct Shared {
   std::string config_path; // YAML loaded / saved last (GUI thread only)
   // Deep fusion input. Bag: NNNNNN.png class masks per bag frame (deep_dir,
   // default <bag parent>/deep_masks/<bag name>). Live: /lane_fusion/deep_mask paired
-  // with the camera frame of the same stamp.
+  // with the camera frame as in lane_fusion_node.
   std::string deep_dir;
-  std::deque<sensor_msgs::msg::CompressedImage::ConstSharedPtr> frames;
-  std::deque<sensor_msgs::msg::Image::ConstSharedPtr> masks;
-  double mask_seen = -1e9;
+  lane_lite::DeepPairing pairing;
   bool live = false, playing = false;
-  double rate = 1, received = 0;
+  double rate = 1;
   int64_t seek = -1;
   int step = 0;
-  sensor_msgs::msg::Image::ConstSharedPtr raw;
-  sensor_msgs::msg::CompressedImage::ConstSharedPtr compressed;
   std::shared_ptr<Display> display;
 };
 
@@ -118,46 +137,34 @@ void worker(Shared &s) {
   lane_lite::Pipeline pipeline;
   lane_lite::Bag bag;
   lane_lite::Frame frame;
-  size_t source = ~size_t(0), revision = ~size_t(0), incoming = 0, index = 0, next = 0,
-         serial = 0;
+  size_t source = ~size_t(0), revision = ~size_t(0), index = 0, next = 0, serial = 0;
   bool loaded = false;
-  double due = 0;
-  std::string deep_dir;   // resolved for the open bag
-  cv::Mat deep;           // class mask of `frame` (empty: HSV only)
-  int64_t live_stamp = -1; // last live frame processed with its mask
+  double due = 0, received = 0;
+  std::string deep_dir; // resolved for the open bag
+  cv::Mat deep;         // class mask of `frame` (empty: HSV only)
   while (!s.stop) {
     try {
       std::string path, topic;
       bool live, playing;
-      double rate, received;
+      double rate;
       int64_t seek;
       int step;
-      size_t new_source, new_revision, new_incoming;
+      size_t new_source, new_revision;
       lane_lite::Config config;
-      sensor_msgs::msg::Image::ConstSharedPtr raw;
       sensor_msgs::msg::CompressedImage::ConstSharedPtr compressed;
       sensor_msgs::msg::Image::ConstSharedPtr live_mask;
-      bool live_deep = false;
+      bool own = false, incoming = false;
       {
         std::unique_lock<std::mutex> lock(s.mutex);
-        s.cv.wait_for(lock, std::chrono::milliseconds(4));
+        s.cv.wait_for(lock, std::chrono::milliseconds(5));
         if (s.stop)
           break;
         path = s.path, topic = s.topic, live = s.live, playing = s.playing, rate = s.rate;
         new_source = s.source, new_revision = s.revision, config = s.config;
         seek = s.seek, s.seek = -1, step = s.step, s.step = 0;
-        raw = s.raw, compressed = s.compressed, new_incoming = s.incoming;
-        received = s.received;
-        // Live + deep: newest buffered frame whose mask has arrived.
-        live_deep = live && config["deep_mode"] > 0 && wall() - s.mask_seen < .5;
-        if (live_deep)
-          for (auto f = s.frames.rbegin(); f != s.frames.rend() && !live_mask; ++f)
-            if (nanos((*f)->header.stamp) > live_stamp)
-              for (const auto &m : s.masks)
-                if (nanos(m->header.stamp) == nanos((*f)->header.stamp)) {
-                  compressed = *f, live_mask = m;
-                  break;
-                }
+        if (live)
+          incoming = s.pairing.next(config["deep_mode"] > 0, wall(), .3, .5, compressed,
+                                    live_mask, own);
       }
       const bool changed = revision != new_revision;
       if (changed) {
@@ -169,8 +176,8 @@ void worker(Shared &s) {
         loaded = false;
         frame = {};
         pipeline.reset();
-        index = next = incoming = 0;
-        deep.release(), live_stamp = -1;
+        index = next = 0;
+        deep.release();
         if (!live && !path.empty()) {
           {
             std::lock_guard<std::mutex> lock(s.mutex);
@@ -195,23 +202,15 @@ void worker(Shared &s) {
       }
       const double begin = wall();
       bool process = false;
-      if (live && live_deep) {
-        if (live_mask) {
+      if (live) {
+        if (incoming) {
           frame.image = lane_lite::decode(*compressed);
-          frame.time = received;
-          deep = cv::Mat(live_mask->height, live_mask->width, CV_8U,
-                         const_cast<uint8_t *>(live_mask->data.data()), live_mask->step).clone();
-          live_stamp = nanos(compressed->header.stamp);
-          incoming = index = new_incoming;
-          process = true;
-        } else
-          process = changed && !frame.image.empty();
-      } else if (live) {
-        if (new_incoming != incoming && (raw || compressed)) {
+          frame.time = received = begin;
           deep.release();
-          frame.image = raw ? lane_lite::decode(*raw) : lane_lite::decode(*compressed);
-          frame.time = received;
-          incoming = index = new_incoming;
+          if (live_mask)
+            deep = cv::Mat(live_mask->height, live_mask->width, CV_8U,
+                           const_cast<uint8_t *>(live_mask->data.data()), live_mask->step).clone();
+          ++index;
           process = true;
         } else
           process = changed && !frame.image.empty();
@@ -258,20 +257,14 @@ void worker(Shared &s) {
         continue;
       auto d = std::make_shared<Display>();
       d->result = pipeline.process(frame.image, frame.time, true, deep);
+      d->deep_mask = deep;
       const auto &r = d->result;
-      static const char *modes[] = {"끔 (HSV만)", "gated (HSV∧딥)", "딥만", "딥 우선 (놓치면 HSV)"};
+      static const char *modes[] = {"끔 (HSV만)", "gated (HSV∧딥)", "딥만", "딥 우선 (놓친 쪽만 HSV)"};
       d->deep = std::string("딥 퓨전: ") + modes[std::clamp(int(config["deep_mode"]), 0, 3)] +
                 " | 이 프레임: " + r.source +
-                (deep.empty() ? " (딥 마스크 없음)" : r.source == "hsv_fallback" ? " (딥이 경계를 놓쳐 HSV로 다시 처리)" : "");
-      cv::Mat compare;
-      cv::hconcat(r.color_mask, r.feature_mask, compare);
-      cv::putText(compare, "COLOR (HSV)", {12, 26}, cv::FONT_HERSHEY_SIMPLEX, .7, 150, 2);
-      cv::putText(compare, "FEATURE (top-hat, thin, area)", {compare.cols / 2 + 12, 26},
-                  cv::FONT_HERSHEY_SIMPLEX, .7, 150, 2);
-      d->images = {qimage(r.overlay), qimage(r.color_mask), qimage(r.feature_mask),
-                   qimage(r.line_mask), qimage(compare), qimage(deepView(r.original, deep)),
-                   qimage(r.bev),
-                   qimage(r.bev_mask), qimage(r.search_view), qimage(r.path_view)};
+                (deep.empty() ? " (딥 마스크 없음)"
+                 : r.source == "deep+hsv" ? " (딥이 놓친 쪽을 HSV로 보완)"
+                 : live && !own ? " (직전 프레임 마스크)" : "");
       d->frame = index;
       d->count = live ? 0 : bag.size();
       d->time = live ? 0 : frame.time;
@@ -595,9 +588,11 @@ private:
     }
     original->setConfig(c);
   }
-  void showImage(QLabel *label, const QImage &image) {
-    label->setPixmap(QPixmap::fromImage(image).scaled(label->size(), Qt::KeepAspectRatio,
-                                                      Qt::FastTransformation));
+  void showImage(QLabel *label, const cv::Mat &mat) {
+    if (mat.empty())
+      return;
+    label->setPixmap(QPixmap::fromImage(qimage(mat)).scaled(label->size(), Qt::KeepAspectRatio,
+                                                            Qt::FastTransformation));
   }
   void refresh() {
     std::shared_ptr<Display> d;
@@ -607,9 +602,9 @@ private:
     }
     if (!d)
       return;
-    showImage(labels[1], d->images[Colour + binary_mode->currentIndex()]);
-    showImage(labels[2], d->images[Bev + bev_mode->currentIndex()]);
-    showImage(labels[3], d->images[PathView]);
+    showImage(labels[1], view(*d, Colour + binary_mode->currentIndex()));
+    showImage(labels[2], view(*d, Bev + bev_mode->currentIndex()));
+    showImage(labels[3], view(*d, PathView));
   }
   void render() {
     std::shared_ptr<Display> d;
@@ -624,13 +619,18 @@ private:
     if (d && d->serial != last_serial) {
       last_serial = d->serial;
       ++frames;
-      original->setImage(d->images[Overlay]);
+      original->setImage(qimage(d->result.overlay).copy());
       refresh();
       if (!seek_bar->isSliderDown()) {
         QSignalBlocker blocker(seek_bar);
         seek_bar->setRange(0, d->count ? int(d->count - 1) : 0);
         seek_bar->setValue(int(d->frame));
       }
+    }
+    // The text panel re-lays out on every change: at most 10 times a second.
+    if (d && d->serial != text_serial && (now - text_time >= .1 || (!playing && d->count))) {
+      text_serial = d->serial;
+      text_time = now;
       const auto &r = d->result;
       QStringList lines;
       lines << QString::fromStdString(d->deep);
@@ -691,8 +691,8 @@ private:
   QLineEdit *topic = nullptr;
   std::map<std::string, QDoubleSpinBox *> spins;
   std::map<std::string, QSlider *> sliders;
-  size_t last_serial = 0, frames = 0;
-  double fps = 0, fps_start = wall();
+  size_t last_serial = 0, text_serial = 0, frames = 0;
+  double fps = 0, fps_start = wall(), text_time = 0;
 };
 } // namespace
 
@@ -745,24 +745,15 @@ int main(int argc, char **argv) {
       rclcpp::SensorDataQoS().keep_last(1),
       [&](sensor_msgs::msg::CompressedImage::ConstSharedPtr m) {
         std::lock_guard<std::mutex> lock(s.mutex);
-        s.compressed = m, s.raw.reset(), s.received = wall(), ++s.incoming;
-        s.frames.push_back(m);
-        while (s.frames.size() > 8)
-          s.frames.pop_front();
+        s.pairing.addFrame(m, wall());
         s.cv.notify_one();
       });
   auto deep_subscription = node->create_subscription<sensor_msgs::msg::Image>(
       "/lane_fusion/deep_mask", rclcpp::SensorDataQoS().keep_last(4),
       [&](sensor_msgs::msg::Image::ConstSharedPtr m) {
-        if (m->encoding != "mono8" || m->step < m->width ||
-            m->data.size() < size_t(m->step) * m->height)
-          return;
         std::lock_guard<std::mutex> lock(s.mutex);
-        s.masks.push_back(m);
-        while (s.masks.size() > 8)
-          s.masks.pop_front();
-        s.mask_seen = wall();
-        s.cv.notify_one();
+        if (s.pairing.addMask(m, wall()))
+          s.cv.notify_one();
       });
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);

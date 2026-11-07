@@ -58,8 +58,8 @@ lane_lite:
   lane_width_m: 0.55
   bev_near_m: 0.25
   bev_far_m: 1.2
-  # Deep: 3 = deep first (no HSV work); a frame where the network sees
-  # neither boundary is redone with HSV. 1 = gated (HSV ∧ deep), 2 = deep only.
+  # Deep: 3 = deep first; a boundary the network missed is searched in HSV
+  # only around where it is expected. 1 = gated (HSV ∧ deep), 2 = deep only.
   # Without lane_fusion_deep_mask running the node stays HSV-only.
   deep_mode: 3
   deep_dilate: 6
