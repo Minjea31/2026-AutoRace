@@ -14,7 +14,7 @@ from sensor_msgs.msg import LaserScan
 from tf2_ros import StaticTransformBroadcaster
 from visualization_msgs.msg import Marker, MarkerArray
 
-from cone_lane_follower.node import RoiNode
+from cone_lane_follower.node import BOUNDARY_DEFAULTS, RoiNode
 
 
 def scan(ranges):
@@ -363,6 +363,109 @@ def test_mission_keeps_driving_with_fewer_candidates_and_stops_on_path_loss(harn
     assert messages[-1].drive.speed > 0.
 
 
+def test_roi_limits_mission_count_but_not_boundary_generation(harness, monkeypatch):
+    roi, *_ = harness
+
+    class IdentityTF:
+        def lookup_transform(self, *args):
+            tf = transform()
+            tf.transform.translation.x = 0.
+            return tf
+
+    monkeypatch.setattr(roi, 'tf_buffer', IdentityTF())
+    points, indices = [], []
+    for i, (x, y) in enumerate((x, y) for y in [.3, -.3] for x in [.2, .45, .7, .95]):
+        points.extend([(x, y, 0.), (x+.01, y, 0.)])
+        indices.extend([4*i, 4*i+1])
+    monkeypatch.setattr(roi, 'scan_to_points', lambda msg, with_indices: (points, indices))
+
+    def send():
+        msg = scan([1.])
+        msg.header.stamp = roi.get_clock().now().to_msg()
+        roi.scan_callback(msg)
+
+    roi.set_parameters_atomically([Parameter('roi_x_max', value=.65)])
+    send()
+    assert len(roi.candidate_clusters) == 4
+    assert len(roi.boundary_candidate_clusters) == 8
+    assert not roi.mission_cone  # Out-of-ROI cones cannot trigger entry.
+    roi.set_parameters_atomically([Parameter('roi_x_max', value=1.1)])
+    send()
+    assert roi.mission_cone and roi.center_path
+    left, right = roi.left_boundary[:], roi.right_boundary[:]
+    roi.set_parameters_atomically([Parameter('roi_x_max', value=.3)])
+    send()
+    assert len(roi.candidate_clusters) == 2
+    assert len(roi.boundary_candidate_clusters) == 8
+    assert roi.left_boundary == left and roi.right_boundary == right
+    assert max(p[0] for p in roi.left_boundary) > .9
+    roi.control_tick()
+    assert roi.mission_cone and roi.control_mode == 'Path Feedback'
+    msg = scan([1.])
+    msg.header.frame_id = ''
+    roi.scan_callback(msg)
+    assert not roi.boundary_candidate_clusters and not roi.candidate_clusters
+    assert not roi.left_boundary and not roi.right_boundary and not roi.center_path
+
+
+@pytest.mark.parametrize('side', [-1., 1.])
+def test_boundary_seed_prefers_front_sector_then_distance(side):
+    behind = (-.1, side*.02, 0.)
+    closest_preferred = (.2, side*.1, 0.)
+    farther_preferred = (.4, side*.2, 0.)
+    rear_side = (-.05, side*.1, 0.)  # Inside the old +/-135 sector, outside +/-90.
+    chain = RoiNode.select_boundary_chain([farther_preferred, behind, rear_side, closest_preferred])
+    assert chain[0] == closest_preferred
+    # With no preferred candidate, the closest rear candidate is still selected.
+    assert RoiNode.select_boundary_chain([(-.4, side*.05, 0.), behind])[0] == behind
+    # The angular boundary is inclusive on either side.
+    edge = (0., side*.2, 0.)
+    assert RoiNode.select_boundary_chain([behind, edge])[0] == edge
+
+
+def test_boundary_seed_sector_does_not_filter_later_connections():
+    seed, behind = (0., .2, 0.), (-.1, .19, 0.)
+    parameters = dict(boundary_initial_max_turn=180.)
+    assert RoiNode.select_boundary_chain([behind, seed], parameters) == [seed, behind]
+
+
+@pytest.mark.parametrize('mirror', [False, True])
+def test_joint_boundaries_keep_identity_across_y_zero(harness, mirror):
+    roi, *_ = harness
+    left = [(.1, .25, 0.), (.3, .25, 0.), (.5, .2, 0.), (.7, .05, 0.), (.85, -.15, 0.)]
+    right = [(.1, -.35, 0.), (.3, -.35, 0.), (.5, -.4, 0.), (.7, -.55, 0.), (.85, -.75, 0.)]
+    if mirror:
+        left, right = ([(x, -y, z) for x, y, z in right],
+                       [(x, -y, z) for x, y, z in left])
+    roi.mission_cone = True
+    roi.update_boundary_markers(list(reversed(left+right)), roi.get_clock().now().to_msg())
+    assert roi.left_boundary == left
+    assert roi.right_boundary == right
+    assert not set(roi.left_boundary) & set(roi.right_boundary)
+    assert any(q[1] > 0 for q in roi.right_boundary) if mirror else any(q[1] < 0 for q in roi.left_boundary)
+
+
+def test_joint_boundary_seeds_keep_front_preference_and_fallback():
+    p = dict(BOUNDARY_DEFAULTS)
+    left, right = RoiNode.select_boundaries([(-.1, .01, 0.), (.2, .2, 0.), (-.1, -.01, 0.)], p)
+    assert left[0] == (.2, .2, 0.)
+    assert right[0] == (-.1, -.01, 0.)
+
+
+def test_joint_boundaries_reject_width_conflict_and_duplicate_assignment():
+    p = dict(BOUNDARY_DEFAULTS, boundary_connect_distance=.5)
+    left = [(.1, .3, 0.), (.3, .3, 0.), (.5, .3, 0.)]
+    right = [(.1, -.3, 0.), (.3, -.3, 0.), (.5, -.3, 0.)]
+    a, b = RoiNode.select_boundaries(left+right+[(.4, 0., 0.)], p, .6, .25)
+    assert a == left and b == right
+    assert not set(a) & set(b)
+    assert not any(RoiNode.segments_cross(x, y, u, v)
+                   for x, y in zip(a, a[1:]) for u, v in zip(b, b[1:]))
+    assert RoiNode.boundary_width_matches((.2, .3, 0.), right, 1., .6, .25)
+    assert not RoiNode.boundary_width_matches((.2, 0., 0.), right, 1., .6, .25)
+    assert not RoiNode.boundary_width_matches((.2, -.5, 0.), right, 1., .6, .25)
+
+
 def test_boundary_chain_direction_priority_and_distance_limit():
     seed, near, origin = (.2, -.2, 0.), (.3, -.2, 0.), (.1, -.3, 0.)
     assert RoiNode.select_boundary_chain([near, origin, seed]) == [seed, near]
@@ -588,6 +691,91 @@ def test_learn_lane_width_and_drive_with_one_boundary(harness, side):
     roi.left_boundary = [(.1, .35, 0.), (.8, .35, 0.)]
     roi.update_center_path(stamp)
     assert not roi.center_path  # A new mission cannot reuse the old learned width.
+
+
+@pytest.mark.parametrize('visible_side', ['left', 'right'])
+@pytest.mark.parametrize('failure', [None, 'stale', 'clock_reverse', 'conflict', 'missing'])
+def test_single_opposite_point_uses_only_fresh_consistent_width(harness, visible_side, failure):
+    roi, *_ = harness
+    roi.mission_cone = True
+    stamp = roi.get_clock().now().to_msg()
+    roi.left_boundary = [(.1, .3, 0.), (.8, .3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.8, -.3, 0.)]
+    roi.update_center_path(stamp)
+    assert roi.lane_width_mean == pytest.approx(.6)
+    if visible_side == 'left':
+        roi.right_boundary = [(.4, -.3, 0.)]
+    else:
+        roi.left_boundary = [(.4, .3, 0.)]
+    if failure == 'stale':
+        steady, ros = roi.lane_width_updated
+        roi.lane_width_updated = (steady-3.1, ros-3_100_000_000)
+    elif failure == 'clock_reverse':
+        steady, ros = roi.lane_width_updated
+        roi.lane_width_updated = (steady, ros+1_000_000_000)
+    elif failure == 'missing':
+        roi.lane_width_mean = None
+    elif failure == 'conflict':
+        if visible_side == 'left':
+            roi.right_boundary = [(.4, -.8, 0.)]
+        else:
+            roi.left_boundary = [(.4, .8, 0.)]
+    samples = roi.lane_width_samples
+    roi.update_center_path(stamp)
+    assert roi.lane_width_samples == samples  # Inference must never train itself.
+    roi.control_received = time.monotonic()
+    roi.control_scan_stamp = roi.get_clock().now().nanoseconds
+    roi.update_control_activation()
+    roi.control_tick()
+    if failure:
+        assert not roi.center_path and roi.control_mode == 'Stopped'
+        expected = 'boundary_width_conflict' if failure == 'conflict' else 'lane_width_unavailable_or_stale'
+        assert roi.control_stop_reason == expected
+    else:
+        assert roi.center_path_mode == f'{visible_side.title()} Boundary Offset'
+        assert all(abs(q[1]) < 1e-8 for q in roi.center_path)
+        assert roi.control_mode == 'Path Feedback'
+
+
+def test_inconsistent_cross_sections_are_not_learned(harness, monkeypatch):
+    roi, *_ = harness
+    roi.mission_cone = True
+    pairs = [((.1, .3, 0.), (.1, -.3, 0.)), ((.5, .3, 0.), (.5, -.8, 0.))]
+    monkeypatch.setattr(roi, 'match_cross_sections', lambda *args: pairs)
+    monkeypatch.setattr(roi, 'smooth_center_path', lambda *args: [(.1, 0., 0.), (.5, 0., 0.)])
+    roi.update_center_path(roi.get_clock().now().to_msg())
+    assert roi.lane_width_mean is None and roi.lane_width_updated is None
+
+
+@pytest.mark.parametrize('left,right,reason', [
+    ([(.1, .3, 0.)], [(.1, -.3, 0.), (.8, -.3, 0.)], 'insufficient_boundary_points'),
+    ([(.1, .8, 0.), (.8, .8, 0.)], [(.1, -.8, 0.), (.8, -.8, 0.)], 'width_out_of_range'),
+    ([(.1, .3, 0.), (.8, .3, 0.)], [(.8, -.3, 0.), (.1, -.3, 0.)], 'opposing_tangents'),
+    ([(.1, -.3, 0.), (.8, -.3, 0.)], [(.1, .3, 0.), (.8, .3, 0.)], 'connector_not_inward'),
+])
+def test_projection_reports_rejection_reason(left, right, reason):
+    diagnostics = {}
+    assert not RoiNode.match_projected_sections(left, right, .05, .1, 1.5, diagnostics)
+    assert diagnostics[reason] > 0
+
+
+def test_control_log_summary_contains_only_requested_status(harness):
+    roi, *_ = harness
+    roi.mission_cone = True
+    roi.candidate_clusters = [[], []]
+    roi.left_boundary = [(.1, .3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.8, -.3, 0.)]
+    roi.update_center_path(roi.get_clock().now().to_msg())
+    summary = roi.control_log_summary()
+    assert 'mission=True | roi_candidates=2' in summary
+    assert 'Path       : Width Unavailable or Stale' in summary
+    assert 'Control    : active=' in summary and 'state=' in summary
+    assert 'Stop reason:' in summary
+    assert 'Projection : failed: insufficient_boundary_points=1' in summary
+    assert 'LiDAR Points' not in summary and 'Cone Candidate' not in summary
+    roi.left_boundary = [(.1, .3, 0.), (.8, .3, 0.)]
+    roi.update_center_path(roi.get_clock().now().to_msg())
+    assert roi.projection_status == 'not_attempted'  # No stale failure after recovery.
 
 
 def test_boundary_offset_follows_local_normal():
