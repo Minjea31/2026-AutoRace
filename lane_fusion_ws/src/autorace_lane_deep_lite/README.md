@@ -22,6 +22,20 @@ ros2 launch autorace_lane_deep_lite lane_deep_lite.launch.py profile:=real debug
 
 `lane_fusion_pid.launch.py`와 동시에 띄우지 않습니다(둘 다 `/mission/lane` 발행). PID 튜너는 `gui:=true` 또는 노트북에서 `ros2 run autorace_lane_fusion_pid lane_fusion_pid_tuner --profile real`.
 
+## 튜너 GUI (노트북)
+
+```bash
+cd ~/dev/2026-AutoRace-fusionws/lane_fusion_ws && source install/setup.bash
+export ROS_DOMAIN_ID=96 ROS_LOCALHOST_ONLY=0 FASTRTPS_DEFAULT_PROFILES_FILE=~/fastdds_peers.xml   # 06번 차
+ros2 run autorace_lane_deep_lite lane_deep_lite_tuner --profile real                     # 차 실시간
+ros2 run autorace_lane_deep_lite lane_deep_lite_tuner --profile real --bag BAG [--masks DIR] [--frame N]
+```
+
+- 왼쪽: 원본 + 딥 마스크(노랑/흰색) + BEV 사다리꼴(파랑), BEV 인식 화면. 아래: 상태·목표점·가까운 점·차로 폭 학습값·탈락 이유
+- 오른쪽: 파라미터 슬라이더(바꾸면 바로 다시 계산, 추적은 초기화). **Apply to lane_deep_lite_node**: 차에서 도는 노드에 전체 값 적용. **Save YAML**: 기본 위치는 소스의 `config/<profile>/lane.yaml`(저장 후 다시 빌드해야 launch에 반영)
+- 실시간 모드는 차의 `/lane_fusion/deep_mask`(차에서 lane_deep_lite.launch.py 또는 deep_mask.launch.py 실행 중)와 카메라를 받습니다. 와이파이로 마스크 640×480을 받으므로 초당 수~20장 정도입니다
+- bag 모드의 마스크 폴더 기본값은 `<bag 상위>/deep_masks/<bag 이름>`
+
 ## 설정
 
 `config/real/lane.yaml`(06번 차량, 2026-11-07 줄자 보정 BEV, 1.88 mm/px), `config/sim/lane.yaml`. `lane_lite:` 형식 YAML(lane_ws·lane_fusion)도 읽을 수 있고, 이 패키지에 있는 키(BEV·폭·거리)만 가져옵니다. 실행 중 `ros2 param set /lane_deep_lite_node <키> <값>`으로 바꿀 수 있습니다.

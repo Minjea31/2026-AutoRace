@@ -513,7 +513,7 @@ Result Pipeline::process(const cv::Mat &classes, double time, bool views) {
   }
   // A ragged spot can split one line: join a far end to another chain's near
   // end when the gap is bridgeable and both directions agree.
-  const float join_cos = std::cos(c["max_turn_deg"] * CV_PI / 180);
+  const float join_cos = std::cos(c["max_turn_deg"] * CV_PI / 180), corner_cos = std::cos(75 * CV_PI / 180);
   auto endDir = [](const Path &p, bool far) {
     const size_t n = p.size(), k = std::min<size_t>(3, n - 1);
     return far ? unit(p[n - 1] - p[n - 1 - k]) : unit(p[k] - p[0]);
@@ -526,8 +526,11 @@ Result Pipeline::process(const cv::Mat &classes, double time, bool views) {
           continue;
         const cv::Point2f gap = seqs[b].p.front() - seqs[a].p.back();
         const cv::Point2f da = endDir(seqs[a].p, true), db = endDir(seqs[b].p, false);
-        if (length(gap) > c["max_gap"] || da.dot(db) < join_cos ||
-            (length(gap) > .5f * cell && (unit(gap).dot(da) < join_cos || unit(gap).dot(db) < join_cos)))
+        // Ends that touch (< 2 cells) may meet at a sharp corner of the track
+        // (up to 75 deg); across a real gap both directions must agree.
+        const bool touching = length(gap) < 2 * cell;
+        if (length(gap) > c["max_gap"] || da.dot(db) < (touching ? corner_cos : join_cos) ||
+            (!touching && (unit(gap).dot(da) < join_cos || unit(gap).dot(db) < join_cos)))
           continue;
         seqs[a].p.insert(seqs[a].p.end(), seqs[b].p.begin(), seqs[b].p.end());
         seqs[a].w.insert(seqs[a].w.end(), seqs[b].w.begin(), seqs[b].w.end());

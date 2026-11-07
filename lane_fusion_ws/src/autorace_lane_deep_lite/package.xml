@@ -6,7 +6,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>rclcpp</depend><depend>sensor_msgs</depend><depend>std_msgs</depend>
   <depend>cv_bridge</depend><depend>yaml-cpp</depend><depend>libopencv-dev</depend>
-  <depend>rosbag2_cpp</depend>
+  <depend>rosbag2_cpp</depend><depend>qtbase5-dev</depend><depend>ament_index_cpp</depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>autorace_lane_fusion_deep</exec_depend>
   <exec_depend>autorace_lane_fusion_pid</exec_depend>
