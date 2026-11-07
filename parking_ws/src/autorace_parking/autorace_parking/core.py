@@ -50,7 +50,10 @@ class Settings:
     reverse_steering_response_scale: float = 1.0
     hold_entry_path: bool = False
     validate_parking_space: bool = False
+    # Apply the measured command calibration in parking's output adapter only;
+    # require the shared driver's calibration to be disabled to avoid duplication.
     require_steering_calibration: bool = False
+    # Keep these parameter names for existing real profiles and tuning clients.
     steering_command_gain_expected: float = 1.92
     steering_command_deadband_expected: float = 0.23
     steering_command_limit_expected: float = 0.35

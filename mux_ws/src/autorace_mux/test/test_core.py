@@ -139,7 +139,7 @@ def test_ros_clock_reset_drops_cached_candidates():
 
 def test_conversion_clamps_and_uses_vehicle_geometry():
     cfg = Config(max_acceleration_mps2=100.0, max_deceleration_mps2=100.0,
-                 steering_limit_enabled=True, yaw_rate_limit_enabled=True)
+                 max_yaw_rate_rps=20.0, steering_limit_enabled=True, yaw_rate_limit_enabled=True)
     converter = TwistConverter(cfg)
     candidate = Candidate('lane', 10.0, 1.0, EPOCH, 0.0)
     converter.convert(candidate, 0.0)

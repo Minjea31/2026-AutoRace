@@ -24,8 +24,8 @@ class Config:
     future_tolerance_sec: float = 0.05
     require_stamp: bool = True
     wheelbase_m: float = 0.2
-    max_forward_speed_mps: float = 0.5
-    max_reverse_speed_mps: float = 0.5
+    max_forward_speed_mps: float = 0.8
+    max_reverse_speed_mps: float = 0.3
     max_steering_angle_rad: float = 0.65
     max_yaw_rate_rps: float = 2.5
     max_acceleration_mps2: float = 1.0

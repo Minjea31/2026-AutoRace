@@ -1,8 +1,30 @@
 # mux_ws
 
-유효한 미션 command 중 숫자가 가장 작은 토픽을 선택하고, 선택 결과를 `/cmd/selected`로 `control_ws`에 전달합니다. 주행 명령 타입은 `ackermann_msgs/msg/AckermannDriveStamped`입니다.
+lane과 미션 노드의 주행 명령을 받아 우선순위가 가장 높은 유효 명령 하나를 선택하고, 차량용 `/cmd_vel`로 변환합니다.
+입력은 `ackermann_msgs/msg/AckermannDriveStamped`, 출력은 `geometry_msgs/msg/Twist`입니다.
 
-| 순서 | 입력 토픽 |
+## 빌드와 실행
+
+```bash
+cd ~/2026-AutoRace/mux_ws
+source /opt/ros/humble/setup.bash
+/usr/bin/python3 -m colcon build --symlink-install
+source install/setup.bash
+export ROS_DOMAIN_ID=94 ROS_LOCALHOST_ONLY=0
+ros2 run autorace_mux mux_node
+```
+
+launch로 실행해도 기본값은 같습니다.
+
+```bash
+ros2 launch autorace_mux mux.launch.py
+```
+
+별도 YAML 없이 코드 기본값을 사용합니다. 모든 노드는 같은 ROS 도메인을 사용해야 합니다.
+
+## 입력 우선순위
+
+| 우선순위 | 입력 토픽 |
 | --- | --- |
 | 01 | `/mission/crosswalk/command_01` |
 | 02 | `/mission/signal/command_02` |
@@ -10,12 +32,17 @@
 | 04 | `/mission/cone/command_04` |
 | 05 | `/mission/objavoid/command_05` |
 | 08 | `/mission/slow/command_08` |
-| DEFAULT | `/mission/lane` |
+| 기본 | `/mission/lane` |
 
-1. 유효한 미션 command가 있으면 가장 작은 번호를 선택합니다.
-2. 수신된 미션 command가 없거나 모두 만료되면 `/mission/lane`의 최신 유효 명령을 기본값으로 선택합니다.
-3. 기본 명령도 없거나 만료되면 속도 0의 정지 명령을 출력합니다.
+번호가 작은 유효 미션을 선택합니다. 미션 입력이 없거나 만료되면 lane으로 돌아가고, lane도 유효하지 않으면 정지합니다.
+속도 0을 계속 발행하는 미션도 유효한 제어 명령이므로 lane에 제어권을 넘기려면 해당 미션의 발행을 멈춰야 합니다.
+기본 입력 만료 시간은 **0.25초**입니다.
 
-`lane_ws`만 `/mission/lane`을 발행합니다. mux는 이 토픽을 구독하고 선택한 내용을 `/cmd/selected`로 전달하며, 기본 토픽 자체를 다시 발행하지 않습니다. 미션 노드로 보내는 상태·활성화 토픽은 없습니다. 갈림길은 lane에서 처리하므로 별도 우선순위 06 입력을 두지 않습니다. 방지턱과 지그재그 서행은 `slow_ws`의 `/mission/slow/command_08` 입력으로 함께 처리합니다.
+## 기본 제어값
 
-후보 timeout은 초기 제안 0.25 s이며 실측 후 조정합니다. 현재는 노드 구현 전 인터페이스 명세이며 전체 계약은 [architecture.md](../docs/architecture.md)에 있습니다.
+- 최대 전진 속도: **0.8m/s**, 최대 후진 속도: **0.3m/s**.
+- 조향각 제한과 각속도 제한: 기본 OFF. 비정상 수치와 ±90° 이상의 입력 조향각은 거부합니다.
+- 선택된 중앙 조향각을 `각속도 = 속도 × tan(조향각) / 축간거리`로 바꿉니다. LIMO 드라이버가 이를 차체 명령으로 변환합니다.
+- 가감속 제한과 전후진 전환 시 정지 처리는 유지합니다.
+
+설정 기본값은 `src/autorace_mux/autorace_mux/core.py`, 토픽 연결은 `node.py`에서 확인할 수 있습니다.

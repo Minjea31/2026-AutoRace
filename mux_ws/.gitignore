@@ -5,3 +5,6 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+/Log/
+*.pyc
+/.pytest_cache/

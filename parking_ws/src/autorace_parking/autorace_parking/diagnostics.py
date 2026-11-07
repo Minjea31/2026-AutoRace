@@ -3,7 +3,7 @@ import re
 
 
 STATES = {
-    'WAITING_STEERING':'조향 드라이버 보정 준비 대기',
+    'WAITING_STEERING':'주차 전용 조향 보정 준비 대기',
     'WAITING_SIGN': '주차 시작 신호 대기', 'WAITING_SCAN': '라이다 수신 대기',
     'WAITING_LOCALIZATION': '위치 추정 준비 대기', 'TRACKING_LOST': '위치 추정 실패',
     'ROUTE_BLOCKED': '추종 경로 장애물로 정지·재계획 중',
@@ -24,7 +24,7 @@ STATES = {
 
 REASONS = {
     '': '',
-    'Waiting for matching calibrated limo_base; restart sensor bringup':'새 회전 반경에 맞는 조향 드라이버 보정을 확인하지 못했습니다. 센서 bringup과 parking 노드를 함께 재시작하세요.',
+    'Waiting for uncalibrated limo_base; parking owns steering calibration':'주차 전용 조향 보정을 적용하려면 LIMO 드라이버 보정이 꺼져 있어야 합니다. 센서 bringup을 기본 설정으로 재시작하고 드라이버 연결을 확인하세요.',
     'Clock moved backwards': '차량의 시각이 뒤로 바뀌어 주차 미션을 초기화했습니다. 시작 신호를 다시 보내세요.',
     'Front obstacle too close before arrival': '목표 도착 전 정면 장애물이 앞범퍼 가까이에 있어 정지했습니다. 허용된 후진 복구를 확인합니다.',
     'Waiting for a fresh scan': '최신 라이다 스캔을 기다리고 있습니다. /scan 수신과 시각을 확인하세요.',

@@ -1,0 +1,10 @@
+
+/build/
+/install/
+/log/
+/Log/
+__pycache__/
+*.pyc
+/.pytest_cache/
+/backups/
+/captures/

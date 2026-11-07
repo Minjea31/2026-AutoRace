@@ -23,15 +23,15 @@ def test_roi_is_fixed_at_start_while_vehicle_translates_and_rotates(pose):
     world=[(.5,-.8),(2.9,-1.5),(-.1,-.8),(3.1,-.8),(1.,-.1),(1.,-2.1)]
     source=Scan([],0.,1.,.01,12.);source.points=[compose(inverse(pose),(*p,0.))[:2] for p in world]
     original=source.points.copy();view=candidate_view(source,cfg(),pose)
-    assert [compose(pose,(*p,0.))[:2] for p in view.points]==pytest.approx(np.array(world[:2]))
+    assert [compose(pose,(*p,0.))[:2] for p in view.points]==pytest.approx(np.array(world[:2]+[world[4]]))
     assert source.points==original
 
 
 def test_outside_roi_points_remain_collision_obstacles_and_owner_groups_are_clipped():
-    source=snapshot(objects([(1.,-.8),(1.,0.)]));view=candidate_view(source,cfg(),(0.,0.,0.))
+    source=snapshot(objects([(1.,-.8),(1.,.2)]));view=candidate_view(source,cfg(),(0.,0.,0.))
     assert len(view.candidate_clusters(cfg()))==1
     assert len(source.candidate_clusters(cfg()))==2
-    assert not CollisionChecker(source,cfg()).free((1.,0.,0.),allow_unknown=True)
+    assert not CollisionChecker(source,cfg()).free((1.,.2,0.),allow_unknown=True)
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ def test_roi_marker_stays_in_mission_coordinates_and_clears_on_reset(node):
     node.publish_candidate_roi()
     marker=messages[-1].markers[0]
     corners=[compose(node.tracker.pose,(p.x,p.y,0.))[:2] for p in marker.points]
-    assert corners==pytest.approx(np.array([(0.,-.2),(3.,-.2),(3.,-2.),(0.,-2.),(0.,-.2)]))
+    assert corners==pytest.approx(np.array([(0.,0.),(3.,0.),(3.,-2.),(0.,-2.),(0.,0.)]))
     node.reset_state();assert messages[-1].markers[0].action==3
 
 
@@ -147,3 +147,11 @@ def test_point_collision_mode_arrival_does_not_add_a_solid_bbox_veto():
     f.accept(Gap(1.,-.8,0.,.5,0,1,kind='enclosed_center',confirmed=True,heading_options=(0.,)),[(0.,0.,0.),(1.,-.8,0.)],True,(0.,0.,0.))
     for i in range(3):f.command(source,(1.,-.8,0.),new_scan=True,now=i*.1,obstacle_scan=source)
     assert f.parked
+
+
+def test_roi_starts_at_zero_and_includes_the_vehicle_right_side_boundary():
+    config=cfg()
+    assert config.candidate_roi_right_min == 0.
+    assert contains((1.,0.),config)
+    assert contains((1.,-.1),config)
+    assert not contains((1.,.1),config)

@@ -204,7 +204,7 @@ def generate_launch_description():
         'tf_profile': 'wego_limo_pro',
         'camera_tf_publish_rate': '0.0',
         'steering_limit_enabled': 'false', 'max_inner_angle': '0.80',
-        'steering_command_calibration': 'true', 'steering_command_gain': '1.92',
+        'steering_command_calibration': 'false', 'steering_command_gain': '1.92',
         'steering_command_deadband': '0.23', 'steering_command_limit': '0.35',
     }
     return LaunchDescription([

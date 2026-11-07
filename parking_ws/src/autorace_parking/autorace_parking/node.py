@@ -35,6 +35,7 @@ from .localization import FusedTracker, PoseHistory, OdomSample
 from .obstacle_memory import ObstacleMemory,MemoryScan
 from .diagnostics import operator_reason, reason_text, state_text
 from .roi import candidate_view
+from .steering_command import parking_steering_command, LEGACY_INNER_ANGLE_SCALE
 
 SCAN_FUTURE_TOLERANCE = .1
 
@@ -79,6 +80,8 @@ def validate_settings(cfg):
             or min(cfg.steering_command_deadband_expected,cfg.exit_start_speed,cfg.exit_steering_settle_time,cfg.exit_lane_tolerance)<0):
         raise ValueError('조향 보정과 출차 준비 속도·시간 설정을 확인하세요.')
     if cfg.require_steering_calibration:
+        if cfg.steering_command_limit_expected * LEGACY_INNER_ANGLE_SCALE >= math.pi / 2:
+            raise ValueError('주차 조향 보정 전송값 상한이 기본 드라이버의 변환 범위를 넘습니다.')
         inner=cfg.steering_command_gain_expected*cfg.steering_command_limit_expected-cfg.steering_command_deadband_expected
         if not 0<inner<math.pi/2 or cfg.turn_radius<cfg.wheelbase/math.tan(inner)+cfg.steering_track/2-.005:
             raise ValueError('계획 회전 반경이 보정된 조향 명령 한계보다 작습니다.')
@@ -262,6 +265,8 @@ class ParkingNode(Node):
         self.get_logger().info('충돌 검사: '+('점유 칸 전체와 실제 장애물' if self.cfg.block_occupied_slots else '관측·기억한 실제 장애물과 차체·안전 여유. 칸 영역은 목표 선택에만 사용합니다.'))
         self.get_logger().info(f'조향 추종 비율 {self.cfg.steering_gain:.2f}, 실측 응답 비율 {self.cfg.steering_response_scale:.2f}, '
                                f'조향 변화율 제한 {self.follower.max_steering_rate:.2f}rad/s (0이면 즉시 출력).')
+        if self.cfg.require_steering_calibration:
+            self.get_logger().info('주차 명령에만 조향 보정을 적용합니다. LIMO 드라이버의 조향 보정은 꺼져 있어야 합니다.')
         if self.cfg.allow_reverse:
             recovery_condition = (f'전진 진입. 목표 도착 전 앞범퍼 {self.cfg.recovery_front_clearance*100:.0f}cm 이내 '
                                   '정면 장애물 근접 시 후진 복구: '
@@ -905,7 +910,8 @@ class ParkingNode(Node):
         msg = AckermannDriveStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.base_frame
-        msg.drive.speed, msg.drive.steering_angle = float(speed), float(steering)
+        command_angle = parking_steering_command(steering, self.cfg) if abs(speed) >= 1e-6 else 0.0
+        msg.drive.speed, msg.drive.steering_angle = float(speed), float(command_angle)
         self.command_pub.publish(msg)
 
     def poll_plan(self):
@@ -1142,10 +1148,9 @@ class ParkingNode(Node):
     def steering_model_ready(self):
         if not self.cfg.require_steering_calibration:return True
         model=self.steering_model
-        return bool(model and model['enabled'] and time.monotonic()-self.steering_model_time<3.
-            and all(math.isfinite(model[k]) and abs(model[k]-v)<.005 for k,v in (
-                ('gain',self.cfg.steering_command_gain_expected),('deadband',self.cfg.steering_command_deadband_expected),
-                ('limit',self.cfg.steering_command_limit_expected))))
+        # Parking owns the command calibration. Refuse an enabled shared-driver
+        # calibration, which would apply it twice and also affect lane commands.
+        return bool(model and not model['enabled'] and time.monotonic()-self.steering_model_time<3.)
 
     def update_recovery_handoff(self,new_scan):
         if self.recovery_lane_released:
@@ -1206,7 +1211,7 @@ class ParkingNode(Node):
             self.clear_visuals()
         elif not self.steering_model_ready():
             self.state='WAITING_STEERING'
-            self.reason='Waiting for matching calibrated limo_base; restart sensor bringup'
+            self.reason='Waiting for uncalibrated limo_base; parking owns steering calibration'
         elif not self.tracker.valid:
             self.state = 'TRACKING_LOST'
             self.reason = self.tracker.reason
@@ -1342,6 +1347,8 @@ class ParkingNode(Node):
                 'fusion_health_callback_age_s':time.monotonic()-self.fusion_health_received if self.fusion_health_received is not None else None,
                 'steering_response_scale': self.cfg.steering_response_scale,
                 'steering_model_ready':self.steering_model_ready(),'driver_steering_model':self.steering_model,
+                'steering_calibration_location':'parking' if self.cfg.require_steering_calibration else 'none',
+                'command_steering_angle':parking_steering_command(steering,self.cfg) if abs(speed)>=1e-6 else 0.,
                 'lookahead_base_m': self.follower.lookahead,
                 'publishing_control': has_control_path,
                 'recovery_lane_released':self.recovery_lane_released,

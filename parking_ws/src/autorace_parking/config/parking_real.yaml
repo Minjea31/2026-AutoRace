@@ -90,6 +90,7 @@ parking_node:
     # command calibration restores physical-angle semantics; plan at 0.53 m.
     steering_response_scale: 1.0
     reverse_steering_response_scale: 0.80
+    # Parking encodes its own steering commands; keep driver calibration disabled.
     require_steering_calibration: true
     steering_command_gain_expected: 1.92
     steering_command_deadband_expected: 0.23

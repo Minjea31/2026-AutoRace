@@ -88,9 +88,10 @@ def test_missing_or_old_driver_never_activates_the_tighter_parking_control(node)
     commands=[];node.publish_command=lambda v,a:commands.append((v,a))
     node.tick();assert node.state=='WAITING_STEERING' and commands[-1]==(0.,0.)
     node.steering_model={'enabled':False,'gain':1.92,'deadband':.23,'limit':.35};node.steering_model_time=time.monotonic()
-    assert not node.steering_model_ready()
-    node.steering_model['enabled']=True;assert node.steering_model_ready()
-    node.steering_model['gain']=2.47;assert not node.steering_model_ready()
+    assert node.steering_model_ready()
+    node.steering_model['enabled']=True;assert not node.steering_model_ready()
+    node.steering_model['enabled']=False
+    node.steering_model['gain']=2.47;assert node.steering_model_ready()
     node.steering_model['gain']=1.92;node.steering_model_time=time.monotonic()-3.1
     assert not node.steering_model_ready()
 
@@ -98,7 +99,7 @@ def test_missing_or_old_driver_never_activates_the_tighter_parking_control(node)
 def test_driver_parameter_reply_is_validated_before_enabling_model(node):
     from rcl_interfaces.msg import ParameterValue
     from rcl_interfaces.srv import GetParameters
-    f=Future();f.set_result(GetParameters.Response(values=[ParameterValue(type=1,bool_value=True),
+    f=Future();f.set_result(GetParameters.Response(values=[ParameterValue(type=1,bool_value=False),
         ParameterValue(type=3,double_value=1.92),ParameterValue(type=3,double_value=.23),ParameterValue(type=3,double_value=.35)]))
     node.steering_query=f;node.poll_steering_model()
     assert node.steering_model_ready()
