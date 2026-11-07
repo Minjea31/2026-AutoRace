@@ -292,7 +292,7 @@ def test_cluster_center_dds_marker_replacement_and_tf_failure(harness):
 
 
 @pytest.mark.parametrize('count', [0, 5, 6, 7])
-def test_mission_cone_candidate_count_and_reset(harness, monkeypatch, count):
+def test_mission_cone_candidate_count_entry_and_fault_stop(harness, monkeypatch, count):
     roi, *_ = harness
     assert roi.mission_cone is False
     class IdentityTF:
@@ -305,12 +305,66 @@ def test_mission_cone_candidate_count_and_reset(harness, monkeypatch, count):
     assert roi.mission_cone is (count > 6)
     candidates[:] = candidates[:6]
     roi.scan_callback(scan([1.]))
-    assert roi.mission_cone is False
+    assert roi.mission_cone is (count > 6)
     roi.mission_cone = True
     msg = scan([1.])
     msg.header.frame_id = ''
     roi.scan_callback(msg)
-    assert roi.mission_cone is False
+    assert roi.mission_cone and roi.control_fault
+
+
+def test_mission_keeps_driving_with_fewer_candidates_and_holds_on_path_loss(harness, monkeypatch):
+    roi, *_ = harness
+    messages = []
+
+    class IdentityTF:
+        def lookup_transform(self, *args):
+            return transform()
+
+    class Capture:
+        def publish(self, msg):
+            messages.append(msg)
+
+    monkeypatch.setattr(roi, 'tf_buffer', IdentityTF())
+    roi.command_pub = Capture()
+    centers = [(.2, .2), (.4, .2), (.6, .2), (.8, .2),
+               (.2, -.2), (.4, -.2), (.6, -.2)]
+    candidates = [[(x, y, 0.), (x+.01, y, 0.)] for x, y in centers]
+    monkeypatch.setattr(roi, 'filter_clusters', lambda clusters: candidates)
+
+    def send():
+        msg = scan([1.])
+        msg.header.stamp = roi.get_clock().now().to_msg()
+        roi.scan_callback(msg)
+        roi.control_tick()
+
+    send()
+    assert roi.mission_cone and roi.control_mode == 'Path Feedback'
+    candidates.pop(3)
+    candidates.pop(2)
+    send()
+    assert len(candidates) == 5
+    assert roi.left_boundary and roi.right_boundary and roi.center_path
+    assert roi.mission_cone and roi.control_mode == 'Path Feedback'
+    assert messages[-1].drive.speed > 0.
+
+    saved_candidates = candidates[:]
+    candidates.clear()
+    send()
+    assert roi.mission_cone and not roi.center_path
+    assert roi.control_mode == 'Hold Last Steering'
+    assert 0. < messages[-1].drive.speed <= .15
+    h = roi.last_valid_control
+    roi.last_valid_control = (h[0]-.31, h[1]-310_000_000, h[2], h[3])
+    roi.control_tick()
+    assert roi.control_mode == 'Hold Last Steering'
+    assert 0. < messages[-1].drive.speed <= .15
+    assert roi.mission_cone
+
+    candidates.extend(saved_candidates)
+    send()
+    assert roi.control_mode == 'Path Feedback'
+    assert messages[-1].drive.speed > 0.
 
 
 def test_boundary_chain_direction_priority_and_distance_limit():
@@ -348,7 +402,7 @@ def test_mission_boundary_sides_colors_and_clearing(harness):
     msg = scan([1.])
     msg.header.frame_id = ''
     roi.scan_callback(msg)
-    assert not roi.mission_cone and len(capture.array.markers) == 1
+    assert roi.mission_cone and roi.control_fault and len(capture.array.markers) == 1
 
 
 def test_boundary_chain_extends_from_last_point_and_stops_at_gap():
@@ -458,6 +512,100 @@ def test_control_signed_errors(offset, sign):
         assert errors[0]*sign > 0
 
 
+@pytest.mark.parametrize('path,reason', [
+    ([], 'empty_path_no_history'),
+    ([(.1, 0., 0.)], 'path_too_few_points'),
+    ([(.1, 0., 0.), (float('nan'), 0., 0.)], 'path_nonfinite_coordinates'),
+    ([(.1, 0., 0.), (.1, .2, 0.)], 'path_no_usable_forward_segment'),
+    ([(-.8, 0., 0.), (-.1, 0., 0.)], 'path_no_usable_forward_segment'),
+    ([(.1, .8, 0.), (.8, .8, 0.)], 'path_too_far_from_reference'),
+])
+def test_path_stop_reasons(path, reason):
+    assert RoiNode.path_errors(path, .25) is None
+    assert RoiNode.path_stop_reason(path, .25) == reason
+
+
+def test_stop_reason_logs_only_on_change_and_resets_on_recovery(harness, monkeypatch):
+    roi, *_ = harness
+    warnings = []
+
+    class Logger:
+        def warning(self, message):
+            warnings.append(message)
+
+    monkeypatch.setattr(roi, 'get_logger', lambda: Logger())
+    roi.stop_control('scan_receive_timeout')
+    roi.stop_control('scan_receive_timeout')
+    assert len(warnings) == 1
+    roi.stop_control('tf_error')
+    assert len(warnings) == 2 and 'reason=tf_error' in warnings[-1]
+    roi.mission_cone = roi.control_engaged = True
+    roi.control_received = time.monotonic()
+    roi.control_scan_stamp = roi.get_clock().now().nanoseconds
+    roi.center_path = [(.1, 0., 0.), (.8, 0., 0.)]
+    roi.control_tick()
+    assert roi.control_stop_reason is None
+    roi.stop_control('tf_error')
+    assert len(warnings) == 3
+
+
+@pytest.mark.parametrize('side', ['left', 'right'])
+def test_learn_lane_width_and_drive_with_one_boundary(harness, side):
+    roi, *_ = harness
+    roi.mission_cone = True
+    roi.left_boundary = [(.1, .3, 0.), (.8, .3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.8, -.3, 0.)]
+    stamp = roi.get_clock().now().to_msg()
+    roi.update_center_path(stamp)
+    assert roi.lane_width_mean == pytest.approx(.6)
+    samples = roi.lane_width_samples
+    assert samples > 0
+    # Learn a second measured width; each perpendicular sample has equal weight.
+    roi.left_boundary = [(.1, .4, 0.), (.8, .4, 0.)]
+    roi.right_boundary = [(.1, -.4, 0.), (.8, -.4, 0.)]
+    roi.update_center_path(stamp)
+    assert roi.lane_width_mean == pytest.approx(.7)
+    assert roi.lane_width_samples == 2*samples
+    if side == 'left':
+        roi.left_boundary = [(.1, .35, 0.), (.8, .35, 0.)]
+        roi.right_boundary = []
+    else:
+        roi.left_boundary = []
+        roi.right_boundary = [(.1, -.35, 0.), (.8, -.35, 0.)]
+    roi.update_center_path(stamp)
+    assert roi.center_path_mode == f'{side.title()} Boundary Offset'
+    assert roi.center_path and all(abs(q[1]) < 1e-8 for q in roi.center_path)
+    assert roi.lane_width_mean == pytest.approx(.7)
+    assert roi.lane_width_samples == 2*samples
+    roi.control_received = time.monotonic()
+    roi.control_scan_stamp = roi.get_clock().now().nanoseconds
+    roi.update_control_activation()
+    roi.control_tick()
+    assert roi.control_mode == 'Path Feedback'
+    roi.left_boundary = roi.right_boundary = []
+    roi.update_center_path(stamp)
+    assert not roi.center_path
+    roi.mission_cone = False
+    roi.update_center_path(stamp)
+    assert roi.lane_width_mean is None and roi.lane_width_samples == 0
+    roi.mission_cone = True
+    roi.left_boundary = [(.1, .35, 0.), (.8, .35, 0.)]
+    roi.update_center_path(stamp)
+    assert not roi.center_path  # A new mission cannot reuse the old learned width.
+
+
+def test_boundary_offset_follows_local_normal():
+    boundary = [(.1, .3, 0.), (.3, .5, 0.), (.6, .6, 0.)]
+    refs = RoiNode.sample_boundary(boundary, .05)
+    shifted = RoiNode.offset_boundary(boundary, -.3, .05)
+    assert len(refs) == len(shifted)
+    for i, (q, p) in enumerate(zip(refs, shifted)):
+        a, b = refs[max(0, i-1)], refs[min(len(refs)-1, i+1)]
+        assert math.dist(q[:2], p[:2]) == pytest.approx(.3)
+        assert (p[0]-q[0])*(b[0]-a[0])+(p[1]-q[1])*(b[1]-a[1]) == pytest.approx(0.)
+        assert p[0] > q[0] and p[1] < q[1]
+
+
 def test_control_heading_and_invalid_path():
     assert RoiNode.path_errors([(.1, -.1, 0.), (.4, .1, 0.)], .25)[1] > 0
     assert RoiNode.path_errors([], .25) is None
@@ -491,9 +639,9 @@ def test_control_message_limits_stop_release_and_watchdog(harness):
     assert msg.header.frame_id == 'base_link' and msg.header.stamp.sec > 0
     assert 0 < msg.drive.speed <= .15 and 0 < msg.drive.steering_angle <= .051
     roi.center_path = [(.1, .49, 0.), (.8, .49, 0.)]
-    roi.last_steering = .48
+    roi.last_steering = math.radians(80.)
     roi.control_tick()
-    assert abs(capture.messages[-1].drive.steering_angle) <= .48
+    assert abs(capture.messages[-1].drive.steering_angle) <= math.radians(80.)
     roi.control_received = time.monotonic()-1.
     roi.control_tick()
     assert capture.messages[-1].drive.speed == capture.messages[-1].drive.steering_angle == 0.
@@ -551,15 +699,16 @@ def test_ackermann_command_dds_delivery(harness):
 
 
 @pytest.mark.parametrize('name,value', [('control_speed', -1.),
-    ('control_max_steering', 1.6), ('control_timeout', 0.), ('control_lateral_gain', float('nan'))])
+    ('control_max_steering', 1.6), ('control_timeout', 0.), ('control_lateral_gain', float('nan')),
+    ('control_speed_reference_steering', 0.), ('control_speed_reference_steering', float('nan'))])
 def test_invalid_control_parameters(harness, name, value):
     roi, *_ = harness
     assert not roi.set_parameters_atomically([Parameter(name, value=value)]).successful
 
 
 @pytest.mark.parametrize('missing_side', ['left', 'right', 'both'])
-def test_missing_cross_sections_clear_previous_path(harness, missing_side):
-    """A previous two-sided path cannot synthesize a path after observations disappear."""
+def test_missing_boundaries_use_learned_width_only_when_one_remains(harness, missing_side):
+    """A single observed boundary supports an offset; losing both clears the path."""
     roi, *_ = harness
     roi.mission_cone = True
     stamp = roi.get_clock().now().to_msg()
@@ -572,7 +721,12 @@ def test_missing_cross_sections_clear_previous_path(harness, missing_side):
     if missing_side in ('right', 'both'):
         roi.right_boundary = []
     roi.update_center_path(stamp)
-    assert not roi.center_pairs and not roi.center_points and not roi.center_path
+    if missing_side == 'both':
+        assert not roi.center_pairs and not roi.center_points and not roi.center_path
+    else:
+        assert roi.center_path
+        assert roi.center_path_mode == ('Right Boundary Offset' if missing_side == 'left'
+                                        else 'Left Boundary Offset')
 
 
 def test_projection_uses_segment_interiors_and_preserves_order():
@@ -667,7 +821,7 @@ def test_control_holds_last_command_without_renewal_and_recovers(harness, speed)
     roi.update_control_activation()
     assert roi.control_mode == 'Hold Last Steering'
     assert messages[-1].drive.speed == pytest.approx(min(previous.drive.speed, .15))
-    assert messages[-1].drive.steering_angle == previous.drive.steering_angle
+    assert messages[-1].drive.steering_angle == pytest.approx(previous.drive.steering_angle*1.2)
     roi.control_tick()
     assert roi.last_valid_control == valid
     roi.center_path = [(.1, -.1, 0.), (.8, -.1, 0.)]
@@ -676,10 +830,118 @@ def test_control_holds_last_command_without_renewal_and_recovers(harness, speed)
     assert roi.last_valid_control != valid
     roi.center_path = []
     h = roi.last_valid_control
-    roi.last_valid_control = (h[0]-.31, h[1]-310_000_000, h[2], h[3])
+    roi.last_valid_control = (h[0]-60., h[1]-60_000_000_000, h[2], h[3])
     roi.control_tick()
+    assert roi.control_mode == 'Hold Last Steering'
+    assert messages[-1].drive.speed == pytest.approx(min(h[2], .15))
+    assert messages[-1].drive.steering_angle == pytest.approx(h[3]*1.2)
+    assert roi.last_valid_control is not None
+
+
+@pytest.mark.parametrize('target,expected_speed', [(0., .4), (.24, .26),
+    (-.24, .26), (.48, .12), (-.48, .12), (1.3, .12), (-1.3, .12)])
+def test_corner_slowdown_independent_of_maximum_steering(harness, monkeypatch, target, expected_speed):
+    roi, *_ = harness
+    messages = []
+
+    class Capture:
+        def publish(self, msg):
+            messages.append(msg)
+
+    roi.command_pub = Capture()
+    roi.set_parameters_atomically([Parameter('control_speed', value=.4)])
+    roi.mission_cone = roi.control_engaged = True
+    roi.control_scan_stamp = roi.get_clock().now().nanoseconds
+    roi.control_received = time.monotonic()
+    monkeypatch.setattr(roi, 'path_errors', lambda *args: (0., target))
+    for limit in [.48, math.radians(80.)]:
+        roi.set_parameters_atomically([Parameter('control_max_steering', value=limit)])
+        roi.control_tick()
+        assert messages[-1].drive.speed == pytest.approx(expected_speed)
+        assert abs(messages[-1].drive.steering_angle) <= limit
+
+
+@pytest.mark.parametrize('steering', [-1.3, -.2, 0., .2, 1.3])
+@pytest.mark.parametrize('gain', [1.2, 1.5])
+def test_hold_amplifies_saved_steering_without_compounding(harness, steering, gain):
+    roi, *_ = harness
+    messages = []
+
+    class Capture:
+        def publish(self, msg):
+            messages.append(msg)
+
+    roi.command_pub = Capture()
+    roi.set_parameters_atomically([Parameter('control_hold_steering_gain', value=gain)])
+    roi.mission_cone = roi.control_engaged = True
+    roi.candidate_clusters = [[], [], [], []]
+    now = roi.get_clock().now().nanoseconds
+    roi.control_scan_stamp = now
+    roi.control_received = time.monotonic()
+    saved = (time.monotonic()-60., now-60_000_000_000, .3, steering)
+    roi.last_valid_control = saved
+    for _ in range(3):
+        roi.control_tick()
+        limit = math.radians(80.)
+        assert roi.get_parameter('control_max_steering').value == pytest.approx(limit)
+        assert messages[-1].drive.steering_angle == pytest.approx(max(-limit, min(limit, steering*gain)))
+        assert messages[-1].drive.speed == pytest.approx(.15)
+        assert roi.last_valid_control == saved
+        assert roi.last_steering == messages[-1].drive.steering_angle
+
+
+@pytest.mark.parametrize('recovery', ['path', 'candidates', 'stale', 'tf'])
+def test_mission_exit_requires_continuous_healthy_detection_loss(harness, monkeypatch, recovery):
+    roi, *_ = harness
+    clock = [100.]
+    monkeypatch.setattr('cone_lane_follower.node.time.monotonic', lambda: clock[0])
+    from rclpy.time import Time
+
+    class Clock:
+        def now(self):
+            return Time(nanoseconds=int(clock[0]*1e9))
+
+    monkeypatch.setattr(roi, 'get_clock', lambda: Clock())
+    messages = []
+
+    class Capture:
+        def publish(self, msg):
+            messages.append(msg)
+
+    roi.command_pub = Capture()
+    roi.mission_cone = roi.control_engaged = True
+    roi.candidate_clusters = [[], [], []]
+
+    def tick(t, fresh=True):
+        clock[0] = t
+        if fresh:
+            roi.control_received = t
+            roi.control_scan_stamp = int(t*1e9)
+        roi.control_tick()
+
+    tick(100.)
+    tick(101.49)
+    assert roi.mission_cone and roi.mission_exit_since is not None
+    if recovery == 'path':
+        roi.center_path = [(.1, 0., 0.), (.8, 0., 0.)]
+    elif recovery == 'candidates':
+        roi.candidate_clusters.append([])
+    elif recovery == 'tf':
+        roi.control_fault = True
+    tick(101.8, fresh=recovery != 'stale')
+    assert roi.mission_cone and roi.mission_exit_since is None
+    roi.center_path = []
+    roi.candidate_clusters = [[], [], []]
+    roi.control_fault = False
+    tick(102.)
+    tick(103.49)
+    assert roi.mission_cone
+    tick(103.5)
+    assert not roi.mission_cone and not roi.control_engaged
     assert messages[-1].drive.speed == messages[-1].drive.steering_angle == 0.
-    assert roi.last_valid_control is None
+    count = len(messages)
+    tick(103.55)
+    assert len(messages) == count  # Release the mux after the final stop command.
 
 
 @pytest.mark.parametrize('failure', ['tf', 'stale', 'mission', 'clock_reverse', 'unusable_path'])

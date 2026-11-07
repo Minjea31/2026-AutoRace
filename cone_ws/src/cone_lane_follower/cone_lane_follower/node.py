@@ -17,7 +17,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 
-ROI_DEFAULTS = dict(roi_x_min=0.02, roi_x_max=1.0, roi_y_min=-0.5, roi_y_max=0.5)
+ROI_DEFAULTS = dict(roi_x_min=-0.3, roi_x_max=1.5, roi_y_min=-0.8, roi_y_max=0.8)
 CLUSTER_DEFAULTS = dict(cluster_threshold=0.10, min_cluster_points=2,
                         max_cluster_width=0.28, cluster_point_size=0.05,
                         cone_center_size=0.08)
@@ -35,9 +35,11 @@ BOUNDARY_DEFAULTS = dict(boundary_connect_distance=0.30, boundary_max_turn=80.0,
 
 CONTROL_DEFAULTS = dict(control_speed=0.15, control_reference_x=0.25,
                         control_lateral_gain=2.0, control_heading_gain=1.0,
-                        control_max_steering=0.48, control_max_steering_rate=1.0,
+                        control_max_steering=math.radians(80.), control_max_steering_rate=1.0,
+                        control_speed_reference_steering=0.48,
                         control_timeout=0.20, control_max_path_distance=0.50,
-                        control_hold_timeout=0.30, control_hold_speed=0.15)
+                        control_hold_speed=0.15, control_hold_steering_gain=1.2,
+                        control_exit_timeout=1.50)
 
 
 class RoiNode(Node):
@@ -76,8 +78,13 @@ class RoiNode(Node):
         self.last_steering = 0.
         self.last_valid_control = None
         self.control_mode = 'Idle'
+        self.control_stop_reason = None
         self.control_lateral_error = self.control_heading_error = 0.
         self.mission_cone = False
+        self.mission_exit_since = None
+        self.lane_width_mean = None
+        self.lane_width_samples = 0
+        self.width_mission_active = False
         self.all_clusters, self.candidate_clusters = [], []
         self.scan_sub = self.create_subscription(
             LaserScan, '/scan', self.scan_callback, qos_profile_sensor_data)
@@ -130,6 +137,9 @@ class RoiNode(Node):
         return ''
 
     def scan_callback(self, msg):
+        if (self.control_received is None or time.monotonic()-self.control_received
+                > self.get_parameter('control_timeout').value):
+            self.mission_exit_since = None
         self.control_received = time.monotonic()
         self.control_scan_stamp = Time.from_msg(msg.header.stamp).nanoseconds
         self.control_fault = False
@@ -147,8 +157,8 @@ class RoiNode(Node):
                 self.get_logger().warning(f'Skipping scan: cannot transform to base_link: {exc}')
                 self.last_warning = time.monotonic()
             self.control_fault = True
+            self.mission_exit_since = None
             self.publish_roi_points([], msg.header.stamp)
-            self.mission_cone = False
             self.update_boundary_markers([], msg.header.stamp)
             self.all_clusters, self.candidate_clusters = [], []
             self.publish_cluster_markers([], msg.header.stamp)
@@ -157,7 +167,9 @@ class RoiNode(Node):
         roi_points, roi_indices = self.filter_roi(points_base, indices)
         self.all_clusters = self.cluster_points(roi_points, roi_indices)
         self.candidate_clusters = self.filter_clusters(self.all_clusters)
-        self.mission_cone = len(self.candidate_clusters) > 6
+        # Candidate count gates entry only; after entry, path validity gates driving.
+        if len(self.candidate_clusters) > 6:
+            self.mission_cone = True
         centers = [self.calculate_cluster_center(cluster) for cluster in self.candidate_clusters]
         self.update_boundary_markers(centers, msg.header.stamp)
         self.publish_roi_points(roi_points, msg.header.stamp)
@@ -173,9 +185,11 @@ class RoiNode(Node):
                 f'Total Clusters: {len(self.all_clusters)}\n'
                 f'Cone Candidates: {len(centers)}\n'
                 f'mission_cone: {self.mission_cone}\n'
-                f'Center path: points={len(self.center_path)}, mode={self.center_path_mode}\n'
+                f'Center path: points={len(self.center_path)}, mode={self.center_path_mode}, '
+                f'learned_width={self.lane_width_mean}, width_samples={self.lane_width_samples}\n'
                 f'Control: active={self.control_engaged}, mode={self.control_mode}, lateral_error={self.control_lateral_error:.3f} m, '
-                f'heading_error={self.control_heading_error:.3f} rad')
+                f'heading_error={self.control_heading_error:.3f} rad, '
+                f'stop_reason={self.control_stop_reason or "None"}')
             details = [f'Cluster {i}: points={len(cluster)}'
                        for i, cluster in enumerate(self.all_clusters)]
             details += [f'Cone Candidate {i}: x={center[0]:.3f}, y={center[1]:.3f}, '
@@ -495,7 +509,31 @@ class RoiNode(Node):
             return []
         return path
 
+    @staticmethod
+    def offset_boundary(boundary, distance, step):
+        """Offset along local left normals; negative distance moves to the right."""
+        if not all(math.isfinite(v) for q in boundary for v in q):
+            return []
+        refs = RoiNode.sample_boundary(boundary, step)
+        shifted = []
+        for i, q in enumerate(refs):
+            a, b = refs[max(0, i-1)], refs[min(len(refs)-1, i+1)]
+            dx, dy = b[0]-a[0], b[1]-a[1]
+            length = math.hypot(dx, dy)
+            if length < 1e-9:
+                return []
+            shifted.append((q[0]-distance*dy/length, q[1]+distance*dx/length, q[2]))
+        return shifted
+
+    def reset_lane_width(self):
+        self.lane_width_mean = None
+        self.lane_width_samples = 0
+        self.width_mission_active = False
+
     def update_center_path(self, stamp):
+        if not self.mission_cone or not self.width_mission_active:
+            self.reset_lane_width()
+        self.width_mission_active = self.mission_cone
         p = {name: self.get_parameter(name).value for name in CENTER_DEFAULTS}
         self.center_pairs = self.match_cross_sections(
             self.left_boundary, self.right_boundary, p['center_sample_step'],
@@ -505,6 +543,15 @@ class RoiNode(Node):
             self.center_points, self.left_boundary, self.right_boundary,
             p['center_smoothing_weight'], p['center_max_gap'], p['center_max_turn'])
         self.center_path_mode = 'Normal Sections' if self.center_path else 'Invalid'
+        # Learn perpendicular widths only from valid measured cross sections.
+        # Endpoint projections can overestimate width and are excluded from learning.
+        if (self.mission_cone and self.center_path and self.path_errors(
+                self.center_path, self.get_parameter('control_reference_x').value,
+                self.get_parameter('control_max_path_distance').value) is not None):
+            widths = [math.dist(a[:2], b[:2]) for a, b in self.center_pairs]
+            total = (self.lane_width_mean or 0.)*self.lane_width_samples + sum(widths)
+            self.lane_width_samples += len(widths)
+            self.lane_width_mean = total/self.lane_width_samples
         if not self.center_path:
             pairs = self.match_projected_sections(
                 self.left_boundary, self.right_boundary, p['center_sample_step'],
@@ -516,6 +563,22 @@ class RoiNode(Node):
             if path:
                 self.center_pairs, self.center_points, self.center_path = pairs, centers, path
                 self.center_path_mode = 'Nearest Projection'
+        if (self.mission_cone and not self.control_fault and not self.center_path
+                and self.lane_width_mean is not None
+                and (len(self.left_boundary) >= 2) != (len(self.right_boundary) >= 2)):
+            left_visible = len(self.left_boundary) >= 2
+            boundary = self.left_boundary if left_visible else self.right_boundary
+            signed_width = -self.lane_width_mean if left_visible else self.lane_width_mean
+            refs = self.sample_boundary(boundary, p['center_sample_step'])
+            opposite = self.offset_boundary(boundary, signed_width, p['center_sample_step'])
+            pairs = list(zip(refs, opposite)) if left_visible else list(zip(opposite, refs))
+            centers = [tuple((a[k]+b[k])/2 for k in range(3)) for a, b in pairs]
+            path = self.smooth_center_path(
+                centers, refs if left_visible else opposite, opposite if left_visible else refs,
+                p['center_smoothing_weight'], p['center_max_gap'], p['center_max_turn'])
+            if path:
+                self.center_pairs, self.center_points, self.center_path = pairs, centers, path
+                self.center_path_mode = 'Left Boundary Offset' if left_visible else 'Right Boundary Offset'
         markers = self.marker_array(stamp)
         for name, points, kind, color, size in (
                 ('cross_sections', [p for pair in self.center_pairs for p in pair], Marker.LINE_LIST, (1., 1., 0.), .01),
@@ -566,31 +629,55 @@ class RoiNode(Node):
         message.drive.speed, message.drive.steering_angle = float(speed), float(steering)
         self.command_pub.publish(message)
 
-    def stop_control(self):
+    @staticmethod
+    def path_stop_reason(path, reference_x):
+        if not path:
+            return 'empty_path_no_history'
+        if len(path) < 2:
+            return 'path_too_few_points'
+        if not all(math.isfinite(v) for q in path for v in q):
+            return 'path_nonfinite_coordinates'
+        if RoiNode.path_errors(path, reference_x, math.inf) is None:
+            return 'path_no_usable_forward_segment'
+        return 'path_too_far_from_reference'
+
+    def stop_control(self, reason='unspecified'):
         """Stop immediately and discard history so faults cannot revive old commands."""
         self.publish_drive(0., 0.)
         self.last_steering = 0.
         self.last_valid_control = None
         self.control_mode = 'Stopped'
+        if reason != self.control_stop_reason:
+            self.get_logger().warning(
+                f'Control stopped: reason={reason}, candidates={len(self.candidate_clusters)}, '
+                f'path_points={len(self.center_path)}, path_mode={self.center_path_mode}')
+        self.control_stop_reason = reason
 
     def update_control_activation(self):
+        if (not self.mission_cone or self.control_fault
+                or len(self.candidate_clusters) > 3
+                or self.path_errors(self.center_path,
+                                    self.get_parameter('control_reference_x').value,
+                                    self.get_parameter('control_max_path_distance').value) is not None):
+            self.mission_exit_since = None
         # A zero-speed command is active in the mux: idle must eventually be silent.
         if self.mission_cone:
             self.control_engaged = True
         elif self.control_engaged and not self.control_fault:
-            self.stop_control()
+            self.stop_control('mission_inactive')
             self.control_engaged = False
         if self.control_engaged and self.control_fault:
-            self.stop_control()
+            self.stop_control('tf_error')
         elif self.control_engaged and not self.center_path:
             self.control_tick()
 
     def control_tick(self):
-        """20 Hz feedback; briefly hold a valid command only during path-generation loss."""
+        """20 Hz feedback; hold a valid command during path-generation loss."""
         steady, now = time.monotonic(), self.get_clock().now().nanoseconds
         dt = .05 if self.last_control_tick is None else max(0., min(.1, steady-self.last_control_tick))
         self.last_control_tick = steady
         if not self.control_engaged:
+            self.mission_exit_since = None
             self.last_steering = 0.
             self.last_valid_control = None
             self.control_mode = 'Idle'
@@ -601,21 +688,60 @@ class RoiNode(Node):
                  and 0 <= steady-self.control_received <= p['control_timeout']
                  and 0 <= (now-self.control_scan_stamp)/1e9 <= p['control_timeout'])
         if not fresh or self.control_fault or not self.mission_cone:
-            self.stop_control()
+            self.mission_exit_since = None
+            if self.control_fault:
+                reason = 'tf_error'
+            elif not self.mission_cone:
+                reason = 'mission_inactive'
+            elif self.control_received is None or self.control_scan_stamp is None:
+                reason = 'scan_not_received'
+            elif self.control_scan_stamp <= 0:
+                reason = 'scan_stamp_zero_or_negative'
+            elif steady < self.control_received:
+                reason = 'scan_receive_clock_reversed'
+            elif steady-self.control_received > p['control_timeout']:
+                reason = 'scan_receive_timeout'
+            elif now < self.control_scan_stamp:
+                reason = 'scan_stamp_in_future'
+            else:
+                reason = 'scan_stamp_timeout'
+            self.stop_control(reason)
             return
         errors = self.path_errors(self.center_path, p['control_reference_x'], p['control_max_path_distance'])
+        if errors is None and len(self.candidate_clusters) <= 3:
+            if self.mission_exit_since is None:
+                self.mission_exit_since = (steady, now)
+            saved_steady, saved_ros = self.mission_exit_since
+            if steady < saved_steady or now < saved_ros:
+                self.mission_exit_since = (steady, now)
+            elif (steady-saved_steady >= p['control_exit_timeout']
+                    and (now-saved_ros)/1e9 >= p['control_exit_timeout']):
+                self.mission_cone = False
+                self.reset_lane_width()
+                self.mission_exit_since = None
+                self.stop_control('mission_exit_detection_loss')
+                self.control_engaged = False
+                self.get_logger().info('Cone mission ended: insufficient candidates and no valid path')
+                return
+        else:
+            self.mission_exit_since = None
         if errors is None:
             # Only empty generated paths qualify: an existing but unusable path stops.
             history = self.last_valid_control
             if not self.center_path and history is not None:
                 saved_steady, saved_ros, speed, steering = history
-                if (0 <= steady-saved_steady <= p['control_hold_timeout']
-                        and 0 <= (now-saved_ros)/1e9 <= p['control_hold_timeout']):
+                if steady >= saved_steady and now >= saved_ros:
+                    # Always amplify the last path command, never the previous hold.
+                    limit = p['control_max_steering']
+                    steering = max(-limit, min(limit, steering*p['control_hold_steering_gain']))
                     self.last_steering = steering
                     self.control_mode = 'Hold Last Steering'
+                    self.control_stop_reason = None
                     self.publish_drive(min(speed, p['control_hold_speed']), steering)
                     return  # Never renew the valid-control timestamp while holding.
-            self.stop_control()
+            reason = ('hold_history_clock_reversed' if not self.center_path and history is not None
+                      else self.path_stop_reason(self.center_path, p['control_reference_x']))
+            self.stop_control(reason)
             return
         self.control_lateral_error, self.control_heading_error = errors
         target = p['control_lateral_gain']*errors[0]+p['control_heading_gain']*errors[1]
@@ -624,9 +750,12 @@ class RoiNode(Node):
         step = p['control_max_steering_rate']*dt
         self.last_steering += max(-step, min(step, target-self.last_steering))
         self.last_steering = max(-limit, min(limit, self.last_steering))
-        speed = p['control_speed']*(1.-.7*abs(target)/limit)
+        # Saturate slowdown independently of the permitted steering range.
+        slowdown = min(1., abs(target)/p['control_speed_reference_steering'])
+        speed = p['control_speed']*(1.-.7*slowdown)
         self.last_valid_control = (steady, now, speed, self.last_steering)
         self.control_mode = 'Path Feedback'
+        self.control_stop_reason = None
         self.publish_drive(speed, self.last_steering)
 
     def marker_array(self, stamp=None):

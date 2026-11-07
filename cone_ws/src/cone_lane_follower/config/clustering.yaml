@@ -11,7 +11,7 @@ cone_lane_roi:
     center_max_gap: 0.30
     center_max_turn: 75.0
     center_smoothing_weight: 0.25
-    boundary_connect_distance: 0.30
+    boundary_connect_distance: 0.50
     boundary_max_turn: 80.0
     boundary_initial_max_turn: 110.0
     boundary_direction_window: 3
@@ -21,9 +21,11 @@ cone_lane_roi:
     control_reference_x: 0.25
     control_lateral_gain: 2.0
     control_heading_gain: 1.0
-    control_max_steering: 0.48
+    control_max_steering: 1.3962634015954636  # 80 degrees in radians
+    control_speed_reference_steering: 0.48  # Full slowdown at about 27.5 degrees
     control_max_steering_rate: 1.0
     control_timeout: 0.20
     control_max_path_distance: 0.50
-    control_hold_timeout: 0.30
     control_hold_speed: 0.15
+    control_hold_steering_gain: 1.5 # 이전조향각 배수
+    control_exit_timeout: 1.50
