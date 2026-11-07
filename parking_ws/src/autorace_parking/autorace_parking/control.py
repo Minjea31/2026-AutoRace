@@ -4,13 +4,14 @@ from collections import Counter
 import math
 import time
 
-from .core import (CollisionChecker, Gap, cluster_points, find_gaps, plan_path,
+from .core import (CollisionChecker, RecoveryCollisionChecker, Gap, cluster_points, find_gaps, plan_path,
                    advance, sample_candidate, straight_turn_candidates, parking_candidates, front_clearance, wrap)
 from .tracking import compose, inverse
 from .enclosed import enclosed_goals
 from .targets import automatic_goals,update_geometry_goal,SEMANTIC_GOALS
 from .regions import with_occupied_slots,outside_grid
 from .departure import lane_targets,single_reverse_route
+from .roi import candidate_view,contains as roi_contains
 
 
 def local_goal(goal, pose):
@@ -57,6 +58,11 @@ def minimum_recovery_path(cfg):
     # Leave endpoint/deceleration room so the commanded leg actually covers
     # its minimum rather than stopping 2.5 cm before a 20 cm endpoint.
     return cfg.recovery_min_distance+max(.03,1.5*cfg.collision_step) if cfg.recovery_min_distance>0 else 0.
+
+
+def supported_recovery_target(goal):
+    return bool(goal is not None and (goal.confirmed or
+        (goal.kind=='pair_midpoint' and len(set(goal.support_ids))>=2 and goal.heading_options)))
 
 
 def needs_reverse_for_goal(goal,cfg):
@@ -121,7 +127,13 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
     started = time.monotonic()
     deadline = started + cfg.planning_timeout
     details = diagnostics if diagnostics is not None else {}
-    clusters = scan.candidate_clusters(cfg)
+    candidate_scan=candidate_view(scan,cfg,origin)
+    clusters = candidate_scan.candidate_clusters(cfg)
+    details.update(candidate_roi_enabled=cfg.candidate_roi_enabled,
+        candidate_roi_points=len(candidate_scan.points),candidate_roi_excluded_points=len(scan.points)-len(candidate_scan.points))
+    if goal is not None and goal.kind in SEMANTIC_GOALS and not roi_contains(compose(origin,(goal.x,goal.y,0.)),cfg):
+        details['goal_invalidated_by_candidate_roi']=True
+        goal=None
     geometric_goals = find_gaps(clusters, cfg, origin, diagnostics=details)
     visible_goals = []
     candidate_checks = []
@@ -202,8 +214,8 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
     # Missing/occluded pairs do not erase a target; a clearly different visible
     # pair can replace a stale target whose foreground sign has been filtered.
     goals = [goal] if goal is not None else visible_goals
-    if cfg.slot_map_enabled and goal is not None and goal.slot_id>=0:
-        goals += [g for g in visible_goals if g.slot_id!=goal.slot_id]
+    if cfg.slot_map_enabled and goal is not None:
+        goals += [g for g in visible_goals if (g.kind,g.slot_id,g.support_ids)!=(goal.kind,goal.slot_id,goal.support_ids)]
     details.update(input_points=len(scan.points), clusters=len(clusters), candidates=len(goals),
                    goal_reselected=goal_reselected,
                    ignored_small_clusters=scan.ignored_small_clusters, ignored_small_points=scan.ignored_small_points,
@@ -238,6 +250,13 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
         details['selected_pair'] = selected
 
     def finish(target, path, final, code):
+        pair_maps=details.pop('_pair_maps',[])
+        if target is not None and target.kind=='pair_midpoint':
+            matching=[m for m in pair_maps if set(m['support_ids'])==set(target.support_ids)]
+            if matching:
+                world=compose(origin,(target.x,target.y,0.))[:2]
+                details['slot_map']=min(matching,key=lambda m:math.dist(m['origin'],world))
+                details['target_center_method']='two_object_row_template'
         record_pair(target)
         details.update(reason_code=code, duration_s=time.monotonic()-started, path_poses=len(path))
         if (final and path and target is not None and not cfg.require_goal_heading
@@ -273,9 +292,9 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
         clearance = front_clearance(front_scan, cfg)
         details['front_clearance_m'] = clearance
         path_failure = bool(cfg.recovery_on_path_failure and failed_plans >= cfg.recovery_failure_count
-                            and (needs_reverse_for_goal(target,cfg) or (stalled_route and target is not None and target.confirmed))
+                            and (needs_reverse_for_goal(target,cfg) or (stalled_route and supported_recovery_target(target)))
                             and math.hypot(target.x,target.y) > (target.stop_tolerance or cfg.goal_tolerance)
-                            and code in ('budget_exceeded','no_observed_path'))
+                            and code in ('budget_exceeded','no_observed_path','start_blocked'))
         details['recovery_trigger'] = 'path_failure' if path_failure else 'front_obstacle'
         if cfg.recovery_on_front_obstacle_only and not path_failure:
             if target is None:
@@ -287,7 +306,8 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
                 return finish(None, [], False, code)
         if cfg.allow_reverse and recovery_allowed:
             if cfg.recovery_uses_memory_map:
-                rear_checker=CollisionChecker(scan,replace(cfg,assume_unobserved_free=True))
+                rear_checker=RecoveryCollisionChecker(scan,replace(cfg,assume_unobserved_free=True))
+                details['recovery_margin_escape_points']=len(rear_checker.escape_points)
                 details['recovery_uses_memory_map']=True
             else:
                 rear_checker = (CollisionChecker(scan, replace(cfg,assume_unobserved_free=False),
@@ -332,6 +352,7 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
                 details['recovery_straight_m'] = min(straight, accepted_distance) if turn_left else accepted_distance
                 return finish(goals[0] if goals else goal, path, False, 'recovery_ready')
             details['recovery_blocked_by'] = rear_checker.last_block
+            details['recovery_block_detail'] = rear_checker.last_block_detail
         if cfg.allow_reverse and not recovery_allowed:
             details['recovery_limit_reached'] = True
         return finish(None, [], False, code)
@@ -362,6 +383,9 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
         return finish(None, [], False, 'start_blocked')
     if not checker.free((0., 0., 0.)):
         details['blocked_by'] = checker.last_block
+        details['start_collision'] = checker.last_block_detail
+        if checker.last_block=='obstacle' and cfg.recovery_uses_memory_map:
+            return recover('start_blocked')
         if (checker.last_block == 'unknown_space' and cfg.allow_reverse and (blind_budget > 0 or cfg.recovery_uses_memory_map)
                 and checker.free((0., 0., 0.), allow_unknown=True)):
             return recover('start_blocked')
@@ -473,6 +497,7 @@ class Follower:
         self.exit_route_ready = True
         self.exit_started_at = None
         self.last_collision = None
+        self.route_blocked = False
         self.exiting = self.exited = False
         self.entry_trace = []
         self.previous_sample = None
@@ -523,6 +548,8 @@ class Follower:
                 or abs(wrap(self.path_goal.yaw-self.goal.yaw))>.05):
             self.arrival_count=0
         self.path_goal = self.goal
+        self.route_blocked = False
+        self.last_collision = None
         self.path = [compose(origin, point) for point in path]
         if recovery:
             self.entry_path = []
@@ -550,6 +577,8 @@ class Follower:
         return [compose(transform,p) for p in self.displayed_path()]
 
     def stop(self, state, now):
+        if state == 'ROUTE_BLOCKED':
+            self.route_blocked = True
         self.lookahead_point = None
         self.last_steering, self.last_command_time = 0., now
         return 0., 0., state
@@ -667,6 +696,13 @@ class Follower:
         self.observe_pose(pose, now, new_scan)
         self.lookahead_point = None
         self.lookahead_distance = self.lookahead + min(.15, self.measured_speed*.2)
+        # A control tick without a new observation cannot clear an obstacle
+        # stop. Retain it until a fresh scan or a validated replacement route.
+        if self.route_blocked and self.path and not new_scan and not self.parked and not self.exited:
+            return self.stop('ROUTE_BLOCKED', now)
+        if new_scan:
+            self.route_blocked = False
+            self.last_collision = None
         if self.recovering and self.path:
             if self.recovery_start_pose is None:
                 self.recovery_start_pose = pose
@@ -681,9 +717,12 @@ class Follower:
         if self.recovering and self.path and new_scan:
             # This short recovery corridor was checked before acceptance. Keep
             # its remembered coverage, but let fresh obstacle returns veto it.
-            checker = CollisionChecker(scan if obstacle_scan is None else obstacle_scan, replace(self.cfg, initial_clear_radius=self.cfg.max_range+1.))
+            checker = RecoveryCollisionChecker(scan if obstacle_scan is None else obstacle_scan, replace(self.cfg, initial_clear_radius=self.cfg.max_range+1.))
             transform = inverse(pose)
-            if any(not checker.free(compose(transform, p)) for p in self.path[self.index:]):
+            nearest=min(range(self.index,len(self.path)),key=lambda i:math.dist(self.path[i][:2],pose[:2]))
+            remaining=[compose(transform,p) for p in self.path[nearest:]]
+            if remaining and remaining[0][0]>.001:remaining=remaining[1:]
+            if any(not checker.free(p) for p in [(0.,0.,0.)]+remaining):
                 self.last_collision=checker.last_block_detail
                 self.recovering = False
                 if self.cfg.continuous_replanning:
@@ -711,8 +750,10 @@ class Follower:
                                   previous[1]+fraction*(local[1]-previous[1]),
                                   wrap(previous[2]+fraction*wrap(local[2]-previous[2])))
                         if not checker.free(sample):
+                            self.last_collision=checker.last_block_detail
                             return self.stop('ROUTE_BLOCKED',now)
                 elif not checker.free(local):
+                    self.last_collision=checker.last_block_detail
                     return self.stop('ROUTE_BLOCKED',now)
                 distance += length
                 if distance >= horizon:break
@@ -735,7 +776,7 @@ class Follower:
                 self.rebuild_exit(pose,now,scan if obstacle_scan is None else obstacle_scan)
             if not self.exit_route_ready:return self.stop('EXIT_PATH_ERROR',now)
         if self.goal is None and not self.recovering:
-            return self.stop('EXIT_PATH_ERROR' if self.exiting else 'PLANNING', now)
+            return self.stop('EXIT_PATH_ERROR' if self.exiting else ('PATH_HELD' if self.path else 'PLANNING'), now)
         if self.awaiting_target_path:
             return self.stop('PATH_HELD',now)
         goal = local_goal(self.goal, pose) if self.goal is not None else None
@@ -755,8 +796,14 @@ class Follower:
                 from .targets import box_pose_free
                 from .enclosed import physical_objects
                 source=scan if obstacle_scan is None else obstacle_scan
-                world=[replace(c,points=[compose(pose,(*p,0.))[:2] for p in c.points]) for c in source.candidate_clusters(self.cfg)]
-                heading_ok=box_pose_free(*pose,physical_objects(world,self.cfg,right_only=not self.cfg.slot_map_enabled),self.cfg)
+                world=[replace(c,points=[compose(pose,(*p,0.))[:2] for p in c.points])
+                       for c in candidate_view(source,self.cfg,pose).candidate_clusters(self.cfg)]
+                objects=[(ids,c) for ids,c in physical_objects(world,self.cfg,right_only=not self.cfg.slot_map_enabled)
+                         if self.cfg.min_cluster_size<=max(c.bounds[1]-c.bounds[0],c.bounds[3]-c.bounds[2])<=self.cfg.max_cluster_size]
+                # Arrival follows the configured collision model. In point mode,
+                # an unobserved corner inside a bounding box must not veto an
+                # otherwise collision-free, position-only arrival.
+                heading_ok=(box_pose_free(*pose,objects,self.cfg) if self.cfg.block_occupied_slots else True)
                 heading_ok=heading_ok and CollisionChecker(source,self.cfg).free((0.,0.,0.),allow_unknown=True)
         rear_error=self.arrival_error(goal)
         rear_distance=math.hypot(*rear_error) if rear_error is not None else math.inf
@@ -938,7 +985,7 @@ class Follower:
                 and now-self.exit_started_at<self.cfg.exit_steering_settle_time):
             speed=min(speed,self.cfg.exit_start_speed)
         if self.cfg.require_complete_entry_path and self.cfg.continuous_replanning and speed>0:
-            checker=CollisionChecker(scan if obstacle_scan is None else obstacle_scan,
+            checker=(RecoveryCollisionChecker if self.recovering else CollisionChecker)(scan if obstacle_scan is None else obstacle_scan,
                                      replace(self.cfg,initial_clear_radius=self.cfg.max_range+1.))
             requested=response_scale*math.tan(steering)/self.cfg.wheelbase
             measured=self.measured_curvature if self.measured_speed>.03 else 0.

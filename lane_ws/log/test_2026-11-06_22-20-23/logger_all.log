@@ -1,0 +1,138 @@
+[0.445s] colcon DEBUG Command line arguments: ['/usr/bin/colcon', 'test', '--packages-select', 'autorace_lane_lite', 'autorace_lane_pid', '--event-handlers', 'console_direct+']
+[0.446s] colcon DEBUG Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='test', build_base='build', install_base='install', merge_install=False, test_result_base=None, retest_until_fail=0, retest_until_pass=0, abort_on_error=False, return_code_on_test_failure=False, executor='parallel', parallel_workers=6, event_handlers=['console_direct+'], ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=['autorace_lane_lite', 'autorace_lane_pid'], packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, allow_overriding=[], ctest_args=None, python_testing=None, pytest_args=None, pytest_with_coverage=False, unittest_args=None, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0xffff7ec3b670>, verb_extension=<colcon_core.verb.test.TestVerb object at 0xffff7ec39c30>, main=<bound method TestVerb.main of <colcon_core.verb.test.TestVerb object at 0xffff7ec39c30>>, mixin_verb=('test',))
+[0.543s] colcon.colcon_core.package_discovery Level 1 discover_packages(colcon_meta) check parameters
+[0.543s] colcon.colcon_core.package_discovery Level 1 discover_packages(recursive) check parameters
+[0.544s] colcon.colcon_core.package_discovery Level 1 discover_packages(ignore) check parameters
+[0.544s] colcon.colcon_core.package_discovery Level 1 discover_packages(path) check parameters
+[0.544s] colcon.colcon_core.package_discovery Level 1 discover_packages(colcon_meta) discover
+[0.544s] colcon.colcon_core.package_discovery Level 1 discover_packages(recursive) discover
+[0.544s] colcon.colcon_core.package_discovery INFO Crawling recursively for packages in '/home/wego/2026-AutoRace/lane_ws'
+[0.544s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.545s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'ignore'
+[0.545s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'ignore_ament_install'
+[0.545s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['colcon_pkg']
+[0.545s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'colcon_pkg'
+[0.545s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['colcon_meta']
+[0.545s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'colcon_meta'
+[0.546s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['ros']
+[0.546s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'ros'
+[0.639s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['cmake', 'python']
+[0.639s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'cmake'
+[0.639s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'python'
+[0.639s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['python_setup_py']
+[0.639s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'python_setup_py'
+[0.640s] colcon.colcon_core.package_identification Level 1 _identify(build) by extensions ['ignore', 'ignore_ament_install']
+[0.640s] colcon.colcon_core.package_identification Level 1 _identify(build) by extension 'ignore'
+[0.640s] colcon.colcon_core.package_identification Level 1 _identify(build) ignored
+[0.640s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['ignore', 'ignore_ament_install']
+[0.641s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'ignore'
+[0.641s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'ignore_ament_install'
+[0.641s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['colcon_pkg']
+[0.641s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'colcon_pkg'
+[0.641s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['colcon_meta']
+[0.641s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'colcon_meta'
+[0.641s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['ros']
+[0.641s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'ros'
+[0.642s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['cmake', 'python']
+[0.642s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'cmake'
+[0.642s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'python'
+[0.642s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['python_setup_py']
+[0.642s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'python_setup_py'
+[0.642s] colcon.colcon_core.package_identification Level 1 _identify(install) by extensions ['ignore', 'ignore_ament_install']
+[0.642s] colcon.colcon_core.package_identification Level 1 _identify(install) by extension 'ignore'
+[0.642s] colcon.colcon_core.package_identification Level 1 _identify(install) ignored
+[0.643s] colcon.colcon_core.package_identification Level 1 _identify(log) by extensions ['ignore', 'ignore_ament_install']
+[0.643s] colcon.colcon_core.package_identification Level 1 _identify(log) by extension 'ignore'
+[0.643s] colcon.colcon_core.package_identification Level 1 _identify(log) ignored
+[0.643s] colcon.colcon_core.package_identification Level 1 _identify(models) by extensions ['ignore', 'ignore_ament_install']
+[0.643s] colcon.colcon_core.package_identification Level 1 _identify(models) by extension 'ignore'
+[0.643s] colcon.colcon_core.package_identification Level 1 _identify(models) by extension 'ignore_ament_install'
+[0.643s] colcon.colcon_core.package_identification Level 1 _identify(models) by extensions ['colcon_pkg']
+[0.644s] colcon.colcon_core.package_identification Level 1 _identify(models) by extension 'colcon_pkg'
+[0.644s] colcon.colcon_core.package_identification Level 1 _identify(models) by extensions ['colcon_meta']
+[0.644s] colcon.colcon_core.package_identification Level 1 _identify(models) by extension 'colcon_meta'
+[0.644s] colcon.colcon_core.package_identification Level 1 _identify(models) by extensions ['ros']
+[0.644s] colcon.colcon_core.package_identification Level 1 _identify(models) by extension 'ros'
+[0.644s] colcon.colcon_core.package_identification Level 1 _identify(models) by extensions ['cmake', 'python']
+[0.644s] colcon.colcon_core.package_identification Level 1 _identify(models) by extension 'cmake'
+[0.644s] colcon.colcon_core.package_identification Level 1 _identify(models) by extension 'python'
+[0.644s] colcon.colcon_core.package_identification Level 1 _identify(models) by extensions ['python_setup_py']
+[0.644s] colcon.colcon_core.package_identification Level 1 _identify(models) by extension 'python_setup_py'
+[0.645s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['ignore', 'ignore_ament_install']
+[0.645s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'ignore'
+[0.645s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'ignore_ament_install'
+[0.645s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['colcon_pkg']
+[0.645s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'colcon_pkg'
+[0.645s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['colcon_meta']
+[0.645s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'colcon_meta'
+[0.645s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['ros']
+[0.645s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'ros'
+[0.646s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['cmake', 'python']
+[0.646s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'cmake'
+[0.646s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'python'
+[0.646s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['python_setup_py']
+[0.646s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'python_setup_py'
+[0.646s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_lite) by extensions ['ignore', 'ignore_ament_install']
+[0.646s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_lite) by extension 'ignore'
+[0.646s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_lite) by extension 'ignore_ament_install'
+[0.647s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_lite) by extensions ['colcon_pkg']
+[0.647s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_lite) by extension 'colcon_pkg'
+[0.647s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_lite) by extensions ['colcon_meta']
+[0.647s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_lite) by extension 'colcon_meta'
+[0.647s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_lite) by extensions ['ros']
+[0.647s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_lite) by extension 'ros'
+[0.655s] colcon.colcon_core.package_identification DEBUG Package 'src/autorace_lane_lite' with type 'ros.ament_cmake' and name 'autorace_lane_lite'
+[0.656s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_pid) by extensions ['ignore', 'ignore_ament_install']
+[0.656s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_pid) by extension 'ignore'
+[0.656s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_pid) by extension 'ignore_ament_install'
+[0.656s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_pid) by extensions ['colcon_pkg']
+[0.656s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_pid) by extension 'colcon_pkg'
+[0.657s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_pid) by extensions ['colcon_meta']
+[0.657s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_pid) by extension 'colcon_meta'
+[0.657s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_pid) by extensions ['ros']
+[0.657s] colcon.colcon_core.package_identification Level 1 _identify(src/autorace_lane_pid) by extension 'ros'
+[0.659s] colcon.colcon_core.package_identification DEBUG Package 'src/autorace_lane_pid' with type 'ros.ament_cmake' and name 'autorace_lane_pid'
+[0.659s] colcon.colcon_core.package_discovery Level 1 discover_packages(recursive) using defaults
+[0.659s] colcon.colcon_core.package_discovery Level 1 discover_packages(ignore) discover
+[0.659s] colcon.colcon_core.package_discovery Level 1 discover_packages(ignore) using defaults
+[0.659s] colcon.colcon_core.package_discovery Level 1 discover_packages(path) discover
+[0.659s] colcon.colcon_core.package_discovery Level 1 discover_packages(path) using defaults
+[0.665s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_lite' test argument 'ctest_args' from command line to 'None'
+[0.665s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_lite' test argument 'python_testing' from command line to 'None'
+[0.666s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_lite' test argument 'pytest_args' from command line to 'None'
+[0.666s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_lite' test argument 'pytest_with_coverage' from command line to 'False'
+[0.666s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_lite' test argument 'unittest_args' from command line to 'None'
+[0.666s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_lite' test argument 'retest_until_pass' from command line to '0'
+[0.666s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_lite' test argument 'retest_until_fail' from command line to '0'
+[0.666s] colcon.colcon_core.verb.test DEBUG Testing package 'autorace_lane_lite' with the following arguments: {'build_base': '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite', 'ctest_args': None, 'install_base': '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite', 'path': '/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite', 'pytest_args': None, 'pytest_with_coverage': False, 'python_testing': None, 'retest_until_fail': 0, 'retest_until_pass': 0, 'test_result_base': None, 'unittest_args': None}
+[0.667s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_pid' test argument 'ctest_args' from command line to 'None'
+[0.667s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_pid' test argument 'python_testing' from command line to 'None'
+[0.667s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_pid' test argument 'pytest_args' from command line to 'None'
+[0.667s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_pid' test argument 'pytest_with_coverage' from command line to 'False'
+[0.667s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_pid' test argument 'unittest_args' from command line to 'None'
+[0.667s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_pid' test argument 'retest_until_pass' from command line to '0'
+[0.667s] colcon.colcon_core.verb Level 5 set package 'autorace_lane_pid' test argument 'retest_until_fail' from command line to '0'
+[0.667s] colcon.colcon_core.verb.test DEBUG Testing package 'autorace_lane_pid' with the following arguments: {'build_base': '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid', 'ctest_args': None, 'install_base': '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid', 'path': '/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_pid', 'pytest_args': None, 'pytest_with_coverage': False, 'python_testing': None, 'retest_until_fail': 0, 'retest_until_pass': 0, 'test_result_base': None, 'unittest_args': None}
+[0.667s] colcon.colcon_core.executor INFO Executing jobs using 'parallel' executor
+[0.670s] colcon.colcon_parallel_executor.executor.parallel DEBUG run_until_complete
+[0.670s] colcon.colcon_ros.task.ament_cmake.test INFO Testing ROS package in '/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite' with build type 'ament_cmake'
+[0.671s] colcon.colcon_cmake.task.cmake.test INFO Testing CMake package in '/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite'
+[0.675s] colcon.colcon_core.plugin_system INFO Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.676s] colcon.colcon_core.shell INFO Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.676s] colcon.colcon_core.shell DEBUG Skip shell extension 'dsv' for command environment
+[0.723s] colcon.colcon_core.event_handler.log_command DEBUG Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite': CMAKE_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description /usr/bin/ctest -C Release -D ExperimentalTest --no-compress-output -V --force-new-ctest-process
+[2.820s] colcon.colcon_ros.task.ament_cmake.test INFO Testing ROS package in '/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_pid' with build type 'ament_cmake'
+[2.821s] colcon.colcon_cmake.task.cmake.test INFO Testing CMake package in '/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_pid'
+[2.822s] colcon.colcon_core.event_handler.log_command DEBUG Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite' returned '0': CMAKE_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description /usr/bin/ctest -C Release -D ExperimentalTest --no-compress-output -V --force-new-ctest-process
+[2.823s] colcon.colcon_core.shell INFO Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[2.823s] colcon.colcon_core.shell DEBUG Skip shell extension 'dsv' for command environment
+[2.870s] colcon.colcon_core.event_handler.log_command DEBUG Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid': /usr/bin/ctest -C Release -D ExperimentalTest --no-compress-output -V --force-new-ctest-process
+[3.069s] colcon.colcon_parallel_executor.executor.parallel DEBUG closing loop
+[3.070s] colcon.colcon_core.event_handler.log_command DEBUG Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid' returned '0': /usr/bin/ctest -C Release -D ExperimentalTest --no-compress-output -V --force-new-ctest-process
+[3.072s] colcon.colcon_parallel_executor.executor.parallel DEBUG loop closed
+[3.072s] colcon.colcon_parallel_executor.executor.parallel DEBUG run_until_complete finished with '0'
+[3.073s] colcon.colcon_core.event_reactor DEBUG joining thread
+[3.086s] colcon.colcon_core.plugin_system INFO Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[3.086s] colcon.colcon_core.plugin_system INFO Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[3.087s] colcon.colcon_notification.desktop_notification INFO Sending desktop notification using 'notify2'
+[3.123s] colcon.colcon_core.event_reactor DEBUG joined thread

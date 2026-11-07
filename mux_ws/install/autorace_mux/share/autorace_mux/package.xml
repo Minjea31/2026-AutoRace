@@ -1,18 +1,1 @@
-<?xml version="1.0"?>
-<package format="3">
-  <name>autorace_mux</name>
-  <version>0.1.0</version>
-  <description>AutoRace mission arbitration with lane fallback and Twist output.</description>
-  <maintainer email="wego@example.com">wego</maintainer>
-  <license>Apache-2.0</license>
-  <buildtool_depend>ament_python</buildtool_depend>
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>rcl_interfaces</exec_depend>
-  <exec_depend>ackermann_msgs</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>launch</exec_depend>
-  <exec_depend>launch_ros</exec_depend>
-  <exec_depend>ament_index_python</exec_depend>
-  <test_depend>python3-pytest</test_depend>
-  <export><build_type>ament_python</build_type></export>
-</package>
+/home/wego/2026-AutoRace/mux_ws/build/autorace_mux/package.xml

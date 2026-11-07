@@ -19,6 +19,11 @@ def wrap(angle):
 
 @dataclass
 class Settings:
+    candidate_roi_enabled: bool = False
+    candidate_roi_forward_min: float = 0.0
+    candidate_roi_forward_max: float = 3.0
+    candidate_roi_right_min: float = 0.0
+    candidate_roi_right_max: float = 2.0
     cluster_distance: float = 0.12
     cluster_min_points: int = 3
     max_range: float = 3.0
@@ -101,7 +106,7 @@ class Settings:
     max_inner_steering: float = 0.0
     steering_track: float = 0.172
     goal_from_observed_front: bool = False
-    clearance: float = 0.04
+    clearance: float = 0.10
     initial_clear_radius: float = 0.30
     assume_unobserved_free: bool = False
     resolution: float = 0.06
@@ -443,6 +448,47 @@ class CollisionChecker:
                 self.last_block = 'unknown_space'
                 return False
         return True
+
+
+class RecoveryCollisionChecker(CollisionChecker):
+    """Restore an already violated margin by straight retreat, away from points.
+
+    Only initially close points in the front half may use this exception.
+    All other points retain the full margin; actual body collision is forbidden.
+    """
+    def __init__(self,scan,cfg,*args):
+        scan=scan.filtered_obstacles(cfg)
+        cfg=replace(cfg,obstacle_min_cluster_size=0.)  # Do not re-filter fragments after masking the escape points.
+        self.original=CollisionChecker(scan,cfg,*args)
+        self.physical=CollisionChecker(scan,replace(cfg,clearance=0.),*args)
+        self.escape_points=[]
+        if cfg.recovery_uses_memory_map and not cfg.recovery_left_when_goal_right and self.physical.free((0.,0.,0.),allow_unknown=True):
+            self.escape_points=[p for p in scan.points if p[0]>=0 and
+                abs(p[0])<=cfg.vehicle_length/2+cfg.clearance and abs(p[1])<=cfg.vehicle_width/2+cfg.clearance]
+        source=copy(scan);ignored=set(self.escape_points)
+        source.points=[p for p in scan.points if p not in ignored]
+        super().__init__(source,cfg,*args)
+
+    def free(self,pose,allow_unknown=False):
+        if not self.escape_points:return super().free(pose,allow_unknown)
+        x,y,yaw=pose
+        if x>1e-8 or abs(y)>.02 or abs(yaw)>.05:
+            result=self.original.free(pose,allow_unknown)
+            self.last_block,self.last_block_detail=self.original.last_block,self.original.last_block_detail
+            return result
+        if not self.physical.free(pose,allow_unknown):
+            self.last_block,self.last_block_detail=self.physical.last_block,self.physical.last_block_detail
+            return False
+        c,s=math.cos(yaw),math.sin(yaw)
+        def distance(px,py):
+            return math.hypot(max(abs(px)-self.cfg.vehicle_length/2,0.),max(abs(py)-self.cfg.vehicle_width/2,0.))
+        for px,py in self.escape_points:
+            dx,dy=px-x,py-y
+            if distance(c*dx+s*dy,-s*dx+c*dy)+1e-8<distance(px,py):
+                self.last_block='obstacle'
+                self.last_block_detail={'kind':'margin_escape_toward_obstacle','point':[px,py],'checked_pose':list(pose)}
+                return False
+        return super().free(pose,allow_unknown)
 
 
 def front_clearance(scan, cfg):

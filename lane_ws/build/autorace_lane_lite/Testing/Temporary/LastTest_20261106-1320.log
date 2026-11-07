@@ -1,0 +1,75 @@
+Start testing: Nov 06 22:20 KST
+----------------------------------------------------------
+1/2 Testing: test_lane
+1/2 Test: test_lane
+Command: "/usr/bin/python3" "-u" "/opt/ros/humble/share/ament_cmake_test/cmake/run_test.py" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml" "--package-name" "autorace_lane_lite" "--output-file" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/ament_cmake_gtest/test_lane.txt" "--command" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane" "--gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml"
+Directory: /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite
+"test_lane" start time: Nov 06 22:20 KST
+Output:
+----------------------------------------------------------
+-- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite':
+ - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml
+Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc
+[==========] Running 10 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 10 tests from DLLane
+[ RUN      ] DLLane.BothBoundaries
+[       OK ] DLLane.BothBoundaries (39 ms)
+[ RUN      ] DLLane.SingleBoundary
+[       OK ] DLLane.SingleBoundary (32 ms)
+[ RUN      ] DLLane.HeldThenLost
+[       OK ] DLLane.HeldThenLost (97 ms)
+[ RUN      ] DLLane.JumpRejected
+[       OK ] DLLane.JumpRejected (222 ms)
+[ RUN      ] DLLane.MasksPassWithoutShapeFiltering
+[       OK ] DLLane.MasksPassWithoutShapeFiltering (32 ms)
+[ RUN      ] DLLane.ROIOnly
+[       OK ] DLLane.ROIOnly (30 ms)
+[ RUN      ] DLLane.NoViewsSameMeasurement
+[       OK ] DLLane.NoViewsSameMeasurement (184 ms)
+[ RUN      ] DLLane.InvalidMasksRejected
+[       OK ] DLLane.InvalidMasksRejected (24 ms)
+[ RUN      ] DLLane.DashedBoundaryNearToFar
+[       OK ] DLLane.DashedBoundaryNearToFar (685 ms)
+[ RUN      ] DLLane.TransverseHairpin
+[       OK ] DLLane.TransverseHairpin (35 ms)
+[----------] 10 tests from DLLane (1380 ms total)
+
+[----------] Global test environment tear-down
+[==========] 10 tests from 1 test suite ran. (1380 ms total)
+[  PASSED  ] 10 tests.
+-- run_test.py: return code 0
+-- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'
+-- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'
+<end of output>
+Test time =   1.57 sec
+----------------------------------------------------------
+Test Passed.
+"test_lane" end time: Nov 06 22:20 KST
+"test_lane" time elapsed: 00:00:01
+----------------------------------------------------------
+
+2/2 Testing: test_runtime
+2/2 Test: test_runtime
+Command: "/usr/bin/python3" "/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_runtime.py"
+Directory: /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite
+"test_runtime" start time: Nov 06 22:20 KST
+Output:
+----------------------------------------------------------
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.102s
+
+OK
+<end of output>
+Test time =   0.51 sec
+----------------------------------------------------------
+Test Passed.
+"test_runtime" end time: Nov 06 22:20 KST
+"test_runtime" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 06 22:20 KST
+
+gtest =   1.57 sec*proc
+

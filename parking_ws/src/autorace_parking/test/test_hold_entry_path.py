@@ -63,7 +63,7 @@ def node():
     from rclpy.parameter import Parameter
     from std_msgs.msg import Bool
     from autorace_parking.node import ParkingNode
-    rclpy.init();n=ParkingNode(parameter_overrides=[Parameter('localization_source',value='scan'),Parameter('hold_entry_path',value=True)])
+    rclpy.init();n=ParkingNode(parameter_overrides=[Parameter('localization_source',value='scan'),Parameter('hold_entry_path',value=True),Parameter('clearance',value=.04)])
     n.now_seconds=lambda:20.
     for _ in range(3):n.on_sign(Bool(data=True))
     n.scan=scan();n.scan_time=20.

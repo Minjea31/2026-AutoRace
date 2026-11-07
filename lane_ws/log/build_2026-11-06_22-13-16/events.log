@@ -1,0 +1,625 @@
+[0.000000] (-) TimerEvent: {}
+[0.000248] (autorace_lane_lite) JobQueued: {'identifier': 'autorace_lane_lite', 'dependencies': OrderedDict()}
+[0.000514] (autorace_lane_pid) JobQueued: {'identifier': 'autorace_lane_pid', 'dependencies': OrderedDict([('autorace_lane_lite', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite')])}
+[0.000991] (autorace_lane_lite) JobStarted: {'identifier': 'autorace_lane_lite'}
+[0.023156] (autorace_lane_lite) JobProgress: {'identifier': 'autorace_lane_lite', 'progress': 'cmake'}
+[0.024105] (autorace_lane_lite) Command: {'cmd': ['/usr/bin/cmake', '/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite', '-DAMENT_CMAKE_SYMLINK_INSTALL=1', '-DCMAKE_INSTALL_PREFIX=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite'], 'cwd': '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('PYTHONWARNINGS', 'ignore'), ('CONDA_PROMPT_MODIFIER', ''), ('CODEX_CI', '1'), ('TENSORRT_INSTALL', '/usr/local/TensorRT-10.3.0.26'), ('USER', 'wego'), ('XDG_SESSION_TYPE', 'x11'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/opt/ros/humble/lib:/usr/lib/aarch64-linux-gnu:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/lib:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib:/usr/local/cuda-12.6/lib64::/usr/local/TensorRT-10.3.0.26/lib'), ('HOME', '/home/wego'), ('CONDA_SHLVL', '0'), ('OLDPWD', '/home/wego/2026-AutoRace'), ('DESKTOP_SESSION', 'ubuntu'), ('JETSON_L4T', '36.4.7'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('JETSON_MODEL', 'NVIDIA Jetson Orin NX Engineering Reference Developer Kit'), ('PAGER', 'cat'), ('MANAGERPID', '3272'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '3710'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', 'truecolor'), ('_CE_M', ''), ('TERMINATOR_DBUS_NAME', 'net.tenshu.Terminator23558193cd9818af7fe4d2c2f5bd9d00f'), ('_CONDA_ROOT', '/home/wego/miniconda3'), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '5244'), ('IM_CONFIG_PHASE', '1'), ('COLCON_PREFIX_PATH', '/home/wego/2026-AutoRace/sensor_ws/install'), ('CODEX_PERMISSION_PROFILE', ':danger-full-access'), ('CODEX_TOOL_CALL_ID', 'exec-dcb3267f-b830-4679-ba71-30b216e19b27'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'ibus'), ('LOGNAME', 'wego'), ('JETSON_MODULE', 'NVIDIA Jetson Orin Nano (8GB ram)'), ('JETSON_SERIAL_NUMBER', '1422824337560'), ('JOURNAL_STREAM', '8:55181'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS', '1'), ('USERNAME', 'wego'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('_CE_CONDA', ''), ('ROS_LOCALHOST_ONLY', '1'), ('WINDOWPATH', '2'), ('PATH', '/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.local/bin:/home/wego/.codex/tmp/arg0-linux/codex-arg0MqgLEz:/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0sedJUH:/home/wego/.codex/packages/app-server-daemon/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0Ezw4Wc:/home/wego/.codex/packages/standalone/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/usr/src/tensorrt/bin:/opt/ros/humble/bin:/usr/local/cuda-12.6/bin:/home/wego/miniconda3/condabin:/home/wego/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin'), ('SESSION_MANAGER', 'local/ubuntu:@/tmp/.ICE-unix/3430,unix/ubuntu:/tmp/.ICE-unix/3430'), ('CODEX_VERSION', '0.167.0'), ('CODEX_SESSION_ID', '01a1b0e9-6bf5-7fe0-bffd-bba882395741'), ('INVOCATION_ID', '49a5cabc13c9442188d4ffec6c4edcf4'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('DISPLAY', ':1'), ('TERMINATOR_DBUS_PATH', '/net/tenshu/Terminator2'), ('LANG', 'en_US.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('XMODIFIERS', '@im=ibus'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('JETSON_SOC', 'tegra234'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('CONDA_PYTHON_EXE', '/home/wego/miniconda3/bin/python'), ('SHELL', '/bin/bash'), ('TERMINATOR_UUID', 'urn:uuid:61809fdc-659d-4cc8-bc93-c3a276a2f67e'), ('QT_ACCESSIBILITY', '1'), ('GDMSESSION', 'ubuntu'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CONDA_DEFAULT_ENV', ''), ('CODEX_THREAD_ID', '01a1b0fb-3444-7481-b79e-1257296d01b8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('_CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('JETSON_CUDA_ARCH_BIN', '8.7'), ('PWD', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite'), ('LC_ALL', 'en_US.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/wego/miniconda3/envs/dl_env/lib/python3.10/site-packages:/usr/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('CONDA_PREFIX', ''), ('COLCON', '1'), ('VTE_VERSION', '6800'), ('JETSON_JETPACK', ''), ('CMAKE_PREFIX_PATH', '/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('JETSON_P_NUMBER', 'p3767-0003')]), 'shell': False}
+[0.099437] (-) TimerEvent: {}
+[0.199825] (-) TimerEvent: {}
+[0.212521] (autorace_lane_lite) StdoutLine: {'line': b'-- The C compiler identification is GNU 11.4.0\n'}
+[0.301119] (-) TimerEvent: {}
+[0.363763] (autorace_lane_lite) StdoutLine: {'line': b'-- The CXX compiler identification is GNU 11.4.0\n'}
+[0.391618] (autorace_lane_lite) StdoutLine: {'line': b'-- Detecting C compiler ABI info\n'}
+[0.401271] (-) TimerEvent: {}
+[0.501665] (-) TimerEvent: {}
+[0.543428] (autorace_lane_lite) StdoutLine: {'line': b'-- Detecting C compiler ABI info - done\n'}
+[0.555891] (autorace_lane_lite) StdoutLine: {'line': b'-- Check for working C compiler: /usr/bin/cc - skipped\n'}
+[0.556739] (autorace_lane_lite) StdoutLine: {'line': b'-- Detecting C compile features\n'}
+[0.557777] (autorace_lane_lite) StdoutLine: {'line': b'-- Detecting C compile features - done\n'}
+[0.564674] (autorace_lane_lite) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info\n'}
+[0.601838] (-) TimerEvent: {}
+[0.702229] (-) TimerEvent: {}
+[0.713090] (autorace_lane_lite) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info - done\n'}
+[0.732824] (autorace_lane_lite) StdoutLine: {'line': b'-- Check for working CXX compiler: /usr/bin/c++ - skipped\n'}
+[0.733585] (autorace_lane_lite) StdoutLine: {'line': b'-- Detecting CXX compile features\n'}
+[0.735128] (autorace_lane_lite) StdoutLine: {'line': b'-- Detecting CXX compile features - done\n'}
+[0.750901] (autorace_lane_lite) StdoutLine: {'line': b'-- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)\n'}
+[0.802407] (-) TimerEvent: {}
+[0.902804] (-) TimerEvent: {}
+[1.003198] (-) TimerEvent: {}
+[1.103601] (-) TimerEvent: {}
+[1.135024] (autorace_lane_lite) StdoutLine: {'line': b'-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter \n'}
+[1.203753] (-) TimerEvent: {}
+[1.302476] (autorace_lane_lite) StdoutLine: {'line': b'-- Override CMake install command with custom implementation using symlinks instead of copying resources\n'}
+[1.303830] (-) TimerEvent: {}
+[1.404118] (-) TimerEvent: {}
+[1.432456] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rclcpp: 16.0.15 (/opt/ros/humble/share/rclcpp/cmake)\n'}
+[1.504316] (-) TimerEvent: {}
+[1.548234] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)\n'}
+[1.561671] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)\n'}
+[1.584340] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)\n'}
+[1.604393] (-) TimerEvent: {}
+[1.615863] (autorace_lane_lite) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c\n'}
+[1.658032] (autorace_lane_lite) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp\n'}
+[1.704560] (-) TimerEvent: {}
+[1.773093] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)\n'}
+[1.780807] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rmw_fastrtps_cpp: 6.2.9 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)\n'}
+[1.804638] (-) TimerEvent: {}
+[1.904931] (-) TimerEvent: {}
+[1.968025] (autorace_lane_lite) StdoutLine: {'line': b'-- Found OpenSSL: /usr/lib/aarch64-linux-gnu/libcrypto.so (found version "3.0.2")  \n'}
+[2.005042] (-) TimerEvent: {}
+[2.028675] (autorace_lane_lite) StdoutLine: {'line': b'-- Found FastRTPS: /opt/ros/humble/include  \n'}
+[2.105269] (-) TimerEvent: {}
+[2.122178] (autorace_lane_lite) StdoutLine: {'line': b"-- Using RMW implementation 'rmw_fastrtps_cpp' as default\n"}
+[2.148066] (autorace_lane_lite) StdoutLine: {'line': b'-- Looking for pthread.h\n'}
+[2.205470] (-) TimerEvent: {}
+[2.298247] (autorace_lane_lite) StdoutLine: {'line': b'-- Looking for pthread.h - found\n'}
+[2.299300] (autorace_lane_lite) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD\n'}
+[2.305550] (-) TimerEvent: {}
+[2.405894] (-) TimerEvent: {}
+[2.463784] (autorace_lane_lite) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success\n'}
+[2.468169] (autorace_lane_lite) StdoutLine: {'line': b'-- Found Threads: TRUE  \n'}
+[2.506077] (-) TimerEvent: {}
+[2.606510] (-) TimerEvent: {}
+[2.650825] (autorace_lane_lite) StdoutLine: {'line': b'-- Found sensor_msgs: 4.9.0 (/opt/ros/humble/share/sensor_msgs/cmake)\n'}
+[2.706688] (-) TimerEvent: {}
+[2.724448] (autorace_lane_lite) StdoutLine: {'line': b'-- Found cv_bridge: 3.2.1 (/opt/ros/humble/share/cv_bridge/cmake)\n'}
+[2.745155] (autorace_lane_lite) StdoutLine: {'line': b'-- Found OpenCV: /usr (found version "4.8.0") \n'}
+[2.806860] (-) TimerEvent: {}
+[2.907286] (-) TimerEvent: {}
+[3.007704] (-) TimerEvent: {}
+[3.108126] (-) TimerEvent: {}
+[3.208572] (-) TimerEvent: {}
+[3.308975] (-) TimerEvent: {}
+[3.384354] (autorace_lane_lite) StdoutLine: {'line': b'-- Found Python3: /usr/include/python3.10 (found version "3.10.12") found components: Development Development.Module Development.Embed \n'}
+[3.404146] (autorace_lane_lite) StdoutLine: {'line': b'-- Found ament_cmake_gtest: 1.3.12 (/opt/ros/humble/share/ament_cmake_gtest/cmake)\n'}
+[3.409091] (-) TimerEvent: {}
+[3.418014] (autorace_lane_lite) StdoutLine: {'line': b"-- Found gtest sources under '/opt/ros/humble/src/gtest_vendor': C++ tests using 'Google Test' will be built\n"}
+[3.509274] (-) TimerEvent: {}
+[3.609673] (-) TimerEvent: {}
+[3.650452] (autorace_lane_lite) StdoutLine: {'line': b'-- Configuring done\n'}
+[3.707031] (autorace_lane_lite) StdoutLine: {'line': b'-- Generating done\n'}
+[3.709742] (-) TimerEvent: {}
+[3.721311] (autorace_lane_lite) StdoutLine: {'line': b'-- Build files have been written to: /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite\n'}
+[3.753103] (autorace_lane_lite) CommandEnded: {'returncode': 0}
+[3.757836] (autorace_lane_lite) JobProgress: {'identifier': 'autorace_lane_lite', 'progress': 'build'}
+[3.758194] (autorace_lane_lite) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite', '--', '-j6', '-l6'], 'cwd': '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('PYTHONWARNINGS', 'ignore'), ('CONDA_PROMPT_MODIFIER', ''), ('CODEX_CI', '1'), ('TENSORRT_INSTALL', '/usr/local/TensorRT-10.3.0.26'), ('USER', 'wego'), ('XDG_SESSION_TYPE', 'x11'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/opt/ros/humble/lib:/usr/lib/aarch64-linux-gnu:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/lib:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib:/usr/local/cuda-12.6/lib64::/usr/local/TensorRT-10.3.0.26/lib'), ('HOME', '/home/wego'), ('CONDA_SHLVL', '0'), ('OLDPWD', '/home/wego/2026-AutoRace'), ('DESKTOP_SESSION', 'ubuntu'), ('JETSON_L4T', '36.4.7'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('JETSON_MODEL', 'NVIDIA Jetson Orin NX Engineering Reference Developer Kit'), ('PAGER', 'cat'), ('MANAGERPID', '3272'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '3710'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', 'truecolor'), ('_CE_M', ''), ('TERMINATOR_DBUS_NAME', 'net.tenshu.Terminator23558193cd9818af7fe4d2c2f5bd9d00f'), ('_CONDA_ROOT', '/home/wego/miniconda3'), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '5244'), ('IM_CONFIG_PHASE', '1'), ('COLCON_PREFIX_PATH', '/home/wego/2026-AutoRace/sensor_ws/install'), ('CODEX_PERMISSION_PROFILE', ':danger-full-access'), ('CODEX_TOOL_CALL_ID', 'exec-dcb3267f-b830-4679-ba71-30b216e19b27'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'ibus'), ('LOGNAME', 'wego'), ('JETSON_MODULE', 'NVIDIA Jetson Orin Nano (8GB ram)'), ('JETSON_SERIAL_NUMBER', '1422824337560'), ('JOURNAL_STREAM', '8:55181'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS', '1'), ('USERNAME', 'wego'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('_CE_CONDA', ''), ('ROS_LOCALHOST_ONLY', '1'), ('WINDOWPATH', '2'), ('PATH', '/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.local/bin:/home/wego/.codex/tmp/arg0-linux/codex-arg0MqgLEz:/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0sedJUH:/home/wego/.codex/packages/app-server-daemon/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0Ezw4Wc:/home/wego/.codex/packages/standalone/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/usr/src/tensorrt/bin:/opt/ros/humble/bin:/usr/local/cuda-12.6/bin:/home/wego/miniconda3/condabin:/home/wego/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin'), ('SESSION_MANAGER', 'local/ubuntu:@/tmp/.ICE-unix/3430,unix/ubuntu:/tmp/.ICE-unix/3430'), ('CODEX_VERSION', '0.167.0'), ('CODEX_SESSION_ID', '01a1b0e9-6bf5-7fe0-bffd-bba882395741'), ('INVOCATION_ID', '49a5cabc13c9442188d4ffec6c4edcf4'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('DISPLAY', ':1'), ('TERMINATOR_DBUS_PATH', '/net/tenshu/Terminator2'), ('LANG', 'en_US.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('XMODIFIERS', '@im=ibus'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('JETSON_SOC', 'tegra234'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('CONDA_PYTHON_EXE', '/home/wego/miniconda3/bin/python'), ('SHELL', '/bin/bash'), ('TERMINATOR_UUID', 'urn:uuid:61809fdc-659d-4cc8-bc93-c3a276a2f67e'), ('QT_ACCESSIBILITY', '1'), ('GDMSESSION', 'ubuntu'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CONDA_DEFAULT_ENV', ''), ('CODEX_THREAD_ID', '01a1b0fb-3444-7481-b79e-1257296d01b8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('_CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('JETSON_CUDA_ARCH_BIN', '8.7'), ('PWD', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite'), ('LC_ALL', 'en_US.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/wego/miniconda3/envs/dl_env/lib/python3.10/site-packages:/usr/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('CONDA_PREFIX', ''), ('COLCON', '1'), ('VTE_VERSION', '6800'), ('JETSON_JETPACK', ''), ('CMAKE_PREFIX_PATH', '/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('JETSON_P_NUMBER', 'p3767-0003')]), 'shell': False}
+[3.809955] (-) TimerEvent: {}
+[3.854533] (autorace_lane_lite) StdoutLine: {'line': b'[ 30%] Building CXX object gtest/CMakeFiles/gtest.dir/src/gtest-all.cc.o\n'}
+[3.854969] (autorace_lane_lite) StdoutLine: {'line': b'[ 30%] Building CXX object CMakeFiles/lane_lite_core.dir/src/lane.cpp.o\n'}
+[3.855123] (autorace_lane_lite) StdoutLine: {'line': b'[ 30%] Building CXX object gtest/CMakeFiles/gtest_main.dir/src/gtest_main.cc.o\n'}
+[3.910134] (-) TimerEvent: {}
+[4.010527] (-) TimerEvent: {}
+[4.110921] (-) TimerEvent: {}
+[4.211323] (-) TimerEvent: {}
+[4.314611] (-) TimerEvent: {}
+[4.415031] (-) TimerEvent: {}
+[4.515451] (-) TimerEvent: {}
+[4.615860] (-) TimerEvent: {}
+[4.716271] (-) TimerEvent: {}
+[4.816683] (-) TimerEvent: {}
+[4.917112] (-) TimerEvent: {}
+[5.017537] (-) TimerEvent: {}
+[5.117955] (-) TimerEvent: {}
+[5.218454] (-) TimerEvent: {}
+[5.318913] (-) TimerEvent: {}
+[5.422539] (-) TimerEvent: {}
+[5.522953] (-) TimerEvent: {}
+[5.626750] (-) TimerEvent: {}
+[5.727283] (-) TimerEvent: {}
+[5.828189] (-) TimerEvent: {}
+[5.897450] (autorace_lane_lite) StdoutLine: {'line': b'[ 40%] Linking CXX static library libgtest_main.a\n'}
+[5.928371] (-) TimerEvent: {}
+[5.967659] (autorace_lane_lite) StdoutLine: {'line': b'[ 40%] Built target gtest_main\n'}
+[6.028555] (-) TimerEvent: {}
+[6.128954] (-) TimerEvent: {}
+[6.229356] (-) TimerEvent: {}
+[6.329763] (-) TimerEvent: {}
+[6.430197] (-) TimerEvent: {}
+[6.530645] (-) TimerEvent: {}
+[6.631076] (-) TimerEvent: {}
+[6.731477] (-) TimerEvent: {}
+[6.831873] (-) TimerEvent: {}
+[6.932277] (-) TimerEvent: {}
+[7.032689] (-) TimerEvent: {}
+[7.133085] (-) TimerEvent: {}
+[7.233515] (-) TimerEvent: {}
+[7.333929] (-) TimerEvent: {}
+[7.434359] (-) TimerEvent: {}
+[7.534781] (-) TimerEvent: {}
+[7.635198] (-) TimerEvent: {}
+[7.735633] (-) TimerEvent: {}
+[7.836050] (-) TimerEvent: {}
+[7.936427] (-) TimerEvent: {}
+[8.036804] (-) TimerEvent: {}
+[8.137215] (-) TimerEvent: {}
+[8.237600] (-) TimerEvent: {}
+[8.337969] (-) TimerEvent: {}
+[8.438375] (-) TimerEvent: {}
+[8.538754] (-) TimerEvent: {}
+[8.639118] (-) TimerEvent: {}
+[8.739518] (-) TimerEvent: {}
+[8.839885] (-) TimerEvent: {}
+[8.940262] (-) TimerEvent: {}
+[9.040763] (-) TimerEvent: {}
+[9.141200] (-) TimerEvent: {}
+[9.241775] (-) TimerEvent: {}
+[9.342136] (-) TimerEvent: {}
+[9.442509] (-) TimerEvent: {}
+[9.542936] (-) TimerEvent: {}
+[9.643322] (-) TimerEvent: {}
+[9.743772] (-) TimerEvent: {}
+[9.844141] (-) TimerEvent: {}
+[9.944522] (-) TimerEvent: {}
+[10.045067] (-) TimerEvent: {}
+[10.145657] (-) TimerEvent: {}
+[10.246174] (-) TimerEvent: {}
+[10.346630] (-) TimerEvent: {}
+[10.447075] (-) TimerEvent: {}
+[10.547535] (-) TimerEvent: {}
+[10.647944] (-) TimerEvent: {}
+[10.736300] (autorace_lane_lite) StdoutLine: {'line': b'[ 50%] Linking CXX static library liblane_lite_core.a\n'}
+[10.748279] (-) TimerEvent: {}
+[10.843365] (autorace_lane_lite) StdoutLine: {'line': b'[ 50%] Built target lane_lite_core\n'}
+[10.848426] (-) TimerEvent: {}
+[10.880799] (autorace_lane_lite) StdoutLine: {'line': b'[ 60%] Building CXX object CMakeFiles/lane_lite_node.dir/src/node.cpp.o\n'}
+[10.948626] (-) TimerEvent: {}
+[11.049039] (-) TimerEvent: {}
+[11.149424] (-) TimerEvent: {}
+[11.222188] (autorace_lane_lite) StdoutLine: {'line': b'[ 70%] Linking CXX static library libgtest.a\n'}
+[11.249645] (-) TimerEvent: {}
+[11.343798] (autorace_lane_lite) StdoutLine: {'line': b'[ 70%] Built target gtest\n'}
+[11.349798] (-) TimerEvent: {}
+[11.385808] (autorace_lane_lite) StdoutLine: {'line': b'[ 80%] Building CXX object CMakeFiles/test_lane.dir/test/test_lane.cpp.o\n'}
+[11.450021] (-) TimerEvent: {}
+[11.550483] (-) TimerEvent: {}
+[11.650866] (-) TimerEvent: {}
+[11.751260] (-) TimerEvent: {}
+[11.851664] (-) TimerEvent: {}
+[11.952079] (-) TimerEvent: {}
+[12.052494] (-) TimerEvent: {}
+[12.152985] (-) TimerEvent: {}
+[12.253386] (-) TimerEvent: {}
+[12.353790] (-) TimerEvent: {}
+[12.454197] (-) TimerEvent: {}
+[12.554634] (-) TimerEvent: {}
+[12.655052] (-) TimerEvent: {}
+[12.755472] (-) TimerEvent: {}
+[12.855886] (-) TimerEvent: {}
+[12.956295] (-) TimerEvent: {}
+[13.056720] (-) TimerEvent: {}
+[13.157122] (-) TimerEvent: {}
+[13.257540] (-) TimerEvent: {}
+[13.357949] (-) TimerEvent: {}
+[13.458380] (-) TimerEvent: {}
+[13.559032] (-) TimerEvent: {}
+[13.659439] (-) TimerEvent: {}
+[13.759844] (-) TimerEvent: {}
+[13.860228] (-) TimerEvent: {}
+[13.960633] (-) TimerEvent: {}
+[14.061123] (-) TimerEvent: {}
+[14.162578] (-) TimerEvent: {}
+[14.262999] (-) TimerEvent: {}
+[14.363413] (-) TimerEvent: {}
+[14.409713] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_BothBoundariesGiveCentredTarget_Test::TestBody()\xe2\x80\x99:\n'}
+[14.410336] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:31:21: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat, int)\xe2\x80\x99\n'}
+[14.410596] (autorace_lane_lite) StderrLine: {'line': b'   31 |   auto r = p.process(scene(170, 300), 0);\n'}
+[14.410735] (autorace_lane_lite) StderrLine: {'line': b'      |            ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~\n'}
+[14.410860] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.410981] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.411101] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.411214] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.411325] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.413267] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_GlareBlobIsNotAMarking_Test::TestBody()\xe2\x80\x99:\n'}
+[14.413543] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:38:21: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat, int)\xe2\x80\x99\n'}
+[14.413688] (autorace_lane_lite) StderrLine: {'line': b'   38 |   auto r = p.process(scene(170, 300, true, true, true), 0);\n'}
+[14.413808] (autorace_lane_lite) StderrLine: {'line': b'      |            ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n'}
+[14.413919] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.414029] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.414141] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.414248] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.414462] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.415274] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_SingleBoundaryOffsetsByLaneWidth_Test::TestBody()\xe2\x80\x99:\n'}
+[14.415423] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:45:21: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat, int)\xe2\x80\x99\n'}
+[14.415539] (autorace_lane_lite) StderrLine: {'line': b'   45 |   auto r = p.process(scene(170, 300, true, false), 0);\n'}
+[14.415651] (autorace_lane_lite) StderrLine: {'line': b'      |            ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n'}
+[14.415757] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.415901] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.416015] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.416123] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.416228] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.417594] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_ShortDropoutIsHeldThenLost_Test::TestBody()\xe2\x80\x99:\n'}
+[14.417746] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:53:12: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat, int)\xe2\x80\x99\n'}
+[14.418300] (autorace_lane_lite) StderrLine: {'line': b'   53 |   p.process(scene(170, 300), 0);\n'}
+[14.418470] (autorace_lane_lite) StderrLine: {'line': b'      |   ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~\n'}
+[14.418607] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.418720] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.418836] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.418945] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.419051] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.419181] (autorace_lane_lite) StderrLine: {'line': b'In file included from /opt/ros/humble/src/gtest_vendor/include/gtest/gtest.h:375,\n'}
+[14.419292] (autorace_lane_lite) StderrLine: {'line': b'                 from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:3:\n'}
+[14.419401] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:55:22: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat&, double)\xe2\x80\x99\n'}
+[14.419509] (autorace_lane_lite) StderrLine: {'line': b'   55 |   EXPECT_EQ(p.process(empty, .1).state, "held");\n'}
+[14.419617] (autorace_lane_lite) StderrLine: {'line': b'      |             ~~~~~~~~~^~~~~~~~~~~\n'}
+[14.419723] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.419828] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.420174] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.420452] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.420563] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.420692] (autorace_lane_lite) StderrLine: {'line': b'In file included from /opt/ros/humble/src/gtest_vendor/include/gtest/gtest.h:62,\n'}
+[14.420804] (autorace_lane_lite) StderrLine: {'line': b'                 from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:3:\n'}
+[14.420914] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:56:25: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat&, double)\xe2\x80\x99\n'}
+[14.421023] (autorace_lane_lite) StderrLine: {'line': b'   56 |   EXPECT_FALSE(p.process(empty, .7).valid);\n'}
+[14.421129] (autorace_lane_lite) StderrLine: {'line': b'      |                ~~~~~~~~~^~~~~~~~~~~\n'}
+[14.421234] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.421339] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.421447] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.421553] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.421678] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.421786] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_OneFrameJumpIsRejected_Test::TestBody()\xe2\x80\x99:\n'}
+[14.421895] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:61:14: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat, double)\xe2\x80\x99\n'}
+[14.422002] (autorace_lane_lite) StderrLine: {'line': b'   61 |     p.process(scene(170, 300), i * .05);\n'}
+[14.422108] (autorace_lane_lite) StderrLine: {'line': b'      |     ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~\n'}
+[14.422214] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.422319] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.422526] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.422921] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.423037] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.423168] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:62:21: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat, double)\xe2\x80\x99\n'}
+[14.423284] (autorace_lane_lite) StderrLine: {'line': b'   62 |   auto r = p.process(scene(260, 300), .25); // both lines jump 90 px at once\n'}
+[14.423393] (autorace_lane_lite) StderrLine: {'line': b'      |            ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~\n'}
+[14.423498] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.423603] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.423711] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.423814] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.423917] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.424021] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_TransverseBendIsFollowed_Test::TestBody()\xe2\x80\x99:\n'}
+[14.424146] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:71:21: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat&, int)\xe2\x80\x99\n'}
+[14.424253] (autorace_lane_lite) StderrLine: {'line': b'   71 |   auto r = p.process(img, 0);\n'}
+[14.424356] (autorace_lane_lite) StderrLine: {'line': b'      |            ~~~~~~~~~^~~~~~~~\n'}
+[14.424461] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.424581] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.424689] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.424793] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.424895] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.425792] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_DashedBoundaryIsTrackedNearToFar_Test::TestBody()\xe2\x80\x99:\n'}
+[14.425930] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:85:23: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat&, double)\xe2\x80\x99\n'}
+[14.426043] (autorace_lane_lite) StderrLine: {'line': b'   85 |     auto r = p.process(img, i * .05);\n'}
+[14.426150] (autorace_lane_lite) StderrLine: {'line': b'      |              ~~~~~~~~~^~~~~~~~~~~~~~\n'}
+[14.426254] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.426388] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.426507] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.426613] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.426717] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.429440] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_StopLineIsNeverABoundary_Test::TestBody()\xe2\x80\x99:\n'}
+[14.429627] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:100:23: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat&, double)\xe2\x80\x99\n'}
+[14.429813] (autorace_lane_lite) StderrLine: {'line': b'  100 |     auto r = p.process(img, i * .05);\n'}
+[14.429956] (autorace_lane_lite) StderrLine: {'line': b'      |              ~~~~~~~~~^~~~~~~~~~~~~~\n'}
+[14.430068] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.430190] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.430332] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.430494] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.430604] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.440561] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_CrosswalkStripesAreRemoved_Test::TestBody()\xe2\x80\x99:\n'}
+[14.441047] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:118:18: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat&, double)\xe2\x80\x99\n'}
+[14.441207] (autorace_lane_lite) StderrLine: {'line': b'  118 |     r = p.process(img, i * .05);\n'}
+[14.441339] (autorace_lane_lite) StderrLine: {'line': b'      |         ~~~~~~~~~^~~~~~~~~~~~~~\n'}
+[14.441460] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.441580] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.441701] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.441816] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.441927] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.446011] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_ThickDashesSurviveWhiteMaxWidth_Test::TestBody()\xe2\x80\x99:\n'}
+[14.446410] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:134:23: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat&, double)\xe2\x80\x99\n'}
+[14.446728] (autorace_lane_lite) StderrLine: {'line': b'  134 |     auto r = p.process(img, i * .05);\n'}
+[14.446861] (autorace_lane_lite) StderrLine: {'line': b'      |              ~~~~~~~~~^~~~~~~~~~~~~~\n'}
+[14.446976] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.447089] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.447205] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.447316] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.447423] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.449181] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_SolidWhiteIsIgnoredDashedWhiteKept_Test::TestBody()\xe2\x80\x99:\n'}
+[14.449688] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:148:23: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat, double)\xe2\x80\x99\n'}
+[14.449837] (autorace_lane_lite) StderrLine: {'line': b'  148 |     rs = solid.process(scene(170, 300), i * .05); // full-height white line\n'}
+[14.449957] (autorace_lane_lite) StderrLine: {'line': b'      |          ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~\n'}
+[14.450070] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.450231] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.450414] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.450537] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.450649] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.450758] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:152:24: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat&, double)\xe2\x80\x99\n'}
+[14.450868] (autorace_lane_lite) StderrLine: {'line': b'  152 |     rd = dashed.process(img, i * .05);\n'}
+[14.450978] (autorace_lane_lite) StderrLine: {'line': b'      |          ~~~~~~~~~~~~~~^~~~~~~~~~~~~~\n'}
+[14.451085] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.451211] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.451326] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.451435] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.451542] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.454628] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_YellowPairSkipsAngleLimitWhitePairDoesNot_Test::TestBody()\xe2\x80\x99:\n'}
+[14.454835] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:173:20: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(cv::Mat&, double)\xe2\x80\x99\n'}
+[14.454998] (autorace_lane_lite) StderrLine: {'line': b'  173 |       r = p.process(img, i * .05);\n'}
+[14.455116] (autorace_lane_lite) StderrLine: {'line': b'      |           ~~~~~~~~~^~~~~~~~~~~~~~\n'}
+[14.455228] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.455337] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.455448] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.455557] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.455663] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.457701] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function \xe2\x80\x98virtual void LaneLite_NoViewsGivesSameResult_Test::TestBody()\xe2\x80\x99:\n'}
+[14.457910] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:183:30: error: no matching function for call to \xe2\x80\x98lane_lite::Pipeline::process(const cv::Mat&, double)\xe2\x80\x99\n'}
+[14.458051] (autorace_lane_lite) StderrLine: {'line': b'  183 |     const auto ra = a.process(img, i * .05), rb = b.process(img, i * .05, false);\n'}
+[14.458166] (autorace_lane_lite) StderrLine: {'line': b'      |                     ~~~~~~~~~^~~~~~~~~~~~~~\n'}
+[14.458279] (autorace_lane_lite) StderrLine: {'line': b'In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:\n'}
+[14.458431] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: \xe2\x80\x98lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)\xe2\x80\x99\n'}
+[14.458552] (autorace_lane_lite) StderrLine: {'line': b'   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);\n'}
+[14.458661] (autorace_lane_lite) StderrLine: {'line': b'      |          ^~~~~~~\n'}
+[14.458767] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided\n'}
+[14.463502] (-) TimerEvent: {}
+[14.478368] (autorace_lane_lite) StderrLine: {'line': b'In file included from /opt/ros/humble/src/gtest_vendor/include/gtest/gtest.h:375,\n'}
+[14.478846] (autorace_lane_lite) StderrLine: {'line': b'                 from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:3:\n'}
+[14.478993] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:184:25: error: \xe2\x80\x98rb\xe2\x80\x99 was not declared in this scope; did you mean \xe2\x80\x98b\xe2\x80\x99?\n'}
+[14.479126] (autorace_lane_lite) StderrLine: {'line': b'  184 |     ASSERT_EQ(ra.valid, rb.valid) << i;\n'}
+[14.479247] (autorace_lane_lite) StderrLine: {'line': b'      |                         ^~\n'}
+[14.496604] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:185:25: error: \xe2\x80\x98rb\xe2\x80\x99 was not declared in this scope; did you mean \xe2\x80\x98b\xe2\x80\x99?\n'}
+[14.496996] (autorace_lane_lite) StderrLine: {'line': b'  185 |     EXPECT_EQ(ra.state, rb.state) << i;\n'}
+[14.497210] (autorace_lane_lite) StderrLine: {'line': b'      |                         ^~\n'}
+[14.514186] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:186:36: error: \xe2\x80\x98rb\xe2\x80\x99 was not declared in this scope; did you mean \xe2\x80\x98b\xe2\x80\x99?\n'}
+[14.514753] (autorace_lane_lite) StderrLine: {'line': b'  186 |     EXPECT_DOUBLE_EQ(ra.lateral_m, rb.lateral_m) << i;\n'}
+[14.514902] (autorace_lane_lite) StderrLine: {'line': b'      |                                    ^~\n'}
+[14.531498] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:187:34: error: \xe2\x80\x98rb\xe2\x80\x99 was not declared in this scope; did you mean \xe2\x80\x98b\xe2\x80\x99?\n'}
+[14.531830] (autorace_lane_lite) StderrLine: {'line': b'  187 |     EXPECT_DOUBLE_EQ(ra.heading, rb.heading) << i;\n'}
+[14.532076] (autorace_lane_lite) StderrLine: {'line': b'      |                                  ^~\n'}
+[14.549751] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:188:41: error: \xe2\x80\x98rb\xe2\x80\x99 was not declared in this scope; did you mean \xe2\x80\x98b\xe2\x80\x99?\n'}
+[14.550249] (autorace_lane_lite) StderrLine: {'line': b'  188 |     EXPECT_DOUBLE_EQ(ra.near_lateral_m, rb.near_lateral_m) << i;\n'}
+[14.550434] (autorace_lane_lite) StderrLine: {'line': b'      |                                         ^~\n'}
+[14.563672] (-) TimerEvent: {}
+[14.567279] (autorace_lane_lite) StderrLine: {'line': b'In file included from /opt/ros/humble/src/gtest_vendor/include/gtest/gtest.h:62,\n'}
+[14.567677] (autorace_lane_lite) StderrLine: {'line': b'                 from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:3:\n'}
+[14.567815] (autorace_lane_lite) StderrLine: {'line': b'/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:189:17: error: \xe2\x80\x98rb\xe2\x80\x99 was not declared in this scope; did you mean \xe2\x80\x98b\xe2\x80\x99?\n'}
+[14.567944] (autorace_lane_lite) StderrLine: {'line': b'  189 |     EXPECT_TRUE(rb.path_view.empty() && rb.overlay.empty()) << i;\n'}
+[14.568061] (autorace_lane_lite) StderrLine: {'line': b'      |                 ^~\n'}
+[14.663871] (-) TimerEvent: {}
+[14.764343] (-) TimerEvent: {}
+[14.864813] (-) TimerEvent: {}
+[14.965214] (-) TimerEvent: {}
+[15.065622] (-) TimerEvent: {}
+[15.141871] (autorace_lane_lite) StderrLine: {'line': b'gmake[2]: *** [CMakeFiles/test_lane.dir/build.make:76: CMakeFiles/test_lane.dir/test/test_lane.cpp.o] Error 1\n'}
+[15.142833] (autorace_lane_lite) StderrLine: {'line': b'gmake[1]: *** [CMakeFiles/Makefile2:213: CMakeFiles/test_lane.dir/all] Error 2\n'}
+[15.143134] (autorace_lane_lite) StderrLine: {'line': b'gmake[1]: *** Waiting for unfinished jobs....\n'}
+[15.165792] (-) TimerEvent: {}
+[15.266227] (-) TimerEvent: {}
+[15.366721] (-) TimerEvent: {}
+[15.467192] (-) TimerEvent: {}
+[15.567658] (-) TimerEvent: {}
+[15.668150] (-) TimerEvent: {}
+[15.768617] (-) TimerEvent: {}
+[15.869099] (-) TimerEvent: {}
+[15.969582] (-) TimerEvent: {}
+[16.070051] (-) TimerEvent: {}
+[16.170508] (-) TimerEvent: {}
+[16.270914] (-) TimerEvent: {}
+[16.371320] (-) TimerEvent: {}
+[16.471728] (-) TimerEvent: {}
+[16.572136] (-) TimerEvent: {}
+[16.672545] (-) TimerEvent: {}
+[16.772952] (-) TimerEvent: {}
+[16.873367] (-) TimerEvent: {}
+[16.973792] (-) TimerEvent: {}
+[17.074193] (-) TimerEvent: {}
+[17.174642] (-) TimerEvent: {}
+[17.275050] (-) TimerEvent: {}
+[17.375465] (-) TimerEvent: {}
+[17.475873] (-) TimerEvent: {}
+[17.576298] (-) TimerEvent: {}
+[17.676721] (-) TimerEvent: {}
+[17.777131] (-) TimerEvent: {}
+[17.877545] (-) TimerEvent: {}
+[17.977957] (-) TimerEvent: {}
+[18.078413] (-) TimerEvent: {}
+[18.178821] (-) TimerEvent: {}
+[18.279230] (-) TimerEvent: {}
+[18.379640] (-) TimerEvent: {}
+[18.480047] (-) TimerEvent: {}
+[18.580455] (-) TimerEvent: {}
+[18.680858] (-) TimerEvent: {}
+[18.781662] (-) TimerEvent: {}
+[18.882120] (-) TimerEvent: {}
+[18.982500] (-) TimerEvent: {}
+[19.082868] (-) TimerEvent: {}
+[19.183206] (-) TimerEvent: {}
+[19.283550] (-) TimerEvent: {}
+[19.383943] (-) TimerEvent: {}
+[19.484370] (-) TimerEvent: {}
+[19.584814] (-) TimerEvent: {}
+[19.685212] (-) TimerEvent: {}
+[19.785662] (-) TimerEvent: {}
+[19.886067] (-) TimerEvent: {}
+[19.986478] (-) TimerEvent: {}
+[20.086850] (-) TimerEvent: {}
+[20.187223] (-) TimerEvent: {}
+[20.287609] (-) TimerEvent: {}
+[20.387968] (-) TimerEvent: {}
+[20.488317] (-) TimerEvent: {}
+[20.588676] (-) TimerEvent: {}
+[20.689034] (-) TimerEvent: {}
+[20.789399] (-) TimerEvent: {}
+[20.889761] (-) TimerEvent: {}
+[20.990106] (-) TimerEvent: {}
+[21.090488] (-) TimerEvent: {}
+[21.190853] (-) TimerEvent: {}
+[21.291196] (-) TimerEvent: {}
+[21.391551] (-) TimerEvent: {}
+[21.491899] (-) TimerEvent: {}
+[21.592255] (-) TimerEvent: {}
+[21.692614] (-) TimerEvent: {}
+[21.792978] (-) TimerEvent: {}
+[21.893334] (-) TimerEvent: {}
+[21.993694] (-) TimerEvent: {}
+[22.094071] (-) TimerEvent: {}
+[22.194468] (-) TimerEvent: {}
+[22.294848] (-) TimerEvent: {}
+[22.395226] (-) TimerEvent: {}
+[22.495563] (-) TimerEvent: {}
+[22.595902] (-) TimerEvent: {}
+[22.696257] (-) TimerEvent: {}
+[22.796615] (-) TimerEvent: {}
+[22.897039] (-) TimerEvent: {}
+[22.997726] (-) TimerEvent: {}
+[23.098273] (-) TimerEvent: {}
+[23.198808] (-) TimerEvent: {}
+[23.299155] (-) TimerEvent: {}
+[23.399547] (-) TimerEvent: {}
+[23.499907] (-) TimerEvent: {}
+[23.600256] (-) TimerEvent: {}
+[23.700635] (-) TimerEvent: {}
+[23.801001] (-) TimerEvent: {}
+[23.901621] (-) TimerEvent: {}
+[24.001988] (-) TimerEvent: {}
+[24.102358] (-) TimerEvent: {}
+[24.202700] (-) TimerEvent: {}
+[24.303030] (-) TimerEvent: {}
+[24.403447] (-) TimerEvent: {}
+[24.503905] (-) TimerEvent: {}
+[24.604325] (-) TimerEvent: {}
+[24.704660] (-) TimerEvent: {}
+[24.805071] (-) TimerEvent: {}
+[24.905441] (-) TimerEvent: {}
+[25.005805] (-) TimerEvent: {}
+[25.106200] (-) TimerEvent: {}
+[25.206618] (-) TimerEvent: {}
+[25.307022] (-) TimerEvent: {}
+[25.407466] (-) TimerEvent: {}
+[25.507861] (-) TimerEvent: {}
+[25.608366] (-) TimerEvent: {}
+[25.708825] (-) TimerEvent: {}
+[25.810588] (-) TimerEvent: {}
+[25.910987] (-) TimerEvent: {}
+[26.011399] (-) TimerEvent: {}
+[26.111848] (-) TimerEvent: {}
+[26.212288] (-) TimerEvent: {}
+[26.313007] (-) TimerEvent: {}
+[26.413393] (-) TimerEvent: {}
+[26.513788] (-) TimerEvent: {}
+[26.614613] (-) TimerEvent: {}
+[26.714991] (-) TimerEvent: {}
+[26.815363] (-) TimerEvent: {}
+[26.915740] (-) TimerEvent: {}
+[27.016137] (-) TimerEvent: {}
+[27.116516] (-) TimerEvent: {}
+[27.216896] (-) TimerEvent: {}
+[27.317298] (-) TimerEvent: {}
+[27.417674] (-) TimerEvent: {}
+[27.518056] (-) TimerEvent: {}
+[27.618513] (-) TimerEvent: {}
+[27.719904] (-) TimerEvent: {}
+[27.820281] (-) TimerEvent: {}
+[27.920661] (-) TimerEvent: {}
+[28.021055] (-) TimerEvent: {}
+[28.121449] (-) TimerEvent: {}
+[28.221845] (-) TimerEvent: {}
+[28.322251] (-) TimerEvent: {}
+[28.422671] (-) TimerEvent: {}
+[28.523054] (-) TimerEvent: {}
+[28.623435] (-) TimerEvent: {}
+[28.723826] (-) TimerEvent: {}
+[28.824220] (-) TimerEvent: {}
+[28.924616] (-) TimerEvent: {}
+[29.025030] (-) TimerEvent: {}
+[29.125416] (-) TimerEvent: {}
+[29.225824] (-) TimerEvent: {}
+[29.326226] (-) TimerEvent: {}
+[29.426643] (-) TimerEvent: {}
+[29.527033] (-) TimerEvent: {}
+[29.627458] (-) TimerEvent: {}
+[29.727896] (-) TimerEvent: {}
+[29.828364] (-) TimerEvent: {}
+[29.928837] (-) TimerEvent: {}
+[30.029263] (-) TimerEvent: {}
+[30.129707] (-) TimerEvent: {}
+[30.230165] (-) TimerEvent: {}
+[30.330640] (-) TimerEvent: {}
+[30.431098] (-) TimerEvent: {}
+[30.531549] (-) TimerEvent: {}
+[30.631986] (-) TimerEvent: {}
+[30.732378] (-) TimerEvent: {}
+[30.832789] (-) TimerEvent: {}
+[30.933238] (-) TimerEvent: {}
+[31.033688] (-) TimerEvent: {}
+[31.134157] (-) TimerEvent: {}
+[31.234676] (-) TimerEvent: {}
+[31.335176] (-) TimerEvent: {}
+[31.436367] (-) TimerEvent: {}
+[31.536854] (-) TimerEvent: {}
+[31.637313] (-) TimerEvent: {}
+[31.737891] (-) TimerEvent: {}
+[31.838870] (-) TimerEvent: {}
+[31.939289] (-) TimerEvent: {}
+[32.039847] (-) TimerEvent: {}
+[32.140259] (-) TimerEvent: {}
+[32.240706] (-) TimerEvent: {}
+[32.341156] (-) TimerEvent: {}
+[32.441616] (-) TimerEvent: {}
+[32.542061] (-) TimerEvent: {}
+[32.642549] (-) TimerEvent: {}
+[32.743010] (-) TimerEvent: {}
+[32.843475] (-) TimerEvent: {}
+[32.943934] (-) TimerEvent: {}
+[33.044355] (-) TimerEvent: {}
+[33.144802] (-) TimerEvent: {}
+[33.245248] (-) TimerEvent: {}
+[33.345700] (-) TimerEvent: {}
+[33.446131] (-) TimerEvent: {}
+[33.546554] (-) TimerEvent: {}
+[33.647000] (-) TimerEvent: {}
+[33.747448] (-) TimerEvent: {}
+[33.847880] (-) TimerEvent: {}
+[33.948273] (-) TimerEvent: {}
+[34.048714] (-) TimerEvent: {}
+[34.149170] (-) TimerEvent: {}
+[34.249590] (-) TimerEvent: {}
+[34.349978] (-) TimerEvent: {}
+[34.450389] (-) TimerEvent: {}
+[34.550798] (-) TimerEvent: {}
+[34.651196] (-) TimerEvent: {}
+[34.751590] (-) TimerEvent: {}
+[34.851995] (-) TimerEvent: {}
+[34.952385] (-) TimerEvent: {}
+[35.052781] (-) TimerEvent: {}
+[35.153180] (-) TimerEvent: {}
+[35.253579] (-) TimerEvent: {}
+[35.354047] (-) TimerEvent: {}
+[35.454531] (-) TimerEvent: {}
+[35.554992] (-) TimerEvent: {}
+[35.655405] (-) TimerEvent: {}
+[35.755820] (-) TimerEvent: {}
+[35.856201] (-) TimerEvent: {}
+[35.938694] (autorace_lane_lite) StdoutLine: {'line': b'[ 90%] Linking CXX executable lane_lite_node\n'}
+[35.956375] (-) TimerEvent: {}
+[36.056756] (-) TimerEvent: {}
+[36.157153] (-) TimerEvent: {}
+[36.257588] (-) TimerEvent: {}
+[36.358066] (-) TimerEvent: {}
+[36.458521] (-) TimerEvent: {}
+[36.559007] (-) TimerEvent: {}
+[36.610138] (autorace_lane_lite) StderrLine: {'line': b'/usr/bin/ld: warning: libopencv_imgcodecs.so.4.5d, needed by /opt/ros/humble/lib/libcv_bridge.so, may conflict with libopencv_imgcodecs.so.408\n'}
+[36.612796] (autorace_lane_lite) StderrLine: {'line': b'/usr/bin/ld: warning: libopencv_imgproc.so.4.5d, needed by /opt/ros/humble/lib/libcv_bridge.so, may conflict with libopencv_imgproc.so.408\n'}
+[36.615143] (autorace_lane_lite) StderrLine: {'line': b'/usr/bin/ld: warning: libopencv_core.so.4.5d, needed by /opt/ros/humble/lib/libcv_bridge.so, may conflict with libopencv_core.so.408\n'}
+[36.659195] (-) TimerEvent: {}
+[36.759649] (-) TimerEvent: {}
+[36.860112] (-) TimerEvent: {}
+[36.960597] (-) TimerEvent: {}
+[37.061061] (-) TimerEvent: {}
+[37.161522] (-) TimerEvent: {}
+[37.261991] (-) TimerEvent: {}
+[37.362452] (-) TimerEvent: {}
+[37.462899] (-) TimerEvent: {}
+[37.563332] (-) TimerEvent: {}
+[37.663756] (-) TimerEvent: {}
+[37.764218] (-) TimerEvent: {}
+[37.864710] (autorace_lane_lite) StdoutLine: {'line': b'[ 90%] Built target lane_lite_node\n'}
+[37.865213] (-) TimerEvent: {}
+[37.867574] (autorace_lane_lite) StderrLine: {'line': b'gmake: *** [Makefile:146: all] Error 2\n'}
+[37.872382] (autorace_lane_lite) CommandEnded: {'returncode': 2}
+[37.909284] (autorace_lane_lite) JobEnded: {'identifier': 'autorace_lane_lite', 'rc': 2}
+[37.920254] (autorace_lane_pid) JobSkipped: {'identifier': 'autorace_lane_pid'}
+[37.920455] (-) EventReactorShutdown: {}

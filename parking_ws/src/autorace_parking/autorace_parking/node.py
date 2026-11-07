@@ -27,13 +27,14 @@ from std_srvs.srv import Trigger
 from visualization_msgs.msg import Marker, MarkerArray
 
 from .departure import single_reverse_route
-from .core import Activation, Scan, Settings, Gap, CollisionChecker, cluster_points, front_clearance, wrap
-from .control import Follower, build_plan_report, local_goal,needs_reverse_for_goal,minimum_recovery_path
-from .regions import with_occupied_slots,first_occupied_path_collision
+from .core import Activation, Scan, Settings, Gap, CollisionChecker, RecoveryCollisionChecker, cluster_points, front_clearance, wrap
+from .control import Follower, build_plan_report, local_goal,needs_reverse_for_goal,minimum_recovery_path,supported_recovery_target
+from .regions import with_occupied_slots,first_occupied_path_collision,first_path_collision
 from .tracking import ScanTracker, compose, inverse
 from .localization import FusedTracker, PoseHistory, OdomSample
 from .obstacle_memory import ObstacleMemory,MemoryScan
 from .diagnostics import operator_reason, reason_text, state_text
+from .roi import candidate_view
 
 SCAN_FUTURE_TOLERANCE = .1
 
@@ -53,6 +54,8 @@ def validate_settings(cfg):
                  'boundary_tolerance','target_heading_step','center_stop_tolerance','pair_stop_tolerance'):
         if getattr(cfg, name) <= 0:
             raise ValueError(f'{name} 설정은 0보다 커야 합니다.')
+    if min(cfg.candidate_roi_forward_min,cfg.candidate_roi_right_min)<0 or cfg.candidate_roi_forward_min>=cfg.candidate_roi_forward_max or cfg.candidate_roi_right_min>=cfg.candidate_roi_right_max:
+        raise ValueError('후보 ROI의 전방·오른쪽 범위는 0 이상이고 최소가 최대보다 작아야 합니다.')
     if cfg.recovery_min_distance<0 or (cfg.recovery_min_distance>0 and minimum_recovery_path(cfg)>cfg.recovery_reverse_distance):
         raise ValueError('최소 후진 거리와 정지 여유가 1회 최대 후진 거리 안에 들어가야 합니다.')
     if (cfg.recovery_reverse_distance <= 0 or cfg.recovery_speed <= 0
@@ -158,8 +161,11 @@ class ParkingNode(Node):
         self.odom_frame = parameter('odom_frame', 'parking_odom' if self.localization_source == 'fused' else 'odom')
         self.odometry = PoseHistory(timeout=self.localization_timeout,
                                    max_std=parameter('localization_max_stddev', .5))
+        self.odometry.samples=deque(maxlen=16)  # Small interpolation window; never a processing backlog.
         self.fusion_health = None
         self.fusion_health_received = None
+        self.localization_not_before = None
+        self.last_localization_rejection = None
         self.planning_cache_key = None
         self.planning_cache = None
         self.visual_path_cache_key = None
@@ -180,8 +186,9 @@ class ParkingNode(Node):
         self.scan, self.scan_header, self.scan_time = None, None, None
         self.scan_error = ''
         self.last_scan_stamp = None
+        self.last_scan_received_stamp = None
         self.scan_not_before = None
-        self.pending_scans = deque(maxlen=10)
+        self.pending_scans = deque(maxlen=1)
         self.scan_sequence = 0
         self.controlled_sequence = -1
         self.last_now = None
@@ -209,6 +216,8 @@ class ParkingNode(Node):
         self.recovery_remaining = self.cfg.recovery_total_distance
         self.blind_reverse_remaining = self.cfg.blind_reverse_distance
         self.recovery_running = False
+        self.recovery_lane_released = False
+        self.recovery_stop_confirmations = 0
         self.observed_corridor = deque(maxlen=2000)
         # Hybrid A* is Python CPU work. Isolate it so its GIL cannot starve
         # timestamped sensor callbacks and the command/health watchdog.
@@ -225,6 +234,7 @@ class ParkingNode(Node):
         self.obstacle_marker_count = 0
         self.target_pub = self.create_publisher(MarkerArray, '/parking/target', 1)
         self.slot_map_pub = self.create_publisher(MarkerArray, '/parking/slot_map', 1)
+        self.roi_pub = self.create_publisher(MarkerArray, '/parking/candidate_roi', 1)
         self.path_pub = self.create_publisher(Path, '/parking/path', 1)
         self.active_pub = self.create_publisher(Bool, '/parking/active', 1)
         self.status_pub = self.create_publisher(String, '/parking/status', 1)
@@ -304,7 +314,7 @@ class ParkingNode(Node):
                                 values['max_steering_rate'],values['min_turn_speed'])
         except (ValueError,TypeError) as exc:
             return SetParametersResult(successful=False,reason=str(exc))
-        if any(name.startswith('slot_') for name in updates):
+        if any(name.startswith(('slot_','candidate_roi_')) for name in updates):
             self.slot_map=None
             if self.follower.goal is not None and self.follower.goal.slot_id>=0:
                 self.follower.awaiting_target_path=True
@@ -314,6 +324,8 @@ class ParkingNode(Node):
             setattr(self,attr,values[name])
         self.activation.required,self.activation.timeout = self.required_detections,self.sign_timeout
         self.follower.cfg = cfg
+        if any(name.startswith('candidate_roi_') for name in updates) and self.follower.goal is not None:
+            self.follower.awaiting_target_path=bool(self.follower.path)
         if 'hold_entry_path' in updates:
             self.follower.entry_locked = bool(cfg.hold_entry_path and self.follower.path
                                              and not self.follower.recovering and not self.follower.exiting)
@@ -364,6 +376,7 @@ class ParkingNode(Node):
             health = json.loads(msg.data)
             if not isinstance(health.get('ready'), bool) or not math.isfinite(health['stamp']):
                 return
+            if self.localization_not_before is not None and health['stamp']<self.localization_not_before:return
             self.fusion_health = health
             self.fusion_health_received = time.monotonic()
         except (ValueError, TypeError, KeyError, AttributeError):
@@ -371,12 +384,14 @@ class ParkingNode(Node):
 
     def on_localization(self, msg):
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if self.localization_not_before is not None and stamp<self.localization_not_before:return
         q, p = msg.pose.pose.orientation, msg.pose.pose.position
         values = (q.x, q.y, q.z, q.w, p.x, p.y, *msg.pose.covariance)
         if (msg.header.frame_id != self.odom_frame or msg.child_frame_id != self.base_frame
                 or not -.05 <= self.now_seconds()-stamp <= self.localization_timeout
                 or not all(math.isfinite(v) for v in values)
                 or abs(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w-1.) > .01):
+            self.last_localization_rejection={'stamp':stamp,'age_s':self.now_seconds()-stamp,'frame':msg.header.frame_id,'child_frame':msg.child_frame_id}
             self.odometry.reason = 'Invalid EKF frame, timestamp, quaternion or covariance'
             return
         yaw = math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z))
@@ -384,6 +399,7 @@ class ParkingNode(Node):
                                                msg.twist.twist.angular.z,
                                                tuple(msg.pose.covariance[i] for i in (0, 7, 35))))
         if accepted:
+            self.last_localization_rejection=None
             self.drain_pending_scans()
 
     def drain_pending_scans(self):
@@ -403,6 +419,19 @@ class ParkingNode(Node):
         self.pending_scans = remaining
         if ready is not None:
             self.on_scan(ready)
+
+    def synchronization_status(self,now):
+        stamp=self.odometry.samples[-1].stamp if self.odometry.samples else None
+        return {'method':'scan_stamp_odometry_interpolation',
+            'scan_age_s':None if self.scan_time is None else now-self.scan_time,
+            'odom_age_s':None if stamp is None else now-stamp,
+            'health_age_s':None if self.fusion_health is None else now-self.fusion_health['stamp'],
+            'health_callback_age_s':None if self.fusion_health_received is None else time.monotonic()-self.fusion_health_received,
+            'scan_to_latest_odom_s':None if stamp is None or self.scan_time is None else stamp-self.scan_time,
+            'pending_scans':len(self.pending_scans),'scan_queue_capacity':self.pending_scans.maxlen,
+            'odom_history_capacity':self.odometry.samples.maxlen,
+            'latest_scan_received_age_s':None if self.last_scan_received_stamp is None else now-self.last_scan_received_stamp,
+            'last_odom_rejection':self.last_localization_rejection}
 
     def localization_ready(self, now):
         if self.localization_source == 'scan':
@@ -449,7 +478,7 @@ class ParkingNode(Node):
         if self.exit_pending is None or not self.exit_pending[0].done():return
         future,epoch,follower,origin=self.exit_pending
         self.exit_pending=None
-        if epoch!=self.epoch or follower is not self.follower or not self.activation.active:return
+        if epoch!=self.epoch or follower is not self.follower or not self.activation.active or follower.exited:return
         try:route,reason=future.result()
         except Exception as exc:
             self.get_logger().error('출차 경로 계산 오류: '+str(exc))
@@ -485,7 +514,9 @@ class ParkingNode(Node):
         self.tracker = self.new_tracker()
         self.scan, self.scan_header, self.scan_time = None, None, None
         self.last_scan_stamp = None
+        self.last_scan_received_stamp = None
         self.scan_not_before = None
+        self.localization_not_before = None
         self.pending_scans.clear()
         self.scan_error = ''
         self.controlled_sequence = -1
@@ -506,8 +537,11 @@ class ParkingNode(Node):
         self.recovery_remaining = self.cfg.recovery_total_distance
         self.blind_reverse_remaining = self.cfg.blind_reverse_distance
         self.recovery_running = False
+        self.recovery_lane_released = False
+        self.recovery_stop_confirmations = 0
         self.observed_corridor.clear()
         self.clear_visuals()
+        self.roi_pub.publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))
 
     def reset_state(self):
         self.reset_motion()
@@ -532,8 +566,6 @@ class ParkingNode(Node):
         generation = self.activation.generation
         mission_now = self.now_seconds()
         if was_active:
-            if self.cfg.continuous_replanning and self.follower.path and not self.follower.exited:
-                return  # Repeated detections must not interrupt a route in motion.
             if not msg.data:
                 return
             self.activation.restart(mission_now)
@@ -547,6 +579,10 @@ class ParkingNode(Node):
             if was_active:
                 # Ignore queued scans acquired before the new start signal.
                 self.scan_not_before = mission_now
+                self.localization_not_before = mission_now
+                self.odometry.samples.clear()
+                self.odometry.discontinuity=False;self.odometry.reason=''
+                self.fusion_health=None;self.fusion_health_received=None
             self.attempt += 1
             # Registration origin is the first scan acquired after activation.
             self.state, self.reason = 'WAITING_SCAN', ''
@@ -556,6 +592,7 @@ class ParkingNode(Node):
     def on_scan(self, msg):
         now = self.now_seconds()
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if self.last_scan_received_stamp is not None and stamp<self.last_scan_received_stamp:return
         valid_geometry = (msg.header.frame_id in (self.base_frame, self.lidar_frame)
                           and len(msg.ranges) >= 3 and math.isfinite(msg.angle_min)
                           and math.isfinite(msg.angle_increment) and msg.angle_increment != 0
@@ -570,6 +607,7 @@ class ParkingNode(Node):
             return
         if self.last_scan_stamp is not None and stamp <= self.last_scan_stamp:
             return
+        self.last_scan_received_stamp=stamp
         if self.localization_source == 'fused' and self.odometry.at(stamp) is None:
             # DDS callbacks for the two topics need not arrive in timestamp
             # order. Wait for actual matching EKF samples, without discarding
@@ -578,6 +616,7 @@ class ParkingNode(Node):
                 self.pending_scans.append(msg)
             return
         self.last_scan_stamp = stamp
+        self.pending_scans.clear()
         sensor_pose = (0.0, 0.0, 0.0) if msg.header.frame_id == self.base_frame else self.sensor_pose
         raw_scan = Scan(msg.ranges, msg.angle_min, msg.angle_increment, msg.range_min,
                         msg.range_max, sensor_pose, self.cfg.max_range)
@@ -634,7 +673,7 @@ class ParkingNode(Node):
             from .core import Cluster
             from .enclosed import physical_objects
             from .slot_map import fit_slot_map
-            world=[Cluster([compose(self.tracker.pose,(*p,0.))[:2] for p in c.points],c.track_id) for c in scan.candidate_clusters(self.cfg)]
+            world=[Cluster([compose(self.tracker.pose,(*p,0.))[:2] for p in c.points],c.track_id) for c in candidate_view(scan,self.cfg,self.tracker.pose).candidate_clusters(self.cfg)]
             objects=[(ids,c) for ids,c in physical_objects(world,self.cfg,right_only=False)
                      if self.cfg.min_cluster_size<=max(c.bounds[1]-c.bounds[0],c.bounds[3]-c.bounds[2])<=self.cfg.max_cluster_size]
             self.slot_map=fit_slot_map(objects,self.cfg,self.slot_map)
@@ -689,6 +728,7 @@ class ParkingNode(Node):
         self.memory_pub.publish(msg)
 
     def publish_memory(self):
+        self.publish_candidate_roi()
         if not (self.memory_enabled and self.activation.active and self.tracker.valid):
             return
         wall = time.monotonic()
@@ -760,12 +800,31 @@ class ParkingNode(Node):
             markers.append(box)
         self.obstacles_pub.publish(MarkerArray(markers=markers))
 
+    def publish_candidate_roi(self):
+        if not self.activation.active or not self.cfg.candidate_roi_enabled:
+            self.roi_pub.publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))
+            return
+        if not self.tracker.valid:return
+        cfg=self.cfg;transform=inverse(self.tracker.pose)
+        corners=[(cfg.candidate_roi_forward_min,-cfg.candidate_roi_right_min),
+                 (cfg.candidate_roi_forward_max,-cfg.candidate_roi_right_min),
+                 (cfg.candidate_roi_forward_max,-cfg.candidate_roi_right_max),
+                 (cfg.candidate_roi_forward_min,-cfg.candidate_roi_right_max)]
+        marker=self.marker('candidate_roi',0,Marker.LINE_STRIP)
+        marker.lifetime.sec=marker.lifetime.nanosec=0
+        marker.scale.x=.012;marker.color.r,marker.color.g,marker.color.b=.2,1.,.3
+        for x,y in corners+[corners[0]]:
+            px,py,_=compose(transform,(x,y,0.));marker.points.append(Point(x=px,y=py,z=.03))
+        self.roi_pub.publish(MarkerArray(markers=[marker]))
+
     def publish_slot_map(self):
         if self.slot_map is None or not self.tracker.valid:return
         layout=self.slot_map;transform=inverse(self.tracker.pose)
         yaw=layout['yaw'];co,si=math.cos(yaw),math.sin(yaw)
         selected=self.tracked_goal or self.follower.goal
         chosen=selected.slot_id if selected is not None else -1
+        if layout.get('method')=='two_object_row_template' and selected is not None and selected.kind=='pair_midpoint':
+            chosen=1
         clear=Marker();clear.action=Marker.DELETEALL;markers=[clear]
         for cell in layout['cells']:
             color=(1.,.15,.7) if cell['id']==chosen else ((1.,.25,.10) if cell['occupied'] else
@@ -868,7 +927,7 @@ class ParkingNode(Node):
             self.get_logger().error('주차 경로 계산 오류: '+reason_text(str(exc)))
             self.reason = 'Planner failure'
             return
-        if (epoch != self.epoch or not self.activation.active or not self.tracker.valid
+        if (epoch != self.epoch or not self.activation.active or self.follower.exited or not self.tracker.valid
                 or (self.follower.parked and not (self.cfg.automatic_target_selection
                     and not self.cfg.auto_exit_after_parking and self.follower.goal is not None
                     and (self.follower.goal.kind=='pair_midpoint' or not self.follower.goal.confirmed))) or (self.follower.final_approach and self.follower.path
@@ -880,6 +939,10 @@ class ParkingNode(Node):
                 or diagnostics.get('reason_code') != 'recovery_ready'):
             return
         self.planning_info = diagnostics
+        if self.recovery_lane_released:
+            diagnostics['recovery_paused_for_lane']=True
+            diagnostics['recovery_limit_reached']=False
+            if diagnostics.get('reason_code')=='recovery_ready':return
         if self.cfg.slot_map_enabled and diagnostics.get('slot_map') is not None:
             self.slot_map = diagnostics['slot_map']
         # Transform the captured scan frame to the mission origin. Once the
@@ -895,7 +958,7 @@ class ParkingNode(Node):
         elif self.follower.goal is None:
             self.selected_pair = []
             self.selected_track_ids = set()
-        if diagnostics.get('goal_invalidated_by_slot_map'):
+        if diagnostics.get('goal_invalidated_by_slot_map') or diagnostics.get('goal_invalidated_by_candidate_roi'):
             self.tracked_goal=None
             self.follower.goal=None
             self.follower.awaiting_target_path=bool(self.follower.path)
@@ -953,7 +1016,7 @@ class ParkingNode(Node):
             if blocked:
                 diagnostics['candidate_path_rejected_occupied_slot']=blocked
                 return
-        if path and self.cfg.continuous_replanning and self.follower.path and diagnostics.get('reason_code') != 'recovery_ready':
+        if path and self.cfg.continuous_replanning and (self.follower.path or self.recovery_lane_released) and diagnostics.get('reason_code') != 'recovery_ready':
             pose = self.tracker.current_pose(self.now_seconds()) if self.localization_source == 'fused' else self.tracker.pose
             global_path = [compose(origin,p) for p in path]
             replacement_index = min(range(len(global_path)),key=lambda i:math.hypot(global_path[i][0]-pose[0],global_path[i][1]-pose[1]))
@@ -961,6 +1024,26 @@ class ParkingNode(Node):
             if (replacement_index >= len(global_path)-1 or math.hypot(nearest[0]-pose[0],nearest[1]-pose[1]) > .15
                     or abs(math.atan2(math.sin(nearest[2]-pose[2]),math.cos(nearest[2]-pose[2]))) > .35):
                 return  # Retain the old feasible route when a delayed replacement cannot join.
+
+        if path and self.cfg.continuous_replanning and diagnostics.get('reason_code')!='recovery_ready':
+            # The worker planned against an older snapshot. Validate all points
+            # and the joining segment before replacing the accepted route.
+            source=self.planning_scan()
+            if source is None:
+                diagnostics['candidate_path_rejected']='observation_unavailable'
+                return
+            pose=self.tracker.current_pose(self.now_seconds()) if self.localization_source=='fused' else self.tracker.pose
+            global_path=[compose(origin,p) for p in path]
+            start=min(range(len(global_path)),key=lambda i:math.dist(global_path[i][:2],pose[:2]))
+            transform=inverse(self.tracker.pose)
+            local_path=[compose(transform,pose)]+[compose(transform,p) for p in global_path[start:]]
+            known=[compose(transform,p) for p in self.follower.entry_trace]
+            checker=CollisionChecker(source,self.cfg,known,inverse(self.tracker.pose)[:2])
+            blocked=first_path_collision(checker,local_path,self.cfg.collision_step)
+            if blocked:
+                diagnostics['candidate_path_rejected']=blocked
+                self.failed_plans+=1
+                return
 
         if not path and diagnostics.get('reason_code') in ('no_observed_path','budget_exceeded','start_blocked'):
             self.failed_plans += 1
@@ -992,14 +1075,14 @@ class ParkingNode(Node):
                         or (self.cfg.recovery_on_front_obstacle_only and not front_close and not
                             (failure_recovery and self.cfg.recovery_on_path_failure
                              and self.failed_plans >= self.cfg.recovery_failure_count and
-                             (needs_reverse_for_goal(local,self.cfg) or (local.confirmed and self.state in
+                             (needs_reverse_for_goal(local,self.cfg) or (supported_recovery_target(local) and self.state in
                               ('PATH_HELD','ROUTE_BLOCKED','FRONT_BLOCKED','PLANNING','REPLAN')))))):
                     return
                 known = [compose(inverse(pose),p) for p in self.follower.entry_trace]+[(0.,0.,0.)]
                 cfg = (replace(self.cfg,assume_unobserved_free=True) if self.cfg.recovery_uses_memory_map else
                        (replace(self.cfg,assume_unobserved_free=False) if failure_recovery else self.cfg))
                 if self.cfg.recovery_uses_memory_map and (not self.memory_enabled or self.memory.stamp is None):return
-                rear = CollisionChecker(self.planning_scan(),cfg,known,inverse(pose)[:2])
+                rear = RecoveryCollisionChecker(self.planning_scan(),cfg,known,inverse(pose)[:2])
                 local_path = [compose(inverse(pose),compose(origin,p)) for p in path]
                 operator_cleared=(length <= self.blind_reverse_remaining+1e-8 and
                                   (not failure_recovery or diagnostics.get('blind_reverse_distance_m',0.)>0))
@@ -1013,7 +1096,15 @@ class ParkingNode(Node):
                                                    diagnostics.get('blind_reverse_distance_m', 0.))
             self.recovery_running = recovery
             if not recovery:self.last_recovery_stop=None
+            was_released=self.recovery_lane_released
+            if was_released and not recovery:
+                # Lane commands are forward-only; avoid treating lane motion
+                # as if the car were still in its previous reverse gear.
+                self.follower.last_drive_direction=1
             self.follower.accept(goal, path, final, origin, recovery=recovery)
+            if self.follower.path and not recovery:
+                self.recovery_lane_released=False
+                self.recovery_stop_confirmations=0
             if self.cfg.continuous_replanning and not recovery:
                 self.follower.index = replacement_index
             if not diagnostics.get('blind_reverse_distance_m', 0.) and not diagnostics.get('recovery_uses_memory_map'):
@@ -1056,6 +1147,26 @@ class ParkingNode(Node):
                 ('gain',self.cfg.steering_command_gain_expected),('deadband',self.cfg.steering_command_deadband_expected),
                 ('limit',self.cfg.steering_command_limit_expected))))
 
+    def update_recovery_handoff(self,new_scan):
+        if self.recovery_lane_released:
+            self.state='LANE_REPLAN'
+            return
+        if not self.follower.recovery_finished or self.follower.recovering:return
+        if new_scan:
+            sample=getattr(self.tracker,'sample',None)
+            measured=max(self.follower.measured_speed,abs(sample.speed) if sample is not None else 0.)
+            self.recovery_stop_confirmations=self.recovery_stop_confirmations+1 if measured<.03 else 0
+        self.state='RECOVERY_STOPPING'
+        if self.recovery_stop_confirmations<3:return
+        self.recovery_lane_released=True
+        self.follower.path=[]
+        self.follower.entry_path=[]
+        self.follower.index=0
+        self.follower.final_approach=False
+        self.follower.awaiting_target_path=False
+        self.state='LANE_REPLAN'
+        self.reason=''
+
     def tick(self):
         tick_started=time.monotonic()
         now = self.now_seconds()
@@ -1073,6 +1184,13 @@ class ParkingNode(Node):
         if not self.activation.active:
             self.state = 'WAITING_SIGN'
             self.clear_visuals(clear_obstacles=False)
+        elif self.follower.exited:
+            # Completion is terminal until an explicit reset or a new sign.
+            # Idle sensor health must not reopen a finished parking mission.
+            self.state, self.reason = 'EXITED', ''
+            self.follower.path = []
+            if self.reported_state != 'EXITED':
+                self.clear_visuals(clear_obstacles=False)
         elif not self.localization_ready(now):
             self.state = 'WAITING_LOCALIZATION'
             self.clear_visuals(clear_obstacles=False)
@@ -1105,8 +1223,14 @@ class ParkingNode(Node):
                 obstacle_scan.point_owners={}
                 obstacle_scan.sensor_pose=compose(delta,source.sensor_pose)
                 obstacle_scan.occupied_slots=[dict(r,pose=compose(delta,r['pose'])) for r in getattr(source,'occupied_slots',())]
-            speed, steering, self.state = self.follower.command(
-                self.scan, control_pose, self.controlled_sequence != self.scan_sequence, now=now, obstacle_scan=obstacle_scan)
+            fresh_control_scan=self.controlled_sequence != self.scan_sequence
+            if self.recovery_lane_released:
+                self.follower.observe_pose(control_pose,now,fresh_control_scan)
+                self.follower.lookahead_point=None
+                self.state='LANE_REPLAN'
+            else:
+                speed, steering, self.state = self.follower.command(
+                    self.scan, control_pose, fresh_control_scan, now=now, obstacle_scan=obstacle_scan)
             if self.state in ('APPROACHING', 'PARKING', 'REVERSING', 'RECOVERING', 'CHANGING_DIRECTION',
                               'RECOVERY_BLOCKED', 'REOBSERVE', 'REPLAN', 'PATH_HELD', 'ROUTE_BLOCKED', 'CONFIRMING', 'PARKED', 'EXITING', 'EXIT_CONFIRMING', 'EXITED'):
                 self.reason = ''
@@ -1124,6 +1248,7 @@ class ParkingNode(Node):
                     self.last_plan_wall = -math.inf
             if not self.follower.recovering:
                 self.recovery_running = False
+            self.update_recovery_handoff(fresh_control_scan)
             self.controlled_sequence = self.scan_sequence
             wall_now = time.monotonic()
             observe_pair=(self.cfg.automatic_target_selection and not self.cfg.auto_exit_after_parking
@@ -1146,7 +1271,7 @@ class ParkingNode(Node):
                     known.extend(compose(transform, p) for _, p in self.observed_corridor)
                 known.append((0., 0., 0.))
                 known = [p for p in known if math.hypot(*p[:2]) <= cfg.max_range+1.]
-                recovery_allowed = (self.recovery_attempts < self.cfg.max_recovery_attempts and self.recovery_remaining >= 3*cfg.collision_step
+                recovery_allowed = (not self.recovery_lane_released and self.recovery_attempts < self.cfg.max_recovery_attempts and self.recovery_remaining >= 3*cfg.collision_step
                     and (not cfg.recovery_uses_memory_map or (self.memory_enabled and self.memory.stamp is not None)))
                 self.pending = (self.worker.submit(build_plan_report, self.planning_scan(), cfg, goal, self.tracker.pose,
                                                    known, recovery_allowed, self.blind_reverse_remaining, True, self.scan, self.failed_plans,
@@ -1154,7 +1279,7 @@ class ParkingNode(Node):
                                 self.epoch, self.tracker.pose, now)
                 self.last_plan_wall = wall_now
             self.publish_control_visuals()
-        has_control_path = self.activation.active and bool(self.follower.path)
+        has_control_path = self.activation.active and not self.follower.exited and not self.recovery_lane_released and bool(self.follower.path)
         if has_control_path:
             self.publish_command(speed, steering)
         elif self.had_control_path:
@@ -1163,6 +1288,7 @@ class ParkingNode(Node):
         self.had_control_path = has_control_path
         self.publish_memory()
         self.planning_info.update(recovery_stop=self.last_recovery_stop,
+            route_collision=self.follower.last_collision if self.state=='ROUTE_BLOCKED' else None,
             recovery_remaining_m=self.recovery_remaining,recovery_attempts=self.recovery_attempts,
             max_recovery_attempts=self.cfg.max_recovery_attempts,path_hidden_by_slot=self.path_hidden_by_slot,
             exit_route_reason=self.follower.exit_route_reason,
@@ -1176,9 +1302,15 @@ class ParkingNode(Node):
         stopped_heartbeat = self.activation.active and speed == 0 and log_now-self.last_operator_log_wall >= 5.
         if state_changed or reason_changed or stopped_heartbeat:
             transition = f'{state_text(self.reported_state)} → {state_text(self.state)}' if state_changed else state_text(self.state)
-            label = '정지 이유' if speed == 0 else '상태 설명'
+            label = '정지 이유' if speed == 0 and not self.recovery_lane_released else '상태 설명'
+            log_explanation=explanation
+            if self.state=='WAITING_LOCALIZATION':
+                sync=self.synchronization_status(now)
+                ages=', '.join(f'{key}='+('--' if sync[key] is None else f'{sync[key]:.2f}s') for key in ('scan_age_s','odom_age_s','health_age_s'))
+                log_explanation+=f' [{ages}; 정렬 대기 {sync["pending_scans"]}개]'
+
             self.get_logger().info(f'주차 상태: {transition} (시도 {self.attempt})'
-                                   +(f' | {label}: {explanation}' if explanation else ''))
+                                   +(f' | {label}: {log_explanation}' if log_explanation else ''))
             self.reported_state = self.state
             self.reported_reason = explanation
             self.last_operator_log_wall = log_now
@@ -1195,6 +1327,7 @@ class ParkingNode(Node):
             self.active_pub.publish(Bool(data=self.activation.active))
             self.status_pub.publish(String(data=json.dumps({
                 'state': self.state, 'state_text': state_text(self.state), 'active': self.activation.active,
+                'synchronization':self.synchronization_status(now),
                 'mission_attempt': self.attempt,
                 'consecutive_detections': self.activation.count, 'reason': explanation,
                 'path_poses': len(self.follower.path),
@@ -1211,6 +1344,8 @@ class ParkingNode(Node):
                 'steering_model_ready':self.steering_model_ready(),'driver_steering_model':self.steering_model,
                 'lookahead_base_m': self.follower.lookahead,
                 'publishing_control': has_control_path,
+                'recovery_lane_released':self.recovery_lane_released,
+                'recovery_stop_confirmations':self.recovery_stop_confirmations,
                 'goal_confirmed': bool((self.tracked_goal or self.follower.goal) and (self.tracked_goal or self.follower.goal).confirmed),
                 'target_kind': (self.tracked_goal or self.follower.goal).kind if (self.tracked_goal or self.follower.goal) else 'none',
                 'auto_exit_after_parking': self.cfg.auto_exit_after_parking,

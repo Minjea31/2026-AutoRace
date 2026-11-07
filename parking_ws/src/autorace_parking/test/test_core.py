@@ -220,7 +220,7 @@ def test_occluded_bay_approach_starts_straight_then_turns_right():
     from limo_parking_sim.config import load_config
     from limo_parking_sim.model import Simulation
     sim = Simulation(load_config())
-    cfg = Settings()
+    cfg = Settings(clearance=.04)
     scan = Scan(sim.scan(), sim.angles[0], sim.angles[1]-sim.angles[0], .01, 64.)
     goal, path, final = build_plan(scan, cfg)
     assert goal.y < 0 and path and not final
@@ -309,7 +309,7 @@ def test_simulator_straight_right_entry_and_turn_reverse_without_collision():
     from limo_parking_sim.config import load_config
     from limo_parking_sim.model import Simulation
     sim = Simulation(load_config())
-    cfg = Settings()
+    cfg = Settings(clearance=.04)
     tracker, follower = ScanTracker(), Follower(cfg)
     start = sim.x, sim.y, sim.yaw
     parked_at = exiting_at = None

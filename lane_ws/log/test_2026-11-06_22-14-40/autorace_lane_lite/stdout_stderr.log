@@ -1,0 +1,70 @@
+UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini
+Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini
+   Site: ubuntu
+   Build name: (empty)
+ Add coverage exclude regular expressions.
+Create new tag: 20261106-1314 - Experimental
+UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini
+Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini
+Test project /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: test_lane
+
+1: Test command: /usr/bin/python3 "-u" "/opt/ros/humble/share/ament_cmake_test/cmake/run_test.py" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml" "--package-name" "autorace_lane_lite" "--output-file" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/ament_cmake_gtest/test_lane.txt" "--command" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane" "--gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml"
+1: Test timeout computed to be: 60
+1: -- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite':
+1:  - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml
+1: Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc
+1: [==========] Running 8 tests from 1 test suite.
+1: [----------] Global test environment set-up.
+1: [----------] 8 tests from DLLane
+1: [ RUN      ] DLLane.BothBoundaries
+1: [       OK ] DLLane.BothBoundaries (84 ms)
+1: [ RUN      ] DLLane.SingleBoundary
+1: [       OK ] DLLane.SingleBoundary (40 ms)
+1: [ RUN      ] DLLane.HeldThenLost
+1: [       OK ] DLLane.HeldThenLost (228 ms)
+1: [ RUN      ] DLLane.JumpRejected
+1: [       OK ] DLLane.JumpRejected (374 ms)
+1: [ RUN      ] DLLane.MasksPassWithoutShapeFiltering
+1: unknown file: Failure
+1: C++ exception with description "Invalid parameter: min_area" thrown in the test body.
+1: [  FAILED  ] DLLane.MasksPassWithoutShapeFiltering (1 ms)
+1: [ RUN      ] DLLane.ROIOnly
+1: [       OK ] DLLane.ROIOnly (98 ms)
+1: [ RUN      ] DLLane.NoViewsSameMeasurement
+1: [       OK ] DLLane.NoViewsSameMeasurement (367 ms)
+1: [ RUN      ] DLLane.InvalidMasksRejected
+1: [       OK ] DLLane.InvalidMasksRejected (31 ms)
+1: [----------] 8 tests from DLLane (1227 ms total)
+1: 
+1: [----------] Global test environment tear-down
+1: [==========] 8 tests from 1 test suite ran. (1228 ms total)
+1: [  PASSED  ] 7 tests.
+1: [  FAILED  ] 1 test, listed below:
+1: [  FAILED  ] DLLane.MasksPassWithoutShapeFiltering
+1: 
+1:  1 FAILED TEST
+1: -- run_test.py: return code 1
+1: -- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'
+1: -- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'
+1/1 Test #1: test_lane ........................***Failed    1.49 sec
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+gtest    =   1.49 sec*proc (1 test)
+
+Total Test time (real) =   1.49 sec
+
+The following tests FAILED:
+	  1 - test_lane (Failed)
+Errors while running CTest
+Output from these tests are in: /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/Testing/Temporary/LastTest.log
+Use "--rerun-failed --output-on-failure" to re-run the failed cases verbosely.

@@ -138,7 +138,8 @@ def test_ros_clock_reset_drops_cached_candidates():
 
 
 def test_conversion_clamps_and_uses_vehicle_geometry():
-    cfg = Config(max_acceleration_mps2=100.0, max_deceleration_mps2=100.0)
+    cfg = Config(max_acceleration_mps2=100.0, max_deceleration_mps2=100.0,
+                 steering_limit_enabled=True, yaw_rate_limit_enabled=True)
     converter = TwistConverter(cfg)
     candidate = Candidate('lane', 10.0, 1.0, EPOCH, 0.0)
     converter.convert(candidate, 0.0)
@@ -206,3 +207,16 @@ def test_inputs_and_output_match_saved_drawio_and_topic_manifest():
     outputs = [e for e in manifest if e['source'] == 'mux_ws']
     assert len(outputs) == 1
     assert outputs[0]['topics'] == [{'name': '/cmd_vel', 'type': 'geometry_msgs/msg/Twist'}]
+
+
+def test_disabled_steering_and_yaw_caps_preserve_requested_turn():
+    config = Config(max_steering_angle_rad=.4, max_yaw_rate_rps=1.5,
+                    steering_limit_enabled=False, yaw_rate_limit_enabled=False)
+    converter = TwistConverter(config)
+    candidate = Candidate('parking', .5, .65, 1, 0.)
+    converter.convert(candidate, 0.)
+    for i in range(1, 21):
+        speed, yaw = converter.convert(candidate, i*.05)
+    assert speed == pytest.approx(.5)
+    assert yaw == pytest.approx(.5*math.tan(.65)/config.wheelbase_m)
+    assert yaw > config.max_yaw_rate_rps

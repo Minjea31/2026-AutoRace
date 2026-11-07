@@ -32,7 +32,7 @@ def test_front_face_target_depth_remains_in_the_parking_row_frame(origin):
     cfg = replace(Settings(), row_yaw=-origin[2], goal_from_observed_front=True)
     gap = find_gaps(local, cfg, origin)[0]
     goal = compose(origin, (gap.x, gap.y, gap.yaw))
-    assert goal == pytest.approx((1.04, -.491, -math.pi/2))
+    assert goal == pytest.approx((1.04, -.29-cfg.vehicle_length/2-cfg.clearance, -math.pi/2))
     # The rear of the perpendicular body plus clearance is behind both faces.
     assert goal[1]+cfg.vehicle_length/2+cfg.clearance <= -.29+1e-9
 

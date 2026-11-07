@@ -24,7 +24,7 @@ def test_blind_rear_is_not_a_recovery_route():
 
 
 def test_visited_corridor_allows_bounded_reverse_and_live_obstacles_win():
-    cfg = replace(Settings(), allow_reverse=True, initial_clear_radius=0.)
+    cfg = replace(Settings(clearance=.04), allow_reverse=True, initial_clear_radius=0.)
     known = [(-i/100, 0., 0.) for i in range(41)]
     scan = front_scan()
     report = build_plan_report(scan, cfg, known_free_poses=known)

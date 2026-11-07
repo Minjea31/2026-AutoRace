@@ -1,0 +1,75 @@
+[0.052s] Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite': CMAKE_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description /usr/bin/ctest -C Release -D ExperimentalTest --no-compress-output -V --force-new-ctest-process
+[0.064s] UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini
+[0.065s] Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini
+[0.065s]    Site: ubuntu
+[0.066s]    Build name: (empty)
+[0.066s]  Add coverage exclude regular expressions.
+[0.066s] Create new tag: 20261106-1320 - Experimental
+[0.066s] UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini
+[0.066s] Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini
+[0.067s] Test project /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite
+[0.067s] Constructing a list of tests
+[0.067s] Done constructing a list of tests
+[0.067s] Updating test list for fixtures
+[0.067s] Added 0 tests to meet fixture requirements
+[0.067s] Checking test dependency graph...
+[0.067s] Checking test dependency graph end
+[0.068s] test 1
+[0.068s]     Start 1: test_lane
+[0.068s] 
+[0.069s] 1: Test command: /usr/bin/python3 "-u" "/opt/ros/humble/share/ament_cmake_test/cmake/run_test.py" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml" "--package-name" "autorace_lane_lite" "--output-file" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/ament_cmake_gtest/test_lane.txt" "--command" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane" "--gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml"
+[0.069s] 1: Test timeout computed to be: 60
+[0.205s] 1: -- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite':
+[0.205s] 1:  - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml
+[0.216s] 1: Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc
+[0.216s] 1: [==========] Running 10 tests from 1 test suite.
+[0.217s] 1: [----------] Global test environment set-up.
+[0.217s] 1: [----------] 10 tests from DLLane
+[0.217s] 1: [ RUN      ] DLLane.BothBoundaries
+[0.254s] 1: [       OK ] DLLane.BothBoundaries (39 ms)
+[0.254s] 1: [ RUN      ] DLLane.SingleBoundary
+[0.286s] 1: [       OK ] DLLane.SingleBoundary (32 ms)
+[0.286s] 1: [ RUN      ] DLLane.HeldThenLost
+[0.383s] 1: [       OK ] DLLane.HeldThenLost (97 ms)
+[0.383s] 1: [ RUN      ] DLLane.JumpRejected
+[0.604s] 1: [       OK ] DLLane.JumpRejected (222 ms)
+[0.605s] 1: [ RUN      ] DLLane.MasksPassWithoutShapeFiltering
+[0.637s] 1: [       OK ] DLLane.MasksPassWithoutShapeFiltering (32 ms)
+[0.637s] 1: [ RUN      ] DLLane.ROIOnly
+[0.666s] 1: [       OK ] DLLane.ROIOnly (30 ms)
+[0.667s] 1: [ RUN      ] DLLane.NoViewsSameMeasurement
+[0.851s] 1: [       OK ] DLLane.NoViewsSameMeasurement (184 ms)
+[0.852s] 1: [ RUN      ] DLLane.InvalidMasksRejected
+[0.875s] 1: [       OK ] DLLane.InvalidMasksRejected (24 ms)
+[0.875s] 1: [ RUN      ] DLLane.DashedBoundaryNearToFar
+[1.560s] 1: [       OK ] DLLane.DashedBoundaryNearToFar (685 ms)
+[1.560s] 1: [ RUN      ] DLLane.TransverseHairpin
+[1.595s] 1: [       OK ] DLLane.TransverseHairpin (35 ms)
+[1.596s] 1: [----------] 10 tests from DLLane (1380 ms total)
+[1.596s] 1: 
+[1.596s] 1: [----------] Global test environment tear-down
+[1.596s] 1: [==========] 10 tests from 1 test suite ran. (1380 ms total)
+[1.597s] 1: [  PASSED  ] 10 tests.
+[1.599s] 1: -- run_test.py: return code 0
+[1.599s] 1: -- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'
+[1.599s] 1: -- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'
+[1.633s] 1/2 Test #1: test_lane ........................   Passed    1.57 sec
+[1.635s] test 2
+[1.635s]     Start 2: test_runtime
+[1.635s] 
+[1.636s] 2: Test command: /usr/bin/python3 "/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_runtime.py"
+[1.636s] 2: Test timeout computed to be: 10000000
+[2.065s] 2: ....
+[2.065s] 2: ----------------------------------------------------------------------
+[2.066s] 2: Ran 4 tests in 0.102s
+[2.066s] 2: 
+[2.066s] 2: OK
+[2.144s] 2/2 Test #2: test_runtime .....................   Passed    0.51 sec
+[2.144s] 
+[2.144s] 100% tests passed, 0 tests failed out of 2
+[2.145s] 
+[2.145s] Label Time Summary:
+[2.145s] gtest    =   1.57 sec*proc (1 test)
+[2.145s] 
+[2.146s] Total Test time (real) =   2.08 sec
+[2.151s] Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite' returned '0': CMAKE_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description /usr/bin/ctest -C Release -D ExperimentalTest --no-compress-output -V --force-new-ctest-process

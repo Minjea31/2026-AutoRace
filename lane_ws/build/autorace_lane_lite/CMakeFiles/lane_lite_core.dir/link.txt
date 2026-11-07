@@ -1,0 +1,2 @@
+/usr/bin/ar qc liblane_lite_core.a CMakeFiles/lane_lite_core.dir/src/lane.cpp.o
+/usr/bin/ranlib liblane_lite_core.a

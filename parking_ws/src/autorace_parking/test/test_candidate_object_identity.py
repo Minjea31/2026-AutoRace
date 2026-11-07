@@ -21,7 +21,7 @@ def remembered(owners):
 
 
 def test_two_fragments_of_one_track_cannot_form_a_parking_pair():
-    cfg=replace(Settings(),max_gap=.7,assume_unobserved_free=True)
+    cfg=replace(Settings(clearance=.04),max_gap=.7,assume_unobserved_free=True)
     s=remembered([7,7])
     assert len(find_gaps(cluster_points(s.points),cfg))==1  # The previous false pair.
     report=build_plan_report(s,cfg)
@@ -30,14 +30,14 @@ def test_two_fragments_of_one_track_cannot_form_a_parking_pair():
 
 
 def test_unowned_accumulated_points_are_not_candidate_objects_but_remain_obstacles():
-    cfg=replace(Settings(),max_gap=.7,assume_unobserved_free=True)
+    cfg=replace(Settings(clearance=.04),max_gap=.7,assume_unobserved_free=True)
     s=remembered([7,None])
     assert build_plan_report(s,cfg)['diagnostics']['candidates']==0
     assert not CollisionChecker(s,cfg).free((1.05,-.45,0.))
 
 
 def test_distinct_tracks_form_pair_and_report_two_different_ids():
-    cfg=replace(Settings(),max_gap=.7,assume_unobserved_free=True)
+    cfg=replace(Settings(clearance=.04),max_gap=.7,assume_unobserved_free=True)
     report=build_plan_report(remembered([7,8]),cfg)
     pair=report['diagnostics']['selected_pair']
     assert len(pair)==2 and {p['track_id'] for p in pair}=={7,8}
@@ -45,7 +45,7 @@ def test_distinct_tracks_form_pair_and_report_two_different_ids():
 
 
 def test_find_gaps_rejects_same_known_id_even_with_separate_input_clusters():
-    cfg=replace(Settings(),max_gap=.7)
+    cfg=replace(Settings(clearance=.04),max_gap=.7)
     assert not find_gaps([Cluster(fragment(.5),7),Cluster(fragment(1.),7)],cfg)
 
 

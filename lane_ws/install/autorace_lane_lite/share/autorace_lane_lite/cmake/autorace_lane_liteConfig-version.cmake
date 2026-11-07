@@ -1,0 +1,1 @@
+/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/ament_cmake_core/autorace_lane_liteConfig-version.cmake

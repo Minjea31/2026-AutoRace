@@ -118,7 +118,7 @@ def recovery_sources(obstacles=()):
 
 
 def recovery_config():
-    return replace(Settings(),allow_reverse=True,recovery_uses_memory_map=True,recovery_on_front_obstacle_only=True,
+    return replace(Settings(clearance=.04),allow_reverse=True,recovery_uses_memory_map=True,recovery_on_front_obstacle_only=True,
         recovery_min_distance=.2,recovery_reverse_distance=.3,recovery_total_distance=1.5,max_recovery_attempts=5,
         recovery_speed=.2,assume_unobserved_free=True,continuous_replanning=True)
 

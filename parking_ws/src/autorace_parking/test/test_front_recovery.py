@@ -10,7 +10,7 @@ from autorace_parking.control import Follower, build_plan_report
 
 
 def config():
-    return Settings(allow_reverse=True,recovery_on_front_obstacle_only=True,
+    return Settings(clearance=.04,allow_reverse=True,recovery_on_front_obstacle_only=True,
                     recovery_front_clearance=.10,recovery_reverse_distance=.30,
                     blind_reverse_distance=.30,recovery_speed=.2,max_recovery_attempts=1)
 

@@ -28,7 +28,7 @@ def test_real_gap_limits_require_lateral_alignment(width,accepted,offset):
     second=Cluster([(.6+width,-.8-offset),(.7+width,-.8-offset),
                     (.7+width,-.6-offset),(.6+width,-.6-offset)])
     gaps=find_gaps([first,second],cfg)
-    assert bool(gaps)==(accepted and offset <= cfg.row_tolerance)
+    assert bool(gaps)==(accepted and width+1e-9 >= cfg.vehicle_width+2*cfg.clearance and offset <= cfg.row_tolerance)
     if gaps:assert gaps[0].width==pytest.approx(width)
 
 

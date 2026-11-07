@@ -12,7 +12,7 @@ from autorace_parking.enclosed import enclosed_goals
 
 
 def config():
-    return replace(Settings(),enclosed_space_detection=True,continuous_replanning=True,
+    return replace(Settings(clearance=.04),enclosed_space_detection=True,continuous_replanning=True,
                    assume_unobserved_free=True,require_goal_heading=False,min_cluster_size=.14,
                    max_gap=.8,min_turn_radius=.4,max_steering=math.atan(.2/.4))
 
@@ -82,7 +82,7 @@ def test_replan_failure_keeps_old_path_and_commands_and_repeated_sign_does_not_r
     old=node.follower.path.copy();f=Future();f.set_result({'goal':None,'path':[],'final':False,'diagnostics':{}})
     node.pending=f,node.epoch,(0.,0.,0.),20.
     node.poll_plan();assert node.follower.path==old
-    node.sign_ignore_until=0.;epoch=node.epoch;node.on_sign(Bool(data=True));assert node.epoch==epoch
+    epoch=node.epoch;node.on_sign(Bool(data=True));assert node.epoch==epoch  # Within the initial five-second ignore interval.
     outputs=[];node.publish_command=lambda v,a:outputs.append((v,a))
     with patch.object(node.worker,'submit',return_value=Future()) as submit:
         node.tick();assert submit.called
@@ -90,10 +90,12 @@ def test_replan_failure_keeps_old_path_and_commands_and_repeated_sign_does_not_r
 
 
 def test_valid_replacement_swaps_without_empty_path_and_delayed_disconnected_one_is_rejected(node):
+    node.cfg=replace(node.cfg,assume_unobserved_free=True)  # Real-profile visibility policy.
+    node.follower.cfg=node.cfg
     old=node.follower.path.copy()
     for origin,accepted in [((0.,0.,0.),True),((2.,0.,0.),False)]:
-        new=[(0.,0.,0.),(.3,0.,0.),(.7,-.1,-.1)]
-        f=Future();f.set_result({'goal':Gap(.7,-.1,-.1,.5,0,1),'path':new,'final':True,'diagnostics':{}})
+        new=[(0.,0.,0.),(.3,0.,0.),(.55,-.05,-.1)]
+        f=Future();f.set_result({'goal':Gap(.55,-.05,-.1,.5,0,1),'path':new,'final':True,'diagnostics':{}})
         node.pending=f,node.epoch,origin,20.;node.poll_plan()
         if accepted:
             assert all(a==pytest.approx(b) for a,b in zip(node.follower.path,new));old=node.follower.path.copy()

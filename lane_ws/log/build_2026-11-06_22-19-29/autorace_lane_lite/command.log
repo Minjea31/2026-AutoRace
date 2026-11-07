@@ -1,0 +1,4 @@
+Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --build /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite -- -j6 -l6
+Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --build /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite -- -j6 -l6
+Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --install /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite
+Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --install /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite

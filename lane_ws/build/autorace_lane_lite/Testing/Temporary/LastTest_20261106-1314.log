@@ -1,0 +1,57 @@
+Start testing: Nov 06 22:14 KST
+----------------------------------------------------------
+1/1 Testing: test_lane
+1/1 Test: test_lane
+Command: "/usr/bin/python3" "-u" "/opt/ros/humble/share/ament_cmake_test/cmake/run_test.py" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml" "--package-name" "autorace_lane_lite" "--output-file" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/ament_cmake_gtest/test_lane.txt" "--command" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane" "--gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml"
+Directory: /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite
+"test_lane" start time: Nov 06 22:14 KST
+Output:
+----------------------------------------------------------
+-- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite':
+ - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml
+Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc
+[==========] Running 8 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 8 tests from DLLane
+[ RUN      ] DLLane.BothBoundaries
+[       OK ] DLLane.BothBoundaries (84 ms)
+[ RUN      ] DLLane.SingleBoundary
+[       OK ] DLLane.SingleBoundary (40 ms)
+[ RUN      ] DLLane.HeldThenLost
+[       OK ] DLLane.HeldThenLost (228 ms)
+[ RUN      ] DLLane.JumpRejected
+[       OK ] DLLane.JumpRejected (374 ms)
+[ RUN      ] DLLane.MasksPassWithoutShapeFiltering
+unknown file: Failure
+C++ exception with description "Invalid parameter: min_area" thrown in the test body.
+[  FAILED  ] DLLane.MasksPassWithoutShapeFiltering (1 ms)
+[ RUN      ] DLLane.ROIOnly
+[       OK ] DLLane.ROIOnly (98 ms)
+[ RUN      ] DLLane.NoViewsSameMeasurement
+[       OK ] DLLane.NoViewsSameMeasurement (367 ms)
+[ RUN      ] DLLane.InvalidMasksRejected
+[       OK ] DLLane.InvalidMasksRejected (31 ms)
+[----------] 8 tests from DLLane (1227 ms total)
+
+[----------] Global test environment tear-down
+[==========] 8 tests from 1 test suite ran. (1228 ms total)
+[  PASSED  ] 7 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] DLLane.MasksPassWithoutShapeFiltering
+
+ 1 FAILED TEST
+-- run_test.py: return code 1
+-- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'
+-- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'
+<end of output>
+Test time =   1.49 sec
+----------------------------------------------------------
+Test Failed.
+"test_lane" end time: Nov 06 22:14 KST
+"test_lane" time elapsed: 00:00:01
+----------------------------------------------------------
+
+End testing: Nov 06 22:14 KST
+
+gtest =   1.49 sec*proc
+

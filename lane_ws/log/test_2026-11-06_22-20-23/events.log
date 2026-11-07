@@ -1,0 +1,174 @@
+[0.000000] (-) TimerEvent: {}
+[0.000283] (autorace_lane_lite) JobQueued: {'identifier': 'autorace_lane_lite', 'dependencies': OrderedDict([('autorace_lane_lite', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite')])}
+[0.000605] (autorace_lane_pid) JobQueued: {'identifier': 'autorace_lane_pid', 'dependencies': OrderedDict([('autorace_lane_lite', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite'), ('autorace_lane_pid', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid')])}
+[0.001103] (autorace_lane_lite) JobStarted: {'identifier': 'autorace_lane_lite'}
+[0.050130] (autorace_lane_lite) Command: {'cmd': ['/usr/bin/ctest', '-C', 'Release', '-D', 'ExperimentalTest', '--no-compress-output', '-V', '--force-new-ctest-process'], 'cwd': '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('PYTHONWARNINGS', 'ignore'), ('CONDA_PROMPT_MODIFIER', ''), ('CODEX_CI', '1'), ('TENSORRT_INSTALL', '/usr/local/TensorRT-10.3.0.26'), ('USER', 'wego'), ('XDG_SESSION_TYPE', 'x11'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/opt/ros/humble/lib:/usr/lib/aarch64-linux-gnu:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/lib:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib:/usr/local/cuda-12.6/lib64::/usr/local/TensorRT-10.3.0.26/lib'), ('HOME', '/home/wego'), ('CONDA_SHLVL', '0'), ('OLDPWD', '/home/wego/2026-AutoRace'), ('DESKTOP_SESSION', 'ubuntu'), ('JETSON_L4T', '36.4.7'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('JETSON_MODEL', 'NVIDIA Jetson Orin NX Engineering Reference Developer Kit'), ('PAGER', 'cat'), ('MANAGERPID', '3272'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '3710'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', 'truecolor'), ('_CE_M', ''), ('TERMINATOR_DBUS_NAME', 'net.tenshu.Terminator23558193cd9818af7fe4d2c2f5bd9d00f'), ('_CONDA_ROOT', '/home/wego/miniconda3'), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '5244'), ('IM_CONFIG_PHASE', '1'), ('COLCON_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install:/home/wego/2026-AutoRace/sensor_ws/install'), ('CODEX_PERMISSION_PROFILE', ':danger-full-access'), ('CODEX_TOOL_CALL_ID', 'exec-a85142be-bdc5-4d30-a764-6169f5a66853'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'ibus'), ('LOGNAME', 'wego'), ('JETSON_MODULE', 'NVIDIA Jetson Orin Nano (8GB ram)'), ('JETSON_SERIAL_NUMBER', '1422824337560'), ('JOURNAL_STREAM', '8:55181'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS', '1'), ('USERNAME', 'wego'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('_CE_CONDA', ''), ('ROS_LOCALHOST_ONLY', '1'), ('WINDOWPATH', '2'), ('PATH', '/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.local/bin:/home/wego/.codex/tmp/arg0-linux/codex-arg0MqgLEz:/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0sedJUH:/home/wego/.codex/packages/app-server-daemon/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0Ezw4Wc:/home/wego/.codex/packages/standalone/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/usr/src/tensorrt/bin:/opt/ros/humble/bin:/usr/local/cuda-12.6/bin:/home/wego/miniconda3/condabin:/home/wego/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin'), ('SESSION_MANAGER', 'local/ubuntu:@/tmp/.ICE-unix/3430,unix/ubuntu:/tmp/.ICE-unix/3430'), ('CODEX_VERSION', '0.167.0'), ('CODEX_SESSION_ID', '01a1b0e9-6bf5-7fe0-bffd-bba882395741'), ('INVOCATION_ID', '49a5cabc13c9442188d4ffec6c4edcf4'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('DISPLAY', ':1'), ('TERMINATOR_DBUS_PATH', '/net/tenshu/Terminator2'), ('LANG', 'en_US.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('XMODIFIERS', '@im=ibus'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('JETSON_SOC', 'tegra234'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('CONDA_PYTHON_EXE', '/home/wego/miniconda3/bin/python'), ('SHELL', '/bin/bash'), ('TERMINATOR_UUID', 'urn:uuid:61809fdc-659d-4cc8-bc93-c3a276a2f67e'), ('QT_ACCESSIBILITY', '1'), ('GDMSESSION', 'ubuntu'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CONDA_DEFAULT_ENV', ''), ('CODEX_THREAD_ID', '01a1b0fb-3444-7481-b79e-1257296d01b8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('_CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('JETSON_CUDA_ARCH_BIN', '8.7'), ('PWD', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite'), ('LC_ALL', 'en_US.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/wego/miniconda3/envs/dl_env/lib/python3.10/site-packages:/usr/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('CONDA_PREFIX', ''), ('COLCON', '1'), ('VTE_VERSION', '6800'), ('JETSON_JETPACK', ''), ('CMAKE_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description'), ('JETSON_P_NUMBER', 'p3767-0003')]), 'shell': False}
+[0.065145] (autorace_lane_lite) StdoutLine: {'line': b'UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini\n'}
+[0.066010] (autorace_lane_lite) StdoutLine: {'line': b'Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini\n'}
+[0.066460] (autorace_lane_lite) StdoutLine: {'line': b'   Site: ubuntu\n'}
+[0.066676] (autorace_lane_lite) StdoutLine: {'line': b'   Build name: (empty)\n'}
+[0.066949] (autorace_lane_lite) StdoutLine: {'line': b' Add coverage exclude regular expressions.\n'}
+[0.067103] (autorace_lane_lite) StdoutLine: {'line': b'Create new tag: 20261106-1320 - Experimental\n'}
+[0.067394] (autorace_lane_lite) StdoutLine: {'line': b'UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini\n'}
+[0.067671] (autorace_lane_lite) StdoutLine: {'line': b'Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/CTestConfiguration.ini\n'}
+[0.067806] (autorace_lane_lite) StdoutLine: {'line': b'Test project /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite\n'}
+[0.068014] (autorace_lane_lite) StdoutLine: {'line': b'Constructing a list of tests\n'}
+[0.068150] (autorace_lane_lite) StdoutLine: {'line': b'Done constructing a list of tests\n'}
+[0.068277] (autorace_lane_lite) StdoutLine: {'line': b'Updating test list for fixtures\n'}
+[0.068400] (autorace_lane_lite) StdoutLine: {'line': b'Added 0 tests to meet fixture requirements\n'}
+[0.068519] (autorace_lane_lite) StdoutLine: {'line': b'Checking test dependency graph...\n'}
+[0.068637] (autorace_lane_lite) StdoutLine: {'line': b'Checking test dependency graph end\n'}
+[0.068754] (autorace_lane_lite) StdoutLine: {'line': b'test 1\n'}
+[0.068873] (autorace_lane_lite) StdoutLine: {'line': b'    Start 1: test_lane\n'}
+[0.068992] (autorace_lane_lite) StdoutLine: {'line': b'\n'}
+[0.069108] (autorace_lane_lite) StdoutLine: {'line': b'1: Test command: /usr/bin/python3 "-u" "/opt/ros/humble/share/ament_cmake_test/cmake/run_test.py" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml" "--package-name" "autorace_lane_lite" "--output-file" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/ament_cmake_gtest/test_lane.txt" "--command" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane" "--gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml"\n'}
+[0.070333] (autorace_lane_lite) StdoutLine: {'line': b'1: Test timeout computed to be: 60\n'}
+[0.099164] (-) TimerEvent: {}
+[0.199466] (-) TimerEvent: {}
+[0.205940] (autorace_lane_lite) StdoutLine: {'line': b"1: -- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite':\n"}
+[0.206426] (autorace_lane_lite) StdoutLine: {'line': b'1:  - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml\n'}
+[0.216318] (autorace_lane_lite) StdoutLine: {'line': b'1: Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc\n'}
+[0.217194] (autorace_lane_lite) StdoutLine: {'line': b'1: [==========] Running 10 tests from 1 test suite.\n'}
+[0.217751] (autorace_lane_lite) StdoutLine: {'line': b'1: [----------] Global test environment set-up.\n'}
+[0.218056] (autorace_lane_lite) StdoutLine: {'line': b'1: [----------] 10 tests from DLLane\n'}
+[0.218334] (autorace_lane_lite) StdoutLine: {'line': b'1: [ RUN      ] DLLane.BothBoundaries\n'}
+[0.254474] (autorace_lane_lite) StdoutLine: {'line': b'1: [       OK ] DLLane.BothBoundaries (39 ms)\n'}
+[0.255157] (autorace_lane_lite) StdoutLine: {'line': b'1: [ RUN      ] DLLane.SingleBoundary\n'}
+[0.286670] (autorace_lane_lite) StdoutLine: {'line': b'1: [       OK ] DLLane.SingleBoundary (32 ms)\n'}
+[0.287149] (autorace_lane_lite) StdoutLine: {'line': b'1: [ RUN      ] DLLane.HeldThenLost\n'}
+[0.299619] (-) TimerEvent: {}
+[0.383684] (autorace_lane_lite) StdoutLine: {'line': b'1: [       OK ] DLLane.HeldThenLost (97 ms)\n'}
+[0.384155] (autorace_lane_lite) StdoutLine: {'line': b'1: [ RUN      ] DLLane.JumpRejected\n'}
+[0.399988] (-) TimerEvent: {}
+[0.500371] (-) TimerEvent: {}
+[0.600751] (-) TimerEvent: {}
+[0.605447] (autorace_lane_lite) StdoutLine: {'line': b'1: [       OK ] DLLane.JumpRejected (222 ms)\n'}
+[0.605891] (autorace_lane_lite) StdoutLine: {'line': b'1: [ RUN      ] DLLane.MasksPassWithoutShapeFiltering\n'}
+[0.637697] (autorace_lane_lite) StdoutLine: {'line': b'1: [       OK ] DLLane.MasksPassWithoutShapeFiltering (32 ms)\n'}
+[0.638161] (autorace_lane_lite) StdoutLine: {'line': b'1: [ RUN      ] DLLane.ROIOnly\n'}
+[0.667503] (autorace_lane_lite) StdoutLine: {'line': b'1: [       OK ] DLLane.ROIOnly (30 ms)\n'}
+[0.667991] (autorace_lane_lite) StdoutLine: {'line': b'1: [ RUN      ] DLLane.NoViewsSameMeasurement\n'}
+[0.700935] (-) TimerEvent: {}
+[0.801343] (-) TimerEvent: {}
+[0.852310] (autorace_lane_lite) StdoutLine: {'line': b'1: [       OK ] DLLane.NoViewsSameMeasurement (184 ms)\n'}
+[0.852793] (autorace_lane_lite) StdoutLine: {'line': b'1: [ RUN      ] DLLane.InvalidMasksRejected\n'}
+[0.875958] (autorace_lane_lite) StdoutLine: {'line': b'1: [       OK ] DLLane.InvalidMasksRejected (24 ms)\n'}
+[0.876602] (autorace_lane_lite) StdoutLine: {'line': b'1: [ RUN      ] DLLane.DashedBoundaryNearToFar\n'}
+[0.901496] (-) TimerEvent: {}
+[1.001864] (-) TimerEvent: {}
+[1.102248] (-) TimerEvent: {}
+[1.202665] (-) TimerEvent: {}
+[1.303113] (-) TimerEvent: {}
+[1.403517] (-) TimerEvent: {}
+[1.503967] (-) TimerEvent: {}
+[1.560971] (autorace_lane_lite) StdoutLine: {'line': b'1: [       OK ] DLLane.DashedBoundaryNearToFar (685 ms)\n'}
+[1.561433] (autorace_lane_lite) StdoutLine: {'line': b'1: [ RUN      ] DLLane.TransverseHairpin\n'}
+[1.596018] (autorace_lane_lite) StdoutLine: {'line': b'1: [       OK ] DLLane.TransverseHairpin (35 ms)\n'}
+[1.596913] (autorace_lane_lite) StdoutLine: {'line': b'1: [----------] 10 tests from DLLane (1380 ms total)\n'}
+[1.597239] (autorace_lane_lite) StdoutLine: {'line': b'1: \n'}
+[1.597426] (autorace_lane_lite) StdoutLine: {'line': b'1: [----------] Global test environment tear-down\n'}
+[1.597597] (autorace_lane_lite) StdoutLine: {'line': b'1: [==========] 10 tests from 1 test suite ran. (1380 ms total)\n'}
+[1.597758] (autorace_lane_lite) StdoutLine: {'line': b'1: [  PASSED  ] 10 tests.\n'}
+[1.600015] (autorace_lane_lite) StdoutLine: {'line': b'1: -- run_test.py: return code 0\n'}
+[1.600378] (autorace_lane_lite) StdoutLine: {'line': b"1: -- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'\n"}
+[1.600553] (autorace_lane_lite) StdoutLine: {'line': b"1: -- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'\n"}
+[1.604894] (-) TimerEvent: {}
+[1.634282] (autorace_lane_lite) StdoutLine: {'line': b'1/2 Test #1: test_lane ........................   Passed    1.57 sec\n'}
+[1.635539] (autorace_lane_lite) StdoutLine: {'line': b'test 2\n'}
+[1.636098] (autorace_lane_lite) StdoutLine: {'line': b'    Start 2: test_runtime\n'}
+[1.636406] (autorace_lane_lite) StdoutLine: {'line': b'\n'}
+[1.636670] (autorace_lane_lite) StdoutLine: {'line': b'2: Test command: /usr/bin/python3 "/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_runtime.py"\n'}
+[1.636987] (autorace_lane_lite) StdoutLine: {'line': b'2: Test timeout computed to be: 10000000\n'}
+[1.705051] (-) TimerEvent: {}
+[1.805419] (-) TimerEvent: {}
+[1.905794] (-) TimerEvent: {}
+[2.006180] (-) TimerEvent: {}
+[2.066135] (autorace_lane_lite) StdoutLine: {'line': b'2: ....\n'}
+[2.066613] (autorace_lane_lite) StdoutLine: {'line': b'2: ----------------------------------------------------------------------\n'}
+[2.066790] (autorace_lane_lite) StdoutLine: {'line': b'2: Ran 4 tests in 0.102s\n'}
+[2.066939] (autorace_lane_lite) StdoutLine: {'line': b'2: \n'}
+[2.067079] (autorace_lane_lite) StdoutLine: {'line': b'2: OK\n'}
+[2.106347] (-) TimerEvent: {}
+[2.144231] (autorace_lane_lite) StdoutLine: {'line': b'2/2 Test #2: test_runtime .....................   Passed    0.51 sec\n'}
+[2.145241] (autorace_lane_lite) StdoutLine: {'line': b'\n'}
+[2.145563] (autorace_lane_lite) StdoutLine: {'line': b'100% tests passed, 0 tests failed out of 2\n'}
+[2.145838] (autorace_lane_lite) StdoutLine: {'line': b'\n'}
+[2.146094] (autorace_lane_lite) StdoutLine: {'line': b'Label Time Summary:\n'}
+[2.146345] (autorace_lane_lite) StdoutLine: {'line': b'gtest    =   1.57 sec*proc (1 test)\n'}
+[2.146594] (autorace_lane_lite) StdoutLine: {'line': b'\n'}
+[2.146829] (autorace_lane_lite) StdoutLine: {'line': b'Total Test time (real) =   2.08 sec\n'}
+[2.150984] (autorace_lane_lite) CommandEnded: {'returncode': 0}
+[2.153686] (autorace_lane_lite) JobEnded: {'identifier': 'autorace_lane_lite', 'rc': 0}
+[2.156156] (autorace_lane_pid) JobStarted: {'identifier': 'autorace_lane_pid'}
+[2.195642] (autorace_lane_pid) Command: {'cmd': ['/usr/bin/ctest', '-C', 'Release', '-D', 'ExperimentalTest', '--no-compress-output', '-V', '--force-new-ctest-process'], 'cwd': '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('PYTHONWARNINGS', 'ignore'), ('CONDA_PROMPT_MODIFIER', ''), ('CODEX_CI', '1'), ('TENSORRT_INSTALL', '/usr/local/TensorRT-10.3.0.26'), ('USER', 'wego'), ('XDG_SESSION_TYPE', 'x11'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/opt/ros/humble/lib:/usr/lib/aarch64-linux-gnu:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/lib:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib:/usr/local/cuda-12.6/lib64::/usr/local/TensorRT-10.3.0.26/lib'), ('HOME', '/home/wego'), ('CONDA_SHLVL', '0'), ('OLDPWD', '/home/wego/2026-AutoRace'), ('DESKTOP_SESSION', 'ubuntu'), ('JETSON_L4T', '36.4.7'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('JETSON_MODEL', 'NVIDIA Jetson Orin NX Engineering Reference Developer Kit'), ('PAGER', 'cat'), ('MANAGERPID', '3272'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '3710'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', 'truecolor'), ('_CE_M', ''), ('TERMINATOR_DBUS_NAME', 'net.tenshu.Terminator23558193cd9818af7fe4d2c2f5bd9d00f'), ('_CONDA_ROOT', '/home/wego/miniconda3'), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '5244'), ('IM_CONFIG_PHASE', '1'), ('COLCON_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install:/home/wego/2026-AutoRace/sensor_ws/install'), ('CODEX_PERMISSION_PROFILE', ':danger-full-access'), ('CODEX_TOOL_CALL_ID', 'exec-a85142be-bdc5-4d30-a764-6169f5a66853'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'ibus'), ('LOGNAME', 'wego'), ('JETSON_MODULE', 'NVIDIA Jetson Orin Nano (8GB ram)'), ('JETSON_SERIAL_NUMBER', '1422824337560'), ('JOURNAL_STREAM', '8:55181'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS', '1'), ('USERNAME', 'wego'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('_CE_CONDA', ''), ('ROS_LOCALHOST_ONLY', '1'), ('WINDOWPATH', '2'), ('PATH', '/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.local/bin:/home/wego/.codex/tmp/arg0-linux/codex-arg0MqgLEz:/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0sedJUH:/home/wego/.codex/packages/app-server-daemon/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0Ezw4Wc:/home/wego/.codex/packages/standalone/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/usr/src/tensorrt/bin:/opt/ros/humble/bin:/usr/local/cuda-12.6/bin:/home/wego/miniconda3/condabin:/home/wego/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin'), ('SESSION_MANAGER', 'local/ubuntu:@/tmp/.ICE-unix/3430,unix/ubuntu:/tmp/.ICE-unix/3430'), ('CODEX_VERSION', '0.167.0'), ('CODEX_SESSION_ID', '01a1b0e9-6bf5-7fe0-bffd-bba882395741'), ('INVOCATION_ID', '49a5cabc13c9442188d4ffec6c4edcf4'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('DISPLAY', ':1'), ('TERMINATOR_DBUS_PATH', '/net/tenshu/Terminator2'), ('LANG', 'en_US.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('XMODIFIERS', '@im=ibus'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('JETSON_SOC', 'tegra234'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('CONDA_PYTHON_EXE', '/home/wego/miniconda3/bin/python'), ('SHELL', '/bin/bash'), ('TERMINATOR_UUID', 'urn:uuid:61809fdc-659d-4cc8-bc93-c3a276a2f67e'), ('QT_ACCESSIBILITY', '1'), ('GDMSESSION', 'ubuntu'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CONDA_DEFAULT_ENV', ''), ('CODEX_THREAD_ID', '01a1b0fb-3444-7481-b79e-1257296d01b8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('_CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('JETSON_CUDA_ARCH_BIN', '8.7'), ('PWD', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid'), ('LC_ALL', 'en_US.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/wego/miniconda3/envs/dl_env/lib/python3.10/site-packages:/usr/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('CONDA_PREFIX', ''), ('COLCON', '1'), ('VTE_VERSION', '6800'), ('JETSON_JETPACK', ''), ('CMAKE_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description'), ('JETSON_P_NUMBER', 'p3767-0003')]), 'shell': False}
+[2.206457] (-) TimerEvent: {}
+[2.210538] (autorace_lane_pid) StdoutLine: {'line': b'UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini\n'}
+[2.211136] (autorace_lane_pid) StdoutLine: {'line': b'Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini\n'}
+[2.211471] (autorace_lane_pid) StdoutLine: {'line': b'   Site: ubuntu\n'}
+[2.211763] (autorace_lane_pid) StdoutLine: {'line': b'   Build name: (empty)\n'}
+[2.212715] (autorace_lane_pid) StdoutLine: {'line': b' Add coverage exclude regular expressions.\n'}
+[2.213039] (autorace_lane_pid) StdoutLine: {'line': b'Create new tag: 20261106-1320 - Experimental\n'}
+[2.213303] (autorace_lane_pid) StdoutLine: {'line': b'UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini\n'}
+[2.213551] (autorace_lane_pid) StdoutLine: {'line': b'Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini\n'}
+[2.213790] (autorace_lane_pid) StdoutLine: {'line': b'Test project /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid\n'}
+[2.214024] (autorace_lane_pid) StdoutLine: {'line': b'Constructing a list of tests\n'}
+[2.214252] (autorace_lane_pid) StdoutLine: {'line': b'Done constructing a list of tests\n'}
+[2.214477] (autorace_lane_pid) StdoutLine: {'line': b'Updating test list for fixtures\n'}
+[2.214700] (autorace_lane_pid) StdoutLine: {'line': b'Added 0 tests to meet fixture requirements\n'}
+[2.214921] (autorace_lane_pid) StdoutLine: {'line': b'Checking test dependency graph...\n'}
+[2.215142] (autorace_lane_pid) StdoutLine: {'line': b'Checking test dependency graph end\n'}
+[2.215361] (autorace_lane_pid) StdoutLine: {'line': b'test 1\n'}
+[2.215590] (autorace_lane_pid) StdoutLine: {'line': b'    Start 1: test_pid\n'}
+[2.215814] (autorace_lane_pid) StdoutLine: {'line': b'\n'}
+[2.216114] (autorace_lane_pid) StdoutLine: {'line': b'1: Test command: /usr/bin/python3 "-u" "/opt/ros/humble/share/ament_cmake_test/cmake/run_test.py" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml" "--package-name" "autorace_lane_pid" "--output-file" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/ament_cmake_gtest/test_pid.txt" "--command" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_pid" "--gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml"\n'}
+[2.216462] (autorace_lane_pid) StdoutLine: {'line': b'1: Test timeout computed to be: 60\n'}
+[2.306655] (-) TimerEvent: {}
+[2.357422] (autorace_lane_pid) StdoutLine: {'line': b"1: -- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid':\n"}
+[2.357884] (autorace_lane_pid) StdoutLine: {'line': b'1:  - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_pid --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml\n'}
+[2.361847] (autorace_lane_pid) StdoutLine: {'line': b'1: Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc\n'}
+[2.362286] (autorace_lane_pid) StdoutLine: {'line': b'1: [==========] Running 12 tests from 1 test suite.\n'}
+[2.362446] (autorace_lane_pid) StdoutLine: {'line': b'1: [----------] Global test environment set-up.\n'}
+[2.362583] (autorace_lane_pid) StdoutLine: {'line': b'1: [----------] 12 tests from Pid\n'}
+[2.362711] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.DefaultsAreValidAndEveryParameterHasHelp\n'}
+[2.362838] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.DefaultsAreValidAndEveryParameterHasHelp (0 ms)\n'}
+[2.362962] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.LeftErrorSteersLeftProportionally\n'}
+[2.363083] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.LeftErrorSteersLeftProportionally (0 ms)\n'}
+[2.363203] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.ErrorCombinesNearHeadingAndLookahead\n'}
+[2.363341] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.ErrorCombinesNearHeadingAndLookahead (0 ms)\n'}
+[2.363464] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.DerivativeUsesMeasurementTime\n'}
+[2.363582] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.DerivativeUsesMeasurementTime (0 ms)\n'}
+[2.363700] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.IntegralAccumulatesAndIsClamped\n'}
+[2.363840] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.IntegralAccumulatesAndIsClamped (0 ms)\n'}
+[2.363977] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.NoWindupWhileSaturated\n'}
+[2.364100] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.NoWindupWhileSaturated (0 ms)\n'}
+[2.364221] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.LostLaneStopsAndResetsHistory\n'}
+[2.364343] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.LostLaneStopsAndResetsHistory (0 ms)\n'}
+[2.364462] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.TimeoutStopsImmediatelyAndSteeringIsRateLimited\n'}
+[2.364580] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.TimeoutStopsImmediatelyAndSteeringIsRateLimited (0 ms)\n'}
+[2.364698] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.AccelerationLimitedAndActiveSwitch\n'}
+[2.364815] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.AccelerationLimitedAndActiveSwitch (0 ms)\n'}
+[2.364933] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.YamlRoundTripKeepsDoubles\n'}
+[2.365392] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.YamlRoundTripKeepsDoubles (1 ms)\n'}
+[2.365551] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.RejectsInconsistentConfig\n'}
+[2.365680] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.RejectsInconsistentConfig (0 ms)\n'}
+[2.365804] (autorace_lane_pid) StdoutLine: {'line': b'1: [ RUN      ] Pid.SingleFrameGlitchIsSlewLimited\n'}
+[2.365925] (autorace_lane_pid) StdoutLine: {'line': b'1: [       OK ] Pid.SingleFrameGlitchIsSlewLimited (0 ms)\n'}
+[2.366043] (autorace_lane_pid) StdoutLine: {'line': b'1: [----------] 12 tests from Pid (1 ms total)\n'}
+[2.366158] (autorace_lane_pid) StdoutLine: {'line': b'1: \n'}
+[2.366274] (autorace_lane_pid) StdoutLine: {'line': b'1: [----------] Global test environment tear-down\n'}
+[2.366434] (autorace_lane_pid) StdoutLine: {'line': b'1: [==========] 12 tests from 1 test suite ran. (1 ms total)\n'}
+[2.366576] (autorace_lane_pid) StdoutLine: {'line': b'1: [  PASSED  ] 12 tests.\n'}
+[2.366697] (autorace_lane_pid) StdoutLine: {'line': b'1: -- run_test.py: return code 0\n'}
+[2.366813] (autorace_lane_pid) StdoutLine: {'line': b"1: -- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml'\n"}
+[2.366940] (autorace_lane_pid) StdoutLine: {'line': b"1: -- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml'\n"}
+[2.393966] (autorace_lane_pid) StdoutLine: {'line': b'1/1 Test #1: test_pid .........................   Passed    0.18 sec\n'}
+[2.395101] (autorace_lane_pid) StdoutLine: {'line': b'\n'}
+[2.395398] (autorace_lane_pid) StdoutLine: {'line': b'100% tests passed, 0 tests failed out of 1\n'}
+[2.395661] (autorace_lane_pid) StdoutLine: {'line': b'\n'}
+[2.396036] (autorace_lane_pid) StdoutLine: {'line': b'Label Time Summary:\n'}
+[2.396318] (autorace_lane_pid) StdoutLine: {'line': b'gtest    =   0.18 sec*proc (1 test)\n'}
+[2.396567] (autorace_lane_pid) StdoutLine: {'line': b'\n'}
+[2.396803] (autorace_lane_pid) StdoutLine: {'line': b'Total Test time (real) =   0.18 sec\n'}
+[2.399368] (autorace_lane_pid) CommandEnded: {'returncode': 0}
+[2.401357] (autorace_lane_pid) JobEnded: {'identifier': 'autorace_lane_pid', 'rc': 0}
+[2.403603] (-) EventReactorShutdown: {}

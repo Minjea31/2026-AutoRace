@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>autorace_lane_lite</name><version>0.1.0</version>
+  <description>DL-only binarization with original C++ lane tracking and path generation.</description>
+  <maintainer email="alstjd5571@cbnu.ac.kr">AutoRace team</maintainer><license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend><depend>sensor_msgs</depend><depend>std_msgs</depend>
+  <build_depend>python3-dev</build_depend>
+  <exec_depend>python3-numpy</exec_depend><exec_depend>python3-opencv</exec_depend>
+  <depend>yaml-cpp</depend><depend>libopencv-dev</depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

@@ -1,0 +1,1 @@
+rclcpp;std_msgs;ackermann_msgs;yaml-cpp;qtbase5-dev;launch_ros;autorace_lane_lite;ament_cmake_gtest

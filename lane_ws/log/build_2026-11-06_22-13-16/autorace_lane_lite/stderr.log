@@ -1,0 +1,182 @@
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_BothBoundariesGiveCentredTarget_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:31:21: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat, int)’
+   31 |   auto r = p.process(scene(170, 300), 0);
+      |            ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_GlareBlobIsNotAMarking_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:38:21: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat, int)’
+   38 |   auto r = p.process(scene(170, 300, true, true, true), 0);
+      |            ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_SingleBoundaryOffsetsByLaneWidth_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:45:21: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat, int)’
+   45 |   auto r = p.process(scene(170, 300, true, false), 0);
+      |            ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_ShortDropoutIsHeldThenLost_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:53:12: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat, int)’
+   53 |   p.process(scene(170, 300), 0);
+      |   ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+In file included from /opt/ros/humble/src/gtest_vendor/include/gtest/gtest.h:375,
+                 from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:3:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:55:22: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat&, double)’
+   55 |   EXPECT_EQ(p.process(empty, .1).state, "held");
+      |             ~~~~~~~~~^~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+In file included from /opt/ros/humble/src/gtest_vendor/include/gtest/gtest.h:62,
+                 from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:3:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:56:25: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat&, double)’
+   56 |   EXPECT_FALSE(p.process(empty, .7).valid);
+      |                ~~~~~~~~~^~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_OneFrameJumpIsRejected_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:61:14: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat, double)’
+   61 |     p.process(scene(170, 300), i * .05);
+      |     ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:62:21: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat, double)’
+   62 |   auto r = p.process(scene(260, 300), .25); // both lines jump 90 px at once
+      |            ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_TransverseBendIsFollowed_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:71:21: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat&, int)’
+   71 |   auto r = p.process(img, 0);
+      |            ~~~~~~~~~^~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_DashedBoundaryIsTrackedNearToFar_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:85:23: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat&, double)’
+   85 |     auto r = p.process(img, i * .05);
+      |              ~~~~~~~~~^~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_StopLineIsNeverABoundary_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:100:23: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat&, double)’
+  100 |     auto r = p.process(img, i * .05);
+      |              ~~~~~~~~~^~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_CrosswalkStripesAreRemoved_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:118:18: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat&, double)’
+  118 |     r = p.process(img, i * .05);
+      |         ~~~~~~~~~^~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_ThickDashesSurviveWhiteMaxWidth_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:134:23: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat&, double)’
+  134 |     auto r = p.process(img, i * .05);
+      |              ~~~~~~~~~^~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_SolidWhiteIsIgnoredDashedWhiteKept_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:148:23: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat, double)’
+  148 |     rs = solid.process(scene(170, 300), i * .05); // full-height white line
+      |          ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:152:24: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat&, double)’
+  152 |     rd = dashed.process(img, i * .05);
+      |          ~~~~~~~~~~~~~~^~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_YellowPairSkipsAngleLimitWhitePairDoesNot_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:173:20: error: no matching function for call to ‘lane_lite::Pipeline::process(cv::Mat&, double)’
+  173 |       r = p.process(img, i * .05);
+      |           ~~~~~~~~~^~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp: In member function ‘virtual void LaneLite_NoViewsGivesSameResult_Test::TestBody()’:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:183:30: error: no matching function for call to ‘lane_lite::Pipeline::process(const cv::Mat&, double)’
+  183 |     const auto ra = a.process(img, i * .05), rb = b.process(img, i * .05, false);
+      |                     ~~~~~~~~~^~~~~~~~~~~~~~
+In file included from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:2:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note: candidate: ‘lane_lite::Result lane_lite::Pipeline::process(const cv::Mat&, const cv::Mat&, double, bool)’
+   74 |   Result process(const cv::Mat &bgr, const cv::Mat &classes, double time, bool views = true);
+      |          ^~~~~~~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/include/autorace_lane_lite/lane.hpp:74:10: note:   candidate expects 4 arguments, 2 provided
+In file included from /opt/ros/humble/src/gtest_vendor/include/gtest/gtest.h:375,
+                 from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:3:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:184:25: error: ‘rb’ was not declared in this scope; did you mean ‘b’?
+  184 |     ASSERT_EQ(ra.valid, rb.valid) << i;
+      |                         ^~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:185:25: error: ‘rb’ was not declared in this scope; did you mean ‘b’?
+  185 |     EXPECT_EQ(ra.state, rb.state) << i;
+      |                         ^~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:186:36: error: ‘rb’ was not declared in this scope; did you mean ‘b’?
+  186 |     EXPECT_DOUBLE_EQ(ra.lateral_m, rb.lateral_m) << i;
+      |                                    ^~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:187:34: error: ‘rb’ was not declared in this scope; did you mean ‘b’?
+  187 |     EXPECT_DOUBLE_EQ(ra.heading, rb.heading) << i;
+      |                                  ^~
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:188:41: error: ‘rb’ was not declared in this scope; did you mean ‘b’?
+  188 |     EXPECT_DOUBLE_EQ(ra.near_lateral_m, rb.near_lateral_m) << i;
+      |                                         ^~
+In file included from /opt/ros/humble/src/gtest_vendor/include/gtest/gtest.h:62,
+                 from /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:3:
+/home/wego/2026-AutoRace/lane_ws/src/autorace_lane_lite/test/test_lane.cpp:189:17: error: ‘rb’ was not declared in this scope; did you mean ‘b’?
+  189 |     EXPECT_TRUE(rb.path_view.empty() && rb.overlay.empty()) << i;
+      |                 ^~
+gmake[2]: *** [CMakeFiles/test_lane.dir/build.make:76: CMakeFiles/test_lane.dir/test/test_lane.cpp.o] Error 1
+gmake[1]: *** [CMakeFiles/Makefile2:213: CMakeFiles/test_lane.dir/all] Error 2
+gmake[1]: *** Waiting for unfinished jobs....
+/usr/bin/ld: warning: libopencv_imgcodecs.so.4.5d, needed by /opt/ros/humble/lib/libcv_bridge.so, may conflict with libopencv_imgcodecs.so.408
+/usr/bin/ld: warning: libopencv_imgproc.so.4.5d, needed by /opt/ros/humble/lib/libcv_bridge.so, may conflict with libopencv_imgproc.so.408
+/usr/bin/ld: warning: libopencv_core.so.4.5d, needed by /opt/ros/humble/lib/libcv_bridge.so, may conflict with libopencv_core.so.408
+gmake: *** [Makefile:146: all] Error 2

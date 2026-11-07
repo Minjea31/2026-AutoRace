@@ -1,0 +1,64 @@
+[0.023s] Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --build /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite -- -j6 -l6
+[0.071s] -- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)
+[0.195s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[0.378s] -- Override CMake install command with custom implementation using symlinks instead of copying resources
+[0.392s] -- Found rclcpp: 16.0.15 (/opt/ros/humble/share/rclcpp/cmake)
+[0.448s] -- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+[0.453s] -- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[0.464s] -- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+[0.482s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[0.505s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[0.565s] -- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+[0.568s] -- Found rmw_fastrtps_cpp: 6.2.9 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+[0.790s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[0.882s] -- Found sensor_msgs: 4.9.0 (/opt/ros/humble/share/sensor_msgs/cmake)
+[0.934s] -- Found cv_bridge: 3.2.1 (/opt/ros/humble/share/cv_bridge/cmake)
+[1.120s] -- Found Python3: /usr/include/python3.10 (found version "3.10.12") found components: Development Development.Module Development.Embed 
+[1.128s] -- Found ament_cmake_gtest: 1.3.12 (/opt/ros/humble/share/ament_cmake_gtest/cmake)
+[1.129s] -- Found gtest sources under '/opt/ros/humble/src/gtest_vendor': C++ tests using 'Google Test' will be built
+[1.342s] -- Configuring done
+[1.390s] -- Generating done
+[1.403s] -- Build files have been written to: /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite
+[1.468s] Consolidate compiler generated dependencies of target gtest_main
+[1.468s] Consolidate compiler generated dependencies of target lane_lite_core
+[1.469s] Consolidate compiler generated dependencies of target gtest
+[1.489s] [ 40%] Built target lane_lite_core
+[1.490s] [ 40%] Built target gtest_main
+[1.496s] [ 60%] Built target gtest
+[1.519s] Consolidate compiler generated dependencies of target test_lane
+[1.519s] Consolidate compiler generated dependencies of target lane_lite_node
+[1.545s] [ 70%] Building CXX object CMakeFiles/test_lane.dir/test/test_lane.cpp.o
+[1.545s] [ 90%] Built target lane_lite_node
+[5.584s] [100%] Linking CXX executable test_lane
+[6.024s] [100%] Built target test_lane
+[6.055s] Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --build /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite -- -j6 -l6
+[6.078s] Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --install /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite
+[6.095s] -- Install configuration: ""
+[6.096s] -- Execute custom install script
+[6.097s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/lib/autorace_lane_lite/lane_lite_node
+[6.115s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/model/best.pt
+[6.135s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/__init__.py
+[6.155s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/bridge.py
+[6.173s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/constants.py
+[6.190s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/model.py
+[6.208s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/runtime.py
+[6.226s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/config/real/lane.yaml
+[6.245s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/config/sim/lane.yaml
+[6.262s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/config/sim/lane_camera.yaml
+[6.281s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/launch/lane_lite.launch.py
+[6.297s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/ament_index/resource_index/package_run_dependencies/autorace_lane_lite
+[6.315s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/ament_index/resource_index/parent_prefix_path/autorace_lane_lite
+[6.338s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/environment/ament_prefix_path.sh
+[6.356s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/environment/ament_prefix_path.dsv
+[6.377s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/environment/path.sh
+[6.397s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/environment/path.dsv
+[6.415s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/local_setup.bash
+[6.435s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/local_setup.sh
+[6.454s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/local_setup.zsh
+[6.472s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/local_setup.dsv
+[6.490s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/package.dsv
+[6.509s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/ament_index/resource_index/packages/autorace_lane_lite
+[6.533s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/cmake/autorace_lane_liteConfig.cmake
+[6.552s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/cmake/autorace_lane_liteConfig-version.cmake
+[6.570s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/package.xml
+[6.593s] Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --install /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite

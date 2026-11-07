@@ -24,7 +24,8 @@ def clear_scan(front_only=False):
 def test_recorded_objects_select_the_actual_parking_interior(stamp):
     package=Path(__file__).resolve().parents[1]
     params=yaml.safe_load((package/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
-    cfg=Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params})
+    cfg=replace(Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params}),
+                clearance=.04)  # Recorded narrow layout used the former 4 cm margin.
     frame=next(f for f in json.loads((package/'test/data/parking_enclosure_bag_20261107.json').read_text())['frames'] if f['t']==stamp)
     scan=MemoryScan.__new__(MemoryScan);scan.__dict__=clear_scan().__dict__.copy()
     scan.points=[(x,y) for x,y,_ in frame['memory_cells']]
@@ -49,7 +50,7 @@ def test_confirmed_goal_does_not_jump_to_another_bay_and_keeps_heading():
 
 
 def test_new_observation_cannot_freeze_goal_inside_an_obstacle():
-    cfg=replace(Settings(),continuous_replanning=True)
+    cfg=replace(Settings(clearance=.04),continuous_replanning=True)
     goal=Gap(1.,0.,0.,.5,0,1,support_ids=(1,2,3,4,5),confirmed=True)
     candidate=replace(goal,x=1.06)
     scan=clear_scan();scan.points=[(.82,0.)];checker=CollisionChecker(scan,cfg)

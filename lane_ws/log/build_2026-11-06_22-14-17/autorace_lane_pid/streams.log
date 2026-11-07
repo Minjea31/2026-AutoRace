@@ -1,0 +1,83 @@
+[0.028s] Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid': AMENT_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble /usr/bin/cmake /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_pid -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid
+[0.148s] -- The C compiler identification is GNU 11.4.0
+[0.262s] -- The CXX compiler identification is GNU 11.4.0
+[0.285s] -- Detecting C compiler ABI info
+[0.421s] -- Detecting C compiler ABI info - done
+[0.433s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.434s] -- Detecting C compile features
+[0.435s] -- Detecting C compile features - done
+[0.441s] -- Detecting CXX compiler ABI info
+[0.590s] -- Detecting CXX compiler ABI info - done
+[0.611s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.612s] -- Detecting CXX compile features
+[0.613s] -- Detecting CXX compile features - done
+[0.622s] -- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)
+[0.980s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[1.129s] -- Override CMake install command with custom implementation using symlinks instead of copying resources
+[1.215s] -- Found rclcpp: 16.0.15 (/opt/ros/humble/share/rclcpp/cmake)
+[1.311s] -- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+[1.323s] -- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[1.342s] -- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+[1.368s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[1.404s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[1.501s] -- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+[1.507s] -- Found rmw_fastrtps_cpp: 6.2.9 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+[1.676s] -- Found OpenSSL: /usr/lib/aarch64-linux-gnu/libcrypto.so (found version "3.0.2")  
+[1.736s] -- Found FastRTPS: /opt/ros/humble/include  
+[1.827s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[1.849s] -- Looking for pthread.h
+[1.989s] -- Looking for pthread.h - found
+[1.990s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+[2.129s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+[2.130s] -- Found Threads: TRUE  
+[2.241s] -- Found ackermann_msgs: 2.0.2 (/opt/ros/humble/share/ackermann_msgs/cmake)
+[2.327s] -- Found ament_cmake_gtest: 1.3.12 (/opt/ros/humble/share/ament_cmake_gtest/cmake)
+[2.332s] -- Found gtest sources under '/opt/ros/humble/src/gtest_vendor': C++ tests using 'Google Test' will be built
+[2.533s] -- Configuring done
+[2.573s] -- Generating done
+[2.584s] -- Build files have been written to: /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid
+[2.618s] Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid' returned '0': AMENT_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble /usr/bin/cmake /home/wego/2026-AutoRace/lane_ws/src/autorace_lane_pid -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid
+[2.620s] Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid': AMENT_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble /usr/bin/cmake --build /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid -- -j6 -l6
+[2.713s] [ 16%] Building CXX object CMakeFiles/lane_pid_core.dir/src/pid.cpp.o
+[2.713s] [ 16%] Building CXX object gtest/CMakeFiles/gtest_main.dir/src/gtest_main.cc.o
+[2.724s] [ 25%] Building CXX object gtest/CMakeFiles/gtest.dir/src/gtest-all.cc.o
+[4.919s] [ 33%] Linking CXX static library libgtest_main.a
+[4.993s] [ 33%] Built target gtest_main
+[5.663s] [ 41%] Linking CXX static library liblane_pid_core.a
+[5.732s] [ 41%] Built target lane_pid_core
+[5.769s] [ 58%] Building CXX object CMakeFiles/lane_pid_controller.dir/src/node.cpp.o
+[5.769s] [ 58%] Building CXX object CMakeFiles/lane_pid_tuner.dir/src/tuner.cpp.o
+[10.214s] [ 66%] Linking CXX static library libgtest.a
+[10.351s] [ 66%] Built target gtest
+[10.394s] [ 75%] Building CXX object CMakeFiles/test_pid.dir/test/test_pid.cpp.o
+[13.536s] [ 83%] Linking CXX executable test_pid
+[13.904s] [ 83%] Built target test_pid
+[28.139s] [ 91%] Linking CXX executable lane_pid_controller
+[29.196s] [ 91%] Built target lane_pid_controller
+[31.756s] [100%] Linking CXX executable lane_pid_tuner
+[34.813s] [100%] Built target lane_pid_tuner
+[34.840s] Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid' returned '0': AMENT_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble /usr/bin/cmake --build /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid -- -j6 -l6
+[34.844s] Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid': AMENT_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble /usr/bin/cmake --install /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid
+[34.865s] -- Install configuration: ""
+[34.866s] -- Execute custom install script
+[34.867s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/lib/autorace_lane_pid/lane_pid_controller
+[34.887s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/lib/autorace_lane_pid/lane_pid_tuner
+[34.904s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/config/real/pid.yaml
+[34.921s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/config/sim/pid.yaml
+[34.937s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/launch/lane_pid.launch.py
+[34.959s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/ament_index/resource_index/package_run_dependencies/autorace_lane_pid
+[34.976s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/ament_index/resource_index/parent_prefix_path/autorace_lane_pid
+[34.992s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/environment/ament_prefix_path.sh
+[35.008s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/environment/ament_prefix_path.dsv
+[35.031s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/environment/path.sh
+[35.047s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/environment/path.dsv
+[35.063s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/local_setup.bash
+[35.080s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/local_setup.sh
+[35.096s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/local_setup.zsh
+[35.112s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/local_setup.dsv
+[35.128s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/package.dsv
+[35.146s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/ament_index/resource_index/packages/autorace_lane_pid
+[35.164s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/cmake/autorace_lane_pidConfig.cmake
+[35.182s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/cmake/autorace_lane_pidConfig-version.cmake
+[35.199s] -- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/package.xml
+[35.220s] Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid' returned '0': AMENT_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble /usr/bin/cmake --install /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid

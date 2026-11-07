@@ -1,0 +1,2 @@
+/usr/bin/ar qc liblane_pid_core.a CMakeFiles/lane_pid_core.dir/src/pid.cpp.o
+/usr/bin/ranlib liblane_pid_core.a

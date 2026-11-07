@@ -130,7 +130,7 @@ def test_fresh_scan_ahead_of_clock_does_not_discard_entry_path(future_seconds):
     from limo_parking_sim.model import Simulation
 
     rclpy.init()
-    node = ParkingNode(parameter_overrides=[Parameter('localization_source', value='scan')])
+    node = ParkingNode(parameter_overrides=[Parameter('localization_source', value='scan'), Parameter('clearance', value=.04)])
     node.now_seconds = lambda: 20.
     sim = Simulation(load_config())
     try:

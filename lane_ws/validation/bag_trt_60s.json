@@ -1,0 +1,614 @@
+{
+  "source": "recorded camera rosbag, refreshed stamps, 30Hz publisher; lane only, no YOLO",
+  "bag": "/home/wego/rosbag2_2026_11_01-00_45_52/rosbag2_2026_11_01-00_45_52_0.db3",
+  "model": "lane_ws/models/best_640x480_fp16.engine",
+  "backend": "tensorrt",
+  "seconds": 60.00030599999991,
+  "published_frames": 1800,
+  "status_samples": [
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0067,
+      "valid_lane_fps": 9.00252,
+      "neural_lane_fps": 9.00252,
+      "pipeline_ms": 9.13669,
+      "total_ms": 46.302,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.0033,
+      "valid_lane_fps": 12.0017,
+      "neural_lane_fps": 12.0017,
+      "pipeline_ms": 7.90895,
+      "total_ms": 41.6925,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 25.0083,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 9.04559,
+      "total_ms": 44.3884,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 20.0044,
+      "valid_lane_fps": 13.0029,
+      "neural_lane_fps": 13.0029,
+      "pipeline_ms": 9.08171,
+      "total_ms": 47.5353,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 25.0085,
+      "valid_lane_fps": 25.0085,
+      "neural_lane_fps": 25.0085,
+      "pipeline_ms": 8.5655,
+      "total_ms": 39.7591,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 21.0059,
+      "valid_lane_fps": 21.0059,
+      "neural_lane_fps": 21.0059,
+      "pipeline_ms": 9.96653,
+      "total_ms": 51.583,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 21.0058,
+      "valid_lane_fps": 8.00221,
+      "neural_lane_fps": 8.00221,
+      "pipeline_ms": 9.87461,
+      "total_ms": 47.9755,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 21.0058,
+      "valid_lane_fps": 9.00248,
+      "neural_lane_fps": 9.00248,
+      "pipeline_ms": 9.26259,
+      "total_ms": 43.8016,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0079,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.87044,
+      "total_ms": 39.7067,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0072,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.82388,
+      "total_ms": 44.7473,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.0036,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.75208,
+      "total_ms": 39.645,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.007,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 9.05752,
+      "total_ms": 42.6848,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0064,
+      "valid_lane_fps": 23.0061,
+      "neural_lane_fps": 23.0061,
+      "pipeline_ms": 9.03816,
+      "total_ms": 40.8484,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.0065,
+      "valid_lane_fps": 23.0065,
+      "neural_lane_fps": 23.0065,
+      "pipeline_ms": 8.98137,
+      "total_ms": 40.5017,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 25.0076,
+      "valid_lane_fps": 13.004,
+      "neural_lane_fps": 13.004,
+      "pipeline_ms": 7.93813,
+      "total_ms": 43.1552,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 22.0058,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 9.56247,
+      "total_ms": 50.7121,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.0081,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.71208,
+      "total_ms": 42.6289,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 22.0056,
+      "valid_lane_fps": 4.00102,
+      "neural_lane_fps": 4.00102,
+      "pipeline_ms": 9.3222,
+      "total_ms": 48.3597,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.0068,
+      "valid_lane_fps": 8.00235,
+      "neural_lane_fps": 8.00235,
+      "pipeline_ms": 9.24381,
+      "total_ms": 47.2031,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 21.0067,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 11.7363,
+      "total_ms": 58.5448,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.0062,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 9.52465,
+      "total_ms": 48.2994,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 22.0067,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.71912,
+      "total_ms": 44.5236,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 20.0056,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 10.9667,
+      "total_ms": 54.8432,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 20.0047,
+      "valid_lane_fps": 12.0028,
+      "neural_lane_fps": 12.0028,
+      "pipeline_ms": 9.33906,
+      "total_ms": 43.4349,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.015,
+      "valid_lane_fps": 24.015,
+      "neural_lane_fps": 24.015,
+      "pipeline_ms": 8.90195,
+      "total_ms": 43.6549,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 25.0073,
+      "valid_lane_fps": 25.0073,
+      "neural_lane_fps": 25.0073,
+      "pipeline_ms": 8.06548,
+      "total_ms": 36.0927,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0054,
+      "valid_lane_fps": 8.0018,
+      "neural_lane_fps": 8.0018,
+      "pipeline_ms": 8.33685,
+      "total_ms": 41.0155,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0073,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.93657,
+      "total_ms": 45.5595,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0065,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.64117,
+      "total_ms": 42.2194,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0112,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 9.13121,
+      "total_ms": 39.909,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0111,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 7.94712,
+      "total_ms": 41.6872,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.0062,
+      "valid_lane_fps": 22.0059,
+      "neural_lane_fps": 22.0059,
+      "pipeline_ms": 8.33441,
+      "total_ms": 44.3666,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 25.0063,
+      "valid_lane_fps": 7.00177,
+      "neural_lane_fps": 7.00177,
+      "pipeline_ms": 9.08814,
+      "total_ms": 52.3131,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 22.0067,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 9.57613,
+      "total_ms": 44.5052,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 21.0063,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 7.93748,
+      "total_ms": 48.5676,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.0045,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.41319,
+      "total_ms": 40.2251,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 21.0062,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 10.3669,
+      "total_ms": 48.9086,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 22.0058,
+      "valid_lane_fps": 15.004,
+      "neural_lane_fps": 15.004,
+      "pipeline_ms": 9.40939,
+      "total_ms": 44.964,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 25.0093,
+      "valid_lane_fps": 12.0044,
+      "neural_lane_fps": 12.0044,
+      "pipeline_ms": 7.91048,
+      "total_ms": 36.8018,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 22.0033,
+      "valid_lane_fps": 17.0026,
+      "neural_lane_fps": 17.0026,
+      "pipeline_ms": 9.20371,
+      "total_ms": 50.5927,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0071,
+      "valid_lane_fps": 24.0071,
+      "neural_lane_fps": 24.0071,
+      "pipeline_ms": 8.16607,
+      "total_ms": 43.0604,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 25.0068,
+      "valid_lane_fps": 15.0041,
+      "neural_lane_fps": 15.0041,
+      "pipeline_ms": 8.07494,
+      "total_ms": 36.6464,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0066,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.82147,
+      "total_ms": 43.7939,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0067,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.82035,
+      "total_ms": 41.8427,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 25.0073,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 7.93739,
+      "total_ms": 41.9129,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0066,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.76893,
+      "total_ms": 37.3532,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0071,
+      "valid_lane_fps": 6.00179,
+      "neural_lane_fps": 6.00179,
+      "pipeline_ms": 8.12502,
+      "total_ms": 36.6143,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 25.0068,
+      "valid_lane_fps": 25.0068,
+      "neural_lane_fps": 25.0068,
+      "pipeline_ms": 9.00897,
+      "total_ms": 39.3381,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0064,
+      "valid_lane_fps": 24.0064,
+      "neural_lane_fps": 24.0064,
+      "pipeline_ms": 9.46714,
+      "total_ms": 47.6668,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 22.0063,
+      "valid_lane_fps": 17.0049,
+      "neural_lane_fps": 17.0049,
+      "pipeline_ms": 8.79107,
+      "total_ms": 49.0626,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 21.007,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 9.08676,
+      "total_ms": 37.03,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.0054,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 9.96326,
+      "total_ms": 45.5152,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 25.0067,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 7.97377,
+      "total_ms": 41.19,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0064,
+      "valid_lane_fps": 11.0029,
+      "neural_lane_fps": 11.0029,
+      "pipeline_ms": 9.17277,
+      "total_ms": 45.8526,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.0064,
+      "valid_lane_fps": 23.0064,
+      "neural_lane_fps": 23.0064,
+      "pipeline_ms": 8.01082,
+      "total_ms": 38.8805,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0087,
+      "valid_lane_fps": 2.00073,
+      "neural_lane_fps": 2.00073,
+      "pipeline_ms": 8.84838,
+      "total_ms": 40.3219,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0043,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 8.8926,
+      "total_ms": 40.1715,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 23.006,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 7.90577,
+      "total_ms": 39.3217,
+      "errors": 0,
+      "stale_frames": 0
+    },
+    {
+      "backend": "tensorrt",
+      "processed_fps": 24.0065,
+      "valid_lane_fps": 0,
+      "neural_lane_fps": 0,
+      "pipeline_ms": 7.9058,
+      "total_ms": 41.8093,
+      "errors": 0,
+      "stale_frames": 0
+    }
+  ],
+  "mean_processed_fps": 23.193128813559323,
+  "mean_valid_lane_fps": 7.7480147457627115,
+  "target_count": 1392,
+  "valid_targets": 459,
+  "vehicle_output": false,
+  "debug_subscribers_during_measurement": 0,
+  "preview_topics": [
+    "class_mask",
+    "bev_mask",
+    "segmentation",
+    "bev",
+    "path",
+    "overlay"
+  ]
+}

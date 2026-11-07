@@ -7,6 +7,7 @@ are eligible targets. A locked placement persists through LiDAR occlusion.
 import math
 import numpy as np
 from .core import wrap
+from .roi import contains as roi_contains
 
 
 def reference_centers(cfg):
@@ -17,6 +18,59 @@ def reference_centers(cfg):
 
 def rotation(yaw):
     c,s=math.cos(yaw),math.sin(yaw);return np.array([[c,-s],[s,c]])
+
+
+def fit_two_object_row(points,owners,cfg):
+    """Match the outer columns of one row without inventing a second row.
+
+    Two anchors determine their empty midpoint and row axis, but not which
+    side contains the other row. Leave the map unlocked for the third object.
+    """
+    if not cfg.pair_fallback_enabled or cfg.slot_columns!=3:return None
+    center=points.mean(axis=0)
+    if cfg.slot_initial_right_only and center[1]>=0:return None
+    delta=points[1]-points[0];distance=float(np.linalg.norm(delta))
+    pitch=cfg.slot_width+cfg.slot_border
+    error=abs(distance-2*pitch)/2
+    if distance<1e-6 or error>min(cfg.slot_match_tolerance,cfg.slot_fit_max_error):return None
+    yaw=wrap(math.atan2(delta[1],delta[0]))
+    if yaw>=math.pi/2:yaw-=math.pi
+    if yaw< -math.pi/2:yaw+=math.pi
+    axis=np.array([math.cos(yaw),math.sin(yaw)])
+    order=np.argsort((points-center)@axis)
+    cells=[]
+    for col in range(3):
+        world=center+(col-1)*pitch*axis
+        occupied=col!=1
+        cells.append({'id':col,'column':col,'row':0,'center':world.tolist(),
+            'occupied':occupied,'occupant_ids':[owners[order[0 if col==0 else 1]]] if occupied else [],
+            'eligible_empty':not occupied,'state':'occupied' if occupied else 'empty_candidate'})
+    return {'origin':center.tolist(),'yaw':float(yaw),'locked':False,'matched_cells':2,
+        'fit_rmse_m':error,'hypotheses':2,'columns':3,'rows':1,'cell_width':cfg.slot_width,
+        'cell_depth':cfg.slot_depth,'border':cfg.slot_border,'cells':cells,
+        'support_ids':sorted(set(owners)),'frame':'mission','method':'two_object_row_template'}
+
+
+def pair_map_hypotheses(objects,cfg):
+    """Register supported pairs among all objects, independently of their count."""
+    result=[]
+    for i,(a_indices,a) in enumerate(objects):
+        for b_indices,b in objects[i+1:]:
+            if cfg.slot_initial_right_only and (a.center[1]>=0 or b.center[1]>=0):continue
+            owners=[c.track_id if c.track_id is not None else -indices[0]-1
+                    for indices,c in ((a_indices,a),(b_indices,b))]
+            if owners[0]==owners[1]:continue
+            layout=fit_two_object_row(np.array([a.center,b.center]),owners,cfg)
+            if layout is None:continue
+            axis=np.array([math.cos(layout['yaw']),math.sin(layout['yaw'])])
+            normal=np.array([-axis[1],axis[0]])
+            center=np.array(layout['origin']);span=float(np.linalg.norm(np.array(b.center)-a.center))/2
+            # An intervening object invalidates the proposed empty middle cell.
+            if any(abs(float((np.array(c.center)-center)@axis))<span-1e-6 and
+                   abs(float((np.array(c.center)-center)@normal))<=cfg.row_tolerance
+                   for _,c in objects if c is not a and c is not b):continue
+            result.append(layout)
+    return result
 
 
 def fit_slot_map(objects,cfg,hint=None):
@@ -40,7 +94,8 @@ def fit_slot_map(objects,cfg,hint=None):
         alternatives=[{'origin':center,'yaw':yaw,'centers':centers}]
         count=int(matches.sum());extent_locked=True
     else:
-        if len(points)<3:return None
+        if len(points)<3:
+            return fit_two_object_row(points,owners,cfg) if len(points)==2 else None
         seeds={}
         for i in range(len(points)):
             for j in range(i+1,len(points)):
@@ -104,10 +159,11 @@ def fit_slot_map(objects,cfg,hint=None):
             occupied=sorted(set(occupied)|set(old_cells[index].get('occupant_ids',[])))
         on_right=bool(not cfg.slot_initial_right_only or world[1]<0)
         inside_all=all(float(np.min(np.linalg.norm(world-v['centers'],axis=1)))<=gate for v in alternatives)
+        in_roi=roi_contains(world,cfg)
         cells.append({'id':index,'column':index%cfg.slot_columns,'row':index//cfg.slot_columns,
                       'center':world.tolist(),'occupied':bool(occupied),'occupant_ids':occupied,
-                      'eligible_empty':not occupied and inside_all and on_right,
-                      'state':'occupied' if occupied else ('outside_initial_right' if not on_right else ('empty_candidate' if inside_all else 'unconfirmed'))})
+                      'eligible_empty':not occupied and inside_all and on_right and in_roi,
+                      'state':'occupied' if occupied else ('outside_candidate_roi' if not in_roi else ('outside_initial_right' if not on_right else ('empty_candidate' if inside_all else 'unconfirmed')))})
     return {'origin':center.tolist(),'yaw':float(yaw),'locked':bool(extent_locked),'matched_cells':count,
             'fit_rmse_m':float(error) if math.isfinite(error) else None,'hypotheses':len(alternatives),
             'columns':cfg.slot_columns,'rows':cfg.slot_rows,'cell_width':cfg.slot_width,'cell_depth':cfg.slot_depth,

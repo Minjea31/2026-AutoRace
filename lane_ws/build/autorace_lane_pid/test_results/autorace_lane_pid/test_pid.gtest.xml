@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="12" failures="0" disabled="0" errors="0" time="0.001" timestamp="2026-11-06T22:20:25" name="AllTests">
+  <testsuite name="Pid" tests="12" failures="0" disabled="0" errors="0" time="0.001" timestamp="2026-11-06T22:20:25">
+    <testcase name="DefaultsAreValidAndEveryParameterHasHelp" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="LeftErrorSteersLeftProportionally" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="ErrorCombinesNearHeadingAndLookahead" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="DerivativeUsesMeasurementTime" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="IntegralAccumulatesAndIsClamped" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="NoWindupWhileSaturated" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="LostLaneStopsAndResetsHistory" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="TimeoutStopsImmediatelyAndSteeringIsRateLimited" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="AccelerationLimitedAndActiveSwitch" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="YamlRoundTripKeepsDoubles" status="run" result="completed" time="0.001" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="RejectsInconsistentConfig" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+    <testcase name="SingleFrameGlitchIsSlewLimited" status="run" result="completed" time="0" timestamp="2026-11-06T22:20:25" classname="autorace_lane_pid.Pid" />
+  </testsuite>
+</testsuites>

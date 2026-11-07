@@ -28,7 +28,7 @@ def test_empty_gap_accepts_distinct_objects_and_checks_vehicle_clearance():
     report=build_plan_report(scene(),config())
     check=report['diagnostics']['candidate_checks'][0]
     assert check['accepted'] and check['width_m']==pytest.approx(.6)
-    assert check['required_width_m']==pytest.approx(.3)
+    assert check['required_width_m']==pytest.approx(config().vehicle_width+2*config().clearance)
 
 
 def test_isolated_unowned_point_between_boxes_rejects_candidate():

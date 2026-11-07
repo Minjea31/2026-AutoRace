@@ -1,0 +1,41 @@
+-- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid':
+ - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_pid --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml
+
+Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc
+[==========] Running 12 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 12 tests from Pid
+[ RUN      ] Pid.DefaultsAreValidAndEveryParameterHasHelp
+[       OK ] Pid.DefaultsAreValidAndEveryParameterHasHelp (0 ms)
+[ RUN      ] Pid.LeftErrorSteersLeftProportionally
+[       OK ] Pid.LeftErrorSteersLeftProportionally (0 ms)
+[ RUN      ] Pid.ErrorCombinesNearHeadingAndLookahead
+[       OK ] Pid.ErrorCombinesNearHeadingAndLookahead (0 ms)
+[ RUN      ] Pid.DerivativeUsesMeasurementTime
+[       OK ] Pid.DerivativeUsesMeasurementTime (0 ms)
+[ RUN      ] Pid.IntegralAccumulatesAndIsClamped
+[       OK ] Pid.IntegralAccumulatesAndIsClamped (0 ms)
+[ RUN      ] Pid.NoWindupWhileSaturated
+[       OK ] Pid.NoWindupWhileSaturated (0 ms)
+[ RUN      ] Pid.LostLaneStopsAndResetsHistory
+[       OK ] Pid.LostLaneStopsAndResetsHistory (0 ms)
+[ RUN      ] Pid.TimeoutStopsImmediatelyAndSteeringIsRateLimited
+[       OK ] Pid.TimeoutStopsImmediatelyAndSteeringIsRateLimited (0 ms)
+[ RUN      ] Pid.AccelerationLimitedAndActiveSwitch
+[       OK ] Pid.AccelerationLimitedAndActiveSwitch (0 ms)
+[ RUN      ] Pid.YamlRoundTripKeepsDoubles
+[       OK ] Pid.YamlRoundTripKeepsDoubles (1 ms)
+[ RUN      ] Pid.RejectsInconsistentConfig
+[       OK ] Pid.RejectsInconsistentConfig (0 ms)
+[ RUN      ] Pid.SingleFrameGlitchIsSlewLimited
+[       OK ] Pid.SingleFrameGlitchIsSlewLimited (0 ms)
+[----------] 12 tests from Pid (1 ms total)
+
+[----------] Global test environment tear-down
+[==========] 12 tests from 1 test suite ran. (1 ms total)
+[  PASSED  ] 12 tests.
+
+
+-- run_test.py: return code 0
+-- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml'
+-- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml'

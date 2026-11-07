@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="10" failures="0" disabled="0" errors="0" time="1.38" timestamp="2026-11-06T22:20:23" name="AllTests">
+  <testsuite name="DLLane" tests="10" failures="0" disabled="0" errors="0" time="1.38" timestamp="2026-11-06T22:20:23">
+    <testcase name="BothBoundaries" status="run" result="completed" time="0.039" timestamp="2026-11-06T22:20:23" classname="autorace_lane_lite.DLLane" />
+    <testcase name="SingleBoundary" status="run" result="completed" time="0.032" timestamp="2026-11-06T22:20:23" classname="autorace_lane_lite.DLLane" />
+    <testcase name="HeldThenLost" status="run" result="completed" time="0.097" timestamp="2026-11-06T22:20:23" classname="autorace_lane_lite.DLLane" />
+    <testcase name="JumpRejected" status="run" result="completed" time="0.222" timestamp="2026-11-06T22:20:24" classname="autorace_lane_lite.DLLane" />
+    <testcase name="MasksPassWithoutShapeFiltering" status="run" result="completed" time="0.032" timestamp="2026-11-06T22:20:24" classname="autorace_lane_lite.DLLane" />
+    <testcase name="ROIOnly" status="run" result="completed" time="0.03" timestamp="2026-11-06T22:20:24" classname="autorace_lane_lite.DLLane" />
+    <testcase name="NoViewsSameMeasurement" status="run" result="completed" time="0.184" timestamp="2026-11-06T22:20:24" classname="autorace_lane_lite.DLLane" />
+    <testcase name="InvalidMasksRejected" status="run" result="completed" time="0.024" timestamp="2026-11-06T22:20:24" classname="autorace_lane_lite.DLLane" />
+    <testcase name="DashedBoundaryNearToFar" status="run" result="completed" time="0.685" timestamp="2026-11-06T22:20:24" classname="autorace_lane_lite.DLLane" />
+    <testcase name="TransverseHairpin" status="run" result="completed" time="0.035" timestamp="2026-11-06T22:20:25" classname="autorace_lane_lite.DLLane" />
+  </testsuite>
+</testsuites>

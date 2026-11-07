@@ -1,0 +1,4 @@
+source;share/autorace_lane_lite/local_setup.bash
+source;share/autorace_lane_lite/local_setup.dsv
+source;share/autorace_lane_lite/local_setup.sh
+source;share/autorace_lane_lite/local_setup.zsh

@@ -1,0 +1,68 @@
+[0.043s] Invoking command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid': /usr/bin/ctest -C Release -D ExperimentalTest --no-compress-output -V --force-new-ctest-process
+[0.055s] UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini
+[0.055s] Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini
+[0.055s]    Site: ubuntu
+[0.056s]    Build name: (empty)
+[0.057s]  Add coverage exclude regular expressions.
+[0.057s] Create new tag: 20261106-1320 - Experimental
+[0.057s] UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini
+[0.058s] Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini
+[0.058s] Test project /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid
+[0.058s] Constructing a list of tests
+[0.058s] Done constructing a list of tests
+[0.058s] Updating test list for fixtures
+[0.059s] Added 0 tests to meet fixture requirements
+[0.059s] Checking test dependency graph...
+[0.059s] Checking test dependency graph end
+[0.059s] test 1
+[0.060s]     Start 1: test_pid
+[0.060s] 
+[0.060s] 1: Test command: /usr/bin/python3 "-u" "/opt/ros/humble/share/ament_cmake_test/cmake/run_test.py" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml" "--package-name" "autorace_lane_pid" "--output-file" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/ament_cmake_gtest/test_pid.txt" "--command" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_pid" "--gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml"
+[0.060s] 1: Test timeout computed to be: 60
+[0.202s] 1: -- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid':
+[0.202s] 1:  - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_pid --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml
+[0.206s] 1: Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc
+[0.206s] 1: [==========] Running 12 tests from 1 test suite.
+[0.206s] 1: [----------] Global test environment set-up.
+[0.206s] 1: [----------] 12 tests from Pid
+[0.207s] 1: [ RUN      ] Pid.DefaultsAreValidAndEveryParameterHasHelp
+[0.207s] 1: [       OK ] Pid.DefaultsAreValidAndEveryParameterHasHelp (0 ms)
+[0.207s] 1: [ RUN      ] Pid.LeftErrorSteersLeftProportionally
+[0.207s] 1: [       OK ] Pid.LeftErrorSteersLeftProportionally (0 ms)
+[0.207s] 1: [ RUN      ] Pid.ErrorCombinesNearHeadingAndLookahead
+[0.207s] 1: [       OK ] Pid.ErrorCombinesNearHeadingAndLookahead (0 ms)
+[0.207s] 1: [ RUN      ] Pid.DerivativeUsesMeasurementTime
+[0.207s] 1: [       OK ] Pid.DerivativeUsesMeasurementTime (0 ms)
+[0.208s] 1: [ RUN      ] Pid.IntegralAccumulatesAndIsClamped
+[0.208s] 1: [       OK ] Pid.IntegralAccumulatesAndIsClamped (0 ms)
+[0.208s] 1: [ RUN      ] Pid.NoWindupWhileSaturated
+[0.208s] 1: [       OK ] Pid.NoWindupWhileSaturated (0 ms)
+[0.208s] 1: [ RUN      ] Pid.LostLaneStopsAndResetsHistory
+[0.208s] 1: [       OK ] Pid.LostLaneStopsAndResetsHistory (0 ms)
+[0.208s] 1: [ RUN      ] Pid.TimeoutStopsImmediatelyAndSteeringIsRateLimited
+[0.208s] 1: [       OK ] Pid.TimeoutStopsImmediatelyAndSteeringIsRateLimited (0 ms)
+[0.209s] 1: [ RUN      ] Pid.AccelerationLimitedAndActiveSwitch
+[0.209s] 1: [       OK ] Pid.AccelerationLimitedAndActiveSwitch (0 ms)
+[0.209s] 1: [ RUN      ] Pid.YamlRoundTripKeepsDoubles
+[0.209s] 1: [       OK ] Pid.YamlRoundTripKeepsDoubles (1 ms)
+[0.209s] 1: [ RUN      ] Pid.RejectsInconsistentConfig
+[0.210s] 1: [       OK ] Pid.RejectsInconsistentConfig (0 ms)
+[0.210s] 1: [ RUN      ] Pid.SingleFrameGlitchIsSlewLimited
+[0.210s] 1: [       OK ] Pid.SingleFrameGlitchIsSlewLimited (0 ms)
+[0.210s] 1: [----------] 12 tests from Pid (1 ms total)
+[0.210s] 1: 
+[0.210s] 1: [----------] Global test environment tear-down
+[0.210s] 1: [==========] 12 tests from 1 test suite ran. (1 ms total)
+[0.210s] 1: [  PASSED  ] 12 tests.
+[0.211s] 1: -- run_test.py: return code 0
+[0.211s] 1: -- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml'
+[0.211s] 1: -- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml'
+[0.239s] 1/1 Test #1: test_pid .........................   Passed    0.18 sec
+[0.239s] 
+[0.239s] 100% tests passed, 0 tests failed out of 1
+[0.240s] 
+[0.240s] Label Time Summary:
+[0.240s] gtest    =   0.18 sec*proc (1 test)
+[0.241s] 
+[0.241s] Total Test time (real) =   0.18 sec
+[0.244s] Invoked command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid' returned '0': /usr/bin/ctest -C Release -D ExperimentalTest --no-compress-output -V --force-new-ctest-process

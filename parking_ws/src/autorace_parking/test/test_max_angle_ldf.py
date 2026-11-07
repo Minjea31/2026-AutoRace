@@ -82,7 +82,7 @@ def test_right_bay_recovery_goes_straight_then_left_rear():
 
 @pytest.mark.parametrize('side', [-1, 1])
 def test_real_recovery_profile_backs_straight_thirty_cm_on_either_side(side):
-    cfg, _ = real_profile();cfg = replace(cfg, initial_clear_radius=0.)
+    cfg, _ = real_profile();cfg = replace(cfg, initial_clear_radius=0.,clearance=.04)
     assert not cfg.recovery_left_when_goal_right
     assert cfg.recovery_speed == .2 and cfg.blind_reverse_distance == .3
     scan = front_scan();scan.points.append((cfg.vehicle_length/2+.08,0.))

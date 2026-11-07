@@ -3,6 +3,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+import yaml
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -15,6 +16,25 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.logging import launch_config
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, LifecycleNode
+
+
+def serial_port_owners(paths):
+    targets = {Path(p).resolve(): str(p) for p in paths if Path(p).exists()}
+    owners = {}
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            for descriptor in (process/'fd').iterdir():
+                try:
+                    target = descriptor.resolve()
+                except OSError:
+                    continue
+                if target in targets:
+                    owners.setdefault(targets[target], set()).add(int(process.name))
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+    return {port: sorted(pids) for port, pids in owners.items()}
 
 
 def _setup(context):
@@ -30,20 +50,31 @@ def _setup(context):
     if value('tf_profile') not in ('existing', 'wego_limo_pro'):
         raise ValueError('tf_profile must be existing or wego_limo_pro')
 
+    ports = []
+    if enabled('enable_lidar'):
+        config = yaml.safe_load(Path(value('lidar_params')).read_text())
+        ports.append(config['ydlidar_ros2_driver_node']['ros__parameters']['port'])
+    if enabled('enable_base'):
+        port = value('port_name')
+        ports.append(port if port.startswith('/') else '/dev/'+port)
+    busy = serial_port_owners(ports)
+    if busy:
+        raise RuntimeError(f'Sensor serial ports already open: {busy}; stop the previous sensor launch first')
+
     log_dir = Path(launch_config.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     raw_dir = log_dir / 'process_output'
     raw_dir.mkdir(exist_ok=True)
     options = {key: value(key) for key in (
         'enable_base', 'enable_lidar', 'enable_camera', 'enable_description',
-        'enable_camera_tf', 'enable_ekf', 'port_name', 'lidar_params', 'ekf_params',
+        'enable_camera_tf', 'enable_ekf', 'port_name', 'lidar_params', 'ekf_params', 'fusion_params',
         'camera_name', 'camera_launch', 'degree', 'startup_timeout', 'stale_timeout', 'tf_profile',
         'camera_tf_publish_rate',
     )}
     (log_dir / 'session.json').write_text(json.dumps({
         'started_at': datetime.now(timezone.utc).isoformat(), 'options': options,
         'base_executable': 'limo_base', 'use_mcnamu': False,
-        'base_pub_odom_tf': not enabled('enable_ekf'),
+        'base_pub_odom_tf': True,
     }, indent=2) + '\n')
 
     def record(kind, event=None):
@@ -97,7 +128,13 @@ def _setup(context):
             output='both', parameters=[{
                 'port_name': value('port_name'), 'use_mcnamu': False,
                 'odom_frame': 'odom', 'base_frame': 'base_link',
-                'pub_odom_tf': not enabled('enable_ekf'), 'control_rate': 50,
+                'pub_odom_tf': True, 'control_rate': 50,
+                'steering_limit_enabled': enabled('steering_limit_enabled'),
+                'max_inner_angle': float(value('max_inner_angle')),
+                'steering_command_calibration': enabled('steering_command_calibration'),
+                'steering_command_gain': float(value('steering_command_gain')),
+                'steering_command_deadband': float(value('steering_command_deadband')),
+                'steering_command_limit': float(value('steering_command_limit')),
             }],
         ))
         watch('/imu', 'sensor_msgs/msg/Imu')
@@ -131,6 +168,12 @@ def _setup(context):
         }))
     if enabled('enable_ekf'):
         actions.append(Node(
+            package='autorace_sensor_bringup', executable='sensor_fusion.py',
+            name='sensor_fusion', output='both',
+            additional_env={'OPENBLAS_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1'},
+            parameters=[value('fusion_params')],
+        ))
+        actions.append(Node(
             package='robot_localization', executable='ekf_node',
             name='ekf_filter_node_odom', output='both', parameters=[value('ekf_params')],
         ))
@@ -155,10 +198,14 @@ def generate_launch_description():
         'port_name': 'ttylimo',
         'lidar_params': str(share / 'config' / 'ydlidar.yaml'),
         'ekf_params': str(share / 'config' / 'limo_ekf.yaml'),
+        'fusion_params': str(share / 'config' / 'fusion.yaml'),
         'camera_name': 'camera', 'camera_launch': 'astra_stereo_u3.launch.py',
         'degree': '0.0', 'startup_timeout': '15.0', 'stale_timeout': '5.0',
         'tf_profile': 'wego_limo_pro',
         'camera_tf_publish_rate': '0.0',
+        'steering_limit_enabled': 'false', 'max_inner_angle': '0.80',
+        'steering_command_calibration': 'true', 'steering_command_gain': '1.92',
+        'steering_command_deadband': '0.23', 'steering_command_limit': '0.35',
     }
     return LaunchDescription([
         *[DeclareLaunchArgument(name, default_value=default) for name, default in defaults.items()],

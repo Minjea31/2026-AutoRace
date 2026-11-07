@@ -1,5 +1,11 @@
 parking_node:
   ros__parameters:
+    # Fixed in the mission-start frame; these bounds select candidate points only.
+    candidate_roi_enabled: true
+    candidate_roi_forward_min: 0.0
+    candidate_roi_forward_max: 3.0
+    candidate_roi_right_min: 0.0
+    candidate_roi_right_max: 2.0
     recognition_frames: 3
     obstacle_memory_enabled: true
     sign_timeout: 0.5
@@ -34,7 +40,7 @@ parking_node:
     # LiDAR sees the parked cars' front faces, not their full footprints.
     # Target is the center of the measured gap; do not push it into the bay.
     goal_from_observed_front: false
-    clearance: 0.04
+    clearance: 0.10
     initial_clear_radius: 0.3
     # Operator-selected policy: unobserved/zero-range sectors are assumed free.
     assume_unobserved_free: true

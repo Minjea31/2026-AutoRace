@@ -1,0 +1,501 @@
+[0.000000] (-) TimerEvent: {}
+[0.000272] (autorace_lane_lite) JobQueued: {'identifier': 'autorace_lane_lite', 'dependencies': OrderedDict()}
+[0.000566] (autorace_lane_pid) JobQueued: {'identifier': 'autorace_lane_pid', 'dependencies': OrderedDict([('autorace_lane_lite', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite')])}
+[0.001041] (autorace_lane_lite) JobStarted: {'identifier': 'autorace_lane_lite'}
+[0.020235] (autorace_lane_lite) JobProgress: {'identifier': 'autorace_lane_lite', 'progress': 'cmake'}
+[0.022598] (autorace_lane_lite) JobProgress: {'identifier': 'autorace_lane_lite', 'progress': 'build'}
+[0.024328] (autorace_lane_lite) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite', '--', '-j6', '-l6'], 'cwd': '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('PYTHONWARNINGS', 'ignore'), ('CMAKE_BUILD_PARALLEL_LEVEL', '2'), ('CONDA_PROMPT_MODIFIER', ''), ('CODEX_CI', '1'), ('TENSORRT_INSTALL', '/usr/local/TensorRT-10.3.0.26'), ('USER', 'wego'), ('XDG_SESSION_TYPE', 'x11'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/opt/ros/humble/lib:/usr/lib/aarch64-linux-gnu:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/lib:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib:/usr/local/cuda-12.6/lib64::/usr/local/TensorRT-10.3.0.26/lib'), ('HOME', '/home/wego'), ('CONDA_SHLVL', '0'), ('OLDPWD', '/home/wego/2026-AutoRace'), ('DESKTOP_SESSION', 'ubuntu'), ('JETSON_L4T', '36.4.7'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('JETSON_MODEL', 'NVIDIA Jetson Orin NX Engineering Reference Developer Kit'), ('PAGER', 'cat'), ('MANAGERPID', '3272'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '3710'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', 'truecolor'), ('_CE_M', ''), ('TERMINATOR_DBUS_NAME', 'net.tenshu.Terminator23558193cd9818af7fe4d2c2f5bd9d00f'), ('_CONDA_ROOT', '/home/wego/miniconda3'), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '5244'), ('IM_CONFIG_PHASE', '1'), ('COLCON_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install:/home/wego/2026-AutoRace/sensor_ws/install'), ('CODEX_PERMISSION_PROFILE', ':danger-full-access'), ('CODEX_TOOL_CALL_ID', 'exec-dea6cc88-1f71-46e5-8f42-c2fecc806c7b'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'ibus'), ('LOGNAME', 'wego'), ('JETSON_MODULE', 'NVIDIA Jetson Orin Nano (8GB ram)'), ('JETSON_SERIAL_NUMBER', '1422824337560'), ('JOURNAL_STREAM', '8:55181'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS', '1'), ('USERNAME', 'wego'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('_CE_CONDA', ''), ('ROS_LOCALHOST_ONLY', '1'), ('WINDOWPATH', '2'), ('PATH', '/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.local/bin:/home/wego/.codex/tmp/arg0-linux/codex-arg0MqgLEz:/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0sedJUH:/home/wego/.codex/packages/app-server-daemon/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0Ezw4Wc:/home/wego/.codex/packages/standalone/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/usr/src/tensorrt/bin:/opt/ros/humble/bin:/usr/local/cuda-12.6/bin:/home/wego/miniconda3/condabin:/home/wego/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin'), ('SESSION_MANAGER', 'local/ubuntu:@/tmp/.ICE-unix/3430,unix/ubuntu:/tmp/.ICE-unix/3430'), ('CODEX_VERSION', '0.167.0'), ('CODEX_SESSION_ID', '01a1b0e9-6bf5-7fe0-bffd-bba882395741'), ('INVOCATION_ID', '49a5cabc13c9442188d4ffec6c4edcf4'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('DISPLAY', ':1'), ('TERMINATOR_DBUS_PATH', '/net/tenshu/Terminator2'), ('LANG', 'en_US.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('XMODIFIERS', '@im=ibus'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('JETSON_SOC', 'tegra234'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('CONDA_PYTHON_EXE', '/home/wego/miniconda3/bin/python'), ('SHELL', '/bin/bash'), ('TERMINATOR_UUID', 'urn:uuid:61809fdc-659d-4cc8-bc93-c3a276a2f67e'), ('QT_ACCESSIBILITY', '1'), ('GDMSESSION', 'ubuntu'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CONDA_DEFAULT_ENV', ''), ('CODEX_THREAD_ID', '01a1b0fb-3444-7481-b79e-1257296d01b8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('_CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('JETSON_CUDA_ARCH_BIN', '8.7'), ('PWD', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite'), ('LC_ALL', 'en_US.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/wego/miniconda3/envs/dl_env/lib/python3.10/site-packages:/usr/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('CONDA_PREFIX', ''), ('COLCON', '1'), ('VTE_VERSION', '6800'), ('JETSON_JETPACK', ''), ('CMAKE_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('JETSON_P_NUMBER', 'p3767-0003')]), 'shell': False}
+[0.080265] (autorace_lane_lite) StdoutLine: {'line': b'-- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)\n'}
+[0.099422] (-) TimerEvent: {}
+[0.199778] (-) TimerEvent: {}
+[0.222229] (autorace_lane_lite) StdoutLine: {'line': b'-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter \n'}
+[0.299938] (-) TimerEvent: {}
+[0.384102] (autorace_lane_lite) StdoutLine: {'line': b'-- Override CMake install command with custom implementation using symlinks instead of copying resources\n'}
+[0.400106] (-) TimerEvent: {}
+[0.403778] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rclcpp: 16.0.15 (/opt/ros/humble/share/rclcpp/cmake)\n'}
+[0.475907] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)\n'}
+[0.480438] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)\n'}
+[0.491309] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)\n'}
+[0.500190] (-) TimerEvent: {}
+[0.509587] (autorace_lane_lite) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c\n'}
+[0.533692] (autorace_lane_lite) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp\n'}
+[0.593950] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)\n'}
+[0.596976] (autorace_lane_lite) StdoutLine: {'line': b'-- Found rmw_fastrtps_cpp: 6.2.9 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)\n'}
+[0.600291] (-) TimerEvent: {}
+[0.700608] (-) TimerEvent: {}
+[0.801052] (-) TimerEvent: {}
+[0.819244] (autorace_lane_lite) StdoutLine: {'line': b"-- Using RMW implementation 'rmw_fastrtps_cpp' as default\n"}
+[0.901263] (-) TimerEvent: {}
+[0.913243] (autorace_lane_lite) StdoutLine: {'line': b'-- Found sensor_msgs: 4.9.0 (/opt/ros/humble/share/sensor_msgs/cmake)\n'}
+[1.001448] (-) TimerEvent: {}
+[1.101888] (-) TimerEvent: {}
+[1.121209] (autorace_lane_lite) StdoutLine: {'line': b'-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter Development Development.Module Development.Embed \n'}
+[1.128120] (autorace_lane_lite) StdoutLine: {'line': b'-- Found ament_cmake_gtest: 1.3.12 (/opt/ros/humble/share/ament_cmake_gtest/cmake)\n'}
+[1.129430] (autorace_lane_lite) StdoutLine: {'line': b"-- Found gtest sources under '/opt/ros/humble/src/gtest_vendor': C++ tests using 'Google Test' will be built\n"}
+[1.202104] (-) TimerEvent: {}
+[1.302520] (-) TimerEvent: {}
+[1.346105] (autorace_lane_lite) StdoutLine: {'line': b'-- Configuring done\n'}
+[1.394591] (autorace_lane_lite) StdoutLine: {'line': b'-- Generating done\n'}
+[1.402634] (-) TimerEvent: {}
+[1.407599] (autorace_lane_lite) StdoutLine: {'line': b'-- Build files have been written to: /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite\n'}
+[1.480358] (autorace_lane_lite) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target gtest_main\n'}
+[1.480781] (autorace_lane_lite) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target gtest\n'}
+[1.481507] (autorace_lane_lite) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target lane_lite_core\n'}
+[1.502853] (-) TimerEvent: {}
+[1.505097] (autorace_lane_lite) StdoutLine: {'line': b'[ 20%] Built target gtest_main\n'}
+[1.505801] (autorace_lane_lite) StdoutLine: {'line': b'[ 40%] Built target gtest\n'}
+[1.508983] (autorace_lane_lite) StdoutLine: {'line': b'[ 60%] Built target lane_lite_core\n'}
+[1.535458] (autorace_lane_lite) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target test_lane\n'}
+[1.541294] (autorace_lane_lite) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target lane_lite_node\n'}
+[1.561044] (autorace_lane_lite) StdoutLine: {'line': b'[ 70%] Building CXX object CMakeFiles/test_lane.dir/test/test_lane.cpp.o\n'}
+[1.576164] (autorace_lane_lite) StdoutLine: {'line': b'[ 80%] Building CXX object CMakeFiles/lane_lite_node.dir/src/node.cpp.o\n'}
+[1.603041] (-) TimerEvent: {}
+[1.703460] (-) TimerEvent: {}
+[1.803906] (-) TimerEvent: {}
+[1.904511] (-) TimerEvent: {}
+[2.005245] (-) TimerEvent: {}
+[2.105673] (-) TimerEvent: {}
+[2.207147] (-) TimerEvent: {}
+[2.307628] (-) TimerEvent: {}
+[2.408069] (-) TimerEvent: {}
+[2.508488] (-) TimerEvent: {}
+[2.608964] (-) TimerEvent: {}
+[2.709493] (-) TimerEvent: {}
+[2.810042] (-) TimerEvent: {}
+[2.910550] (-) TimerEvent: {}
+[3.010957] (-) TimerEvent: {}
+[3.111379] (-) TimerEvent: {}
+[3.211784] (-) TimerEvent: {}
+[3.312225] (-) TimerEvent: {}
+[3.412657] (-) TimerEvent: {}
+[3.513126] (-) TimerEvent: {}
+[3.613600] (-) TimerEvent: {}
+[3.714022] (-) TimerEvent: {}
+[3.814491] (-) TimerEvent: {}
+[3.916483] (-) TimerEvent: {}
+[4.016917] (-) TimerEvent: {}
+[4.118010] (-) TimerEvent: {}
+[4.218450] (-) TimerEvent: {}
+[4.318906] (-) TimerEvent: {}
+[4.419347] (-) TimerEvent: {}
+[4.519764] (-) TimerEvent: {}
+[4.620229] (-) TimerEvent: {}
+[4.720655] (-) TimerEvent: {}
+[4.821197] (-) TimerEvent: {}
+[4.921624] (-) TimerEvent: {}
+[5.022029] (-) TimerEvent: {}
+[5.122452] (-) TimerEvent: {}
+[5.222876] (-) TimerEvent: {}
+[5.323349] (-) TimerEvent: {}
+[5.423773] (-) TimerEvent: {}
+[5.524228] (-) TimerEvent: {}
+[5.624686] (-) TimerEvent: {}
+[5.725123] (-) TimerEvent: {}
+[5.826265] (-) TimerEvent: {}
+[5.926685] (-) TimerEvent: {}
+[6.027107] (-) TimerEvent: {}
+[6.127530] (-) TimerEvent: {}
+[6.227962] (-) TimerEvent: {}
+[6.328392] (-) TimerEvent: {}
+[6.428806] (-) TimerEvent: {}
+[6.529249] (-) TimerEvent: {}
+[6.629680] (-) TimerEvent: {}
+[6.730095] (-) TimerEvent: {}
+[6.830583] (-) TimerEvent: {}
+[6.930999] (-) TimerEvent: {}
+[7.031423] (-) TimerEvent: {}
+[7.131942] (-) TimerEvent: {}
+[7.232459] (-) TimerEvent: {}
+[7.332880] (-) TimerEvent: {}
+[7.433283] (-) TimerEvent: {}
+[7.533722] (-) TimerEvent: {}
+[7.634144] (-) TimerEvent: {}
+[7.734541] (-) TimerEvent: {}
+[7.834956] (-) TimerEvent: {}
+[7.935321] (-) TimerEvent: {}
+[8.035739] (-) TimerEvent: {}
+[8.136177] (-) TimerEvent: {}
+[8.236582] (-) TimerEvent: {}
+[8.337884] (-) TimerEvent: {}
+[8.438311] (-) TimerEvent: {}
+[8.538718] (-) TimerEvent: {}
+[8.639118] (-) TimerEvent: {}
+[8.739521] (-) TimerEvent: {}
+[8.839924] (-) TimerEvent: {}
+[8.903877] (autorace_lane_lite) StdoutLine: {'line': b'[ 90%] Linking CXX executable test_lane\n'}
+[8.940397] (-) TimerEvent: {}
+[9.040865] (-) TimerEvent: {}
+[9.135816] (autorace_lane_lite) StdoutLine: {'line': b'[ 90%] Built target test_lane\n'}
+[9.141310] (-) TimerEvent: {}
+[9.241802] (-) TimerEvent: {}
+[9.342253] (-) TimerEvent: {}
+[9.442723] (-) TimerEvent: {}
+[9.543208] (-) TimerEvent: {}
+[9.643679] (-) TimerEvent: {}
+[9.744155] (-) TimerEvent: {}
+[9.844503] (-) TimerEvent: {}
+[9.944863] (-) TimerEvent: {}
+[10.045338] (-) TimerEvent: {}
+[10.145809] (-) TimerEvent: {}
+[10.246268] (-) TimerEvent: {}
+[10.346743] (-) TimerEvent: {}
+[10.447227] (-) TimerEvent: {}
+[10.547691] (-) TimerEvent: {}
+[10.648201] (-) TimerEvent: {}
+[10.748676] (-) TimerEvent: {}
+[10.849139] (-) TimerEvent: {}
+[10.949596] (-) TimerEvent: {}
+[11.050085] (-) TimerEvent: {}
+[11.150557] (-) TimerEvent: {}
+[11.251018] (-) TimerEvent: {}
+[11.351487] (-) TimerEvent: {}
+[11.451937] (-) TimerEvent: {}
+[11.552452] (-) TimerEvent: {}
+[11.652921] (-) TimerEvent: {}
+[11.753356] (-) TimerEvent: {}
+[11.853772] (-) TimerEvent: {}
+[11.954179] (-) TimerEvent: {}
+[12.054585] (-) TimerEvent: {}
+[12.154998] (-) TimerEvent: {}
+[12.255410] (-) TimerEvent: {}
+[12.355819] (-) TimerEvent: {}
+[12.456351] (-) TimerEvent: {}
+[12.556757] (-) TimerEvent: {}
+[12.657152] (-) TimerEvent: {}
+[12.757540] (-) TimerEvent: {}
+[12.858183] (-) TimerEvent: {}
+[12.958719] (-) TimerEvent: {}
+[13.059122] (-) TimerEvent: {}
+[13.159531] (-) TimerEvent: {}
+[13.259943] (-) TimerEvent: {}
+[13.360382] (-) TimerEvent: {}
+[13.460815] (-) TimerEvent: {}
+[13.561231] (-) TimerEvent: {}
+[13.661944] (-) TimerEvent: {}
+[13.762372] (-) TimerEvent: {}
+[13.862833] (-) TimerEvent: {}
+[13.963264] (-) TimerEvent: {}
+[14.063694] (-) TimerEvent: {}
+[14.164153] (-) TimerEvent: {}
+[14.264569] (-) TimerEvent: {}
+[14.365023] (-) TimerEvent: {}
+[14.465496] (-) TimerEvent: {}
+[14.565901] (-) TimerEvent: {}
+[14.666334] (-) TimerEvent: {}
+[14.766770] (-) TimerEvent: {}
+[14.867194] (-) TimerEvent: {}
+[14.967595] (-) TimerEvent: {}
+[15.068009] (-) TimerEvent: {}
+[15.168458] (-) TimerEvent: {}
+[15.268881] (-) TimerEvent: {}
+[15.369384] (-) TimerEvent: {}
+[15.469854] (-) TimerEvent: {}
+[15.570287] (-) TimerEvent: {}
+[15.670697] (-) TimerEvent: {}
+[15.771117] (-) TimerEvent: {}
+[15.871536] (-) TimerEvent: {}
+[15.971965] (-) TimerEvent: {}
+[16.072450] (-) TimerEvent: {}
+[16.173298] (-) TimerEvent: {}
+[16.274137] (-) TimerEvent: {}
+[16.374597] (-) TimerEvent: {}
+[16.475015] (-) TimerEvent: {}
+[16.575431] (-) TimerEvent: {}
+[16.675843] (-) TimerEvent: {}
+[16.776341] (-) TimerEvent: {}
+[16.876799] (-) TimerEvent: {}
+[16.977252] (-) TimerEvent: {}
+[17.077719] (-) TimerEvent: {}
+[17.178193] (-) TimerEvent: {}
+[17.278710] (-) TimerEvent: {}
+[17.379535] (-) TimerEvent: {}
+[17.482787] (-) TimerEvent: {}
+[17.583219] (-) TimerEvent: {}
+[17.683641] (-) TimerEvent: {}
+[17.784088] (-) TimerEvent: {}
+[17.884497] (-) TimerEvent: {}
+[17.984934] (-) TimerEvent: {}
+[18.085379] (-) TimerEvent: {}
+[18.185814] (-) TimerEvent: {}
+[18.286290] (-) TimerEvent: {}
+[18.386780] (-) TimerEvent: {}
+[18.487218] (-) TimerEvent: {}
+[18.587614] (-) TimerEvent: {}
+[18.688030] (-) TimerEvent: {}
+[18.788468] (-) TimerEvent: {}
+[18.888946] (-) TimerEvent: {}
+[18.989381] (-) TimerEvent: {}
+[19.090414] (-) TimerEvent: {}
+[19.190924] (-) TimerEvent: {}
+[19.291371] (-) TimerEvent: {}
+[19.391814] (-) TimerEvent: {}
+[19.496234] (-) TimerEvent: {}
+[19.596637] (-) TimerEvent: {}
+[19.697089] (-) TimerEvent: {}
+[19.797501] (-) TimerEvent: {}
+[19.897915] (-) TimerEvent: {}
+[19.998315] (-) TimerEvent: {}
+[20.098717] (-) TimerEvent: {}
+[20.200166] (-) TimerEvent: {}
+[20.300573] (-) TimerEvent: {}
+[20.400990] (-) TimerEvent: {}
+[20.501408] (-) TimerEvent: {}
+[20.601852] (-) TimerEvent: {}
+[20.702341] (-) TimerEvent: {}
+[20.802820] (-) TimerEvent: {}
+[20.903293] (-) TimerEvent: {}
+[21.003766] (-) TimerEvent: {}
+[21.104255] (-) TimerEvent: {}
+[21.204748] (-) TimerEvent: {}
+[21.305226] (-) TimerEvent: {}
+[21.405667] (-) TimerEvent: {}
+[21.506140] (-) TimerEvent: {}
+[21.606612] (-) TimerEvent: {}
+[21.707042] (-) TimerEvent: {}
+[21.807514] (-) TimerEvent: {}
+[21.907942] (-) TimerEvent: {}
+[22.008401] (-) TimerEvent: {}
+[22.108865] (-) TimerEvent: {}
+[22.209290] (-) TimerEvent: {}
+[22.309732] (-) TimerEvent: {}
+[22.410155] (-) TimerEvent: {}
+[22.510739] (-) TimerEvent: {}
+[22.611273] (-) TimerEvent: {}
+[22.711741] (-) TimerEvent: {}
+[22.812189] (-) TimerEvent: {}
+[22.912599] (-) TimerEvent: {}
+[23.013010] (-) TimerEvent: {}
+[23.113461] (-) TimerEvent: {}
+[23.213951] (-) TimerEvent: {}
+[23.314458] (-) TimerEvent: {}
+[23.414914] (-) TimerEvent: {}
+[23.515383] (-) TimerEvent: {}
+[23.615864] (-) TimerEvent: {}
+[23.716414] (-) TimerEvent: {}
+[23.816892] (-) TimerEvent: {}
+[23.917374] (-) TimerEvent: {}
+[24.017839] (-) TimerEvent: {}
+[24.118320] (-) TimerEvent: {}
+[24.218784] (-) TimerEvent: {}
+[24.319236] (-) TimerEvent: {}
+[24.419766] (-) TimerEvent: {}
+[24.520283] (-) TimerEvent: {}
+[24.620703] (-) TimerEvent: {}
+[24.721096] (-) TimerEvent: {}
+[24.821565] (-) TimerEvent: {}
+[24.921957] (-) TimerEvent: {}
+[25.022355] (-) TimerEvent: {}
+[25.122724] (-) TimerEvent: {}
+[25.223144] (-) TimerEvent: {}
+[25.323541] (-) TimerEvent: {}
+[25.423940] (-) TimerEvent: {}
+[25.524386] (-) TimerEvent: {}
+[25.624791] (-) TimerEvent: {}
+[25.728860] (-) TimerEvent: {}
+[25.829275] (-) TimerEvent: {}
+[25.929823] (-) TimerEvent: {}
+[26.030278] (-) TimerEvent: {}
+[26.130694] (-) TimerEvent: {}
+[26.231111] (-) TimerEvent: {}
+[26.331997] (-) TimerEvent: {}
+[26.432510] (-) TimerEvent: {}
+[26.533056] (-) TimerEvent: {}
+[26.633826] (-) TimerEvent: {}
+[26.734245] (-) TimerEvent: {}
+[26.834669] (-) TimerEvent: {}
+[26.935077] (-) TimerEvent: {}
+[27.035483] (-) TimerEvent: {}
+[27.135872] (-) TimerEvent: {}
+[27.236392] (-) TimerEvent: {}
+[27.336886] (-) TimerEvent: {}
+[27.437355] (-) TimerEvent: {}
+[27.537775] (-) TimerEvent: {}
+[27.638197] (-) TimerEvent: {}
+[27.738628] (-) TimerEvent: {}
+[27.839083] (-) TimerEvent: {}
+[27.939550] (-) TimerEvent: {}
+[28.039956] (-) TimerEvent: {}
+[28.140465] (-) TimerEvent: {}
+[28.240890] (-) TimerEvent: {}
+[28.341314] (-) TimerEvent: {}
+[28.441738] (-) TimerEvent: {}
+[28.542157] (-) TimerEvent: {}
+[28.642567] (-) TimerEvent: {}
+[28.742971] (-) TimerEvent: {}
+[28.843409] (-) TimerEvent: {}
+[28.943882] (-) TimerEvent: {}
+[29.044365] (-) TimerEvent: {}
+[29.144781] (-) TimerEvent: {}
+[29.245158] (-) TimerEvent: {}
+[29.345568] (-) TimerEvent: {}
+[29.445965] (-) TimerEvent: {}
+[29.546405] (-) TimerEvent: {}
+[29.646814] (-) TimerEvent: {}
+[29.747226] (-) TimerEvent: {}
+[29.847659] (-) TimerEvent: {}
+[29.948113] (-) TimerEvent: {}
+[30.048588] (-) TimerEvent: {}
+[30.149007] (-) TimerEvent: {}
+[30.249428] (-) TimerEvent: {}
+[30.349846] (-) TimerEvent: {}
+[30.450236] (-) TimerEvent: {}
+[30.550648] (-) TimerEvent: {}
+[30.651052] (-) TimerEvent: {}
+[30.751477] (-) TimerEvent: {}
+[30.851881] (-) TimerEvent: {}
+[30.952305] (-) TimerEvent: {}
+[31.052730] (-) TimerEvent: {}
+[31.153146] (-) TimerEvent: {}
+[31.253566] (-) TimerEvent: {}
+[31.353990] (-) TimerEvent: {}
+[31.454427] (-) TimerEvent: {}
+[31.554796] (-) TimerEvent: {}
+[31.655213] (-) TimerEvent: {}
+[31.755649] (-) TimerEvent: {}
+[31.856184] (-) TimerEvent: {}
+[31.956651] (-) TimerEvent: {}
+[32.057121] (-) TimerEvent: {}
+[32.157548] (-) TimerEvent: {}
+[32.258001] (-) TimerEvent: {}
+[32.358478] (-) TimerEvent: {}
+[32.458922] (-) TimerEvent: {}
+[32.559365] (-) TimerEvent: {}
+[32.659771] (-) TimerEvent: {}
+[32.760217] (-) TimerEvent: {}
+[32.860610] (-) TimerEvent: {}
+[32.961223] (-) TimerEvent: {}
+[33.061791] (-) TimerEvent: {}
+[33.162250] (-) TimerEvent: {}
+[33.262747] (-) TimerEvent: {}
+[33.363152] (-) TimerEvent: {}
+[33.463590] (-) TimerEvent: {}
+[33.564007] (-) TimerEvent: {}
+[33.664440] (-) TimerEvent: {}
+[33.764852] (-) TimerEvent: {}
+[33.865349] (-) TimerEvent: {}
+[33.965817] (-) TimerEvent: {}
+[34.066245] (-) TimerEvent: {}
+[34.166691] (-) TimerEvent: {}
+[34.267126] (-) TimerEvent: {}
+[34.367555] (-) TimerEvent: {}
+[34.468008] (-) TimerEvent: {}
+[34.568637] (-) TimerEvent: {}
+[34.669224] (-) TimerEvent: {}
+[34.769689] (-) TimerEvent: {}
+[34.870239] (-) TimerEvent: {}
+[34.970862] (-) TimerEvent: {}
+[35.071293] (-) TimerEvent: {}
+[35.171724] (-) TimerEvent: {}
+[35.272235] (-) TimerEvent: {}
+[35.372641] (-) TimerEvent: {}
+[35.473070] (-) TimerEvent: {}
+[35.573495] (-) TimerEvent: {}
+[35.673933] (-) TimerEvent: {}
+[35.774421] (-) TimerEvent: {}
+[35.874899] (-) TimerEvent: {}
+[35.975384] (-) TimerEvent: {}
+[36.075820] (-) TimerEvent: {}
+[36.176237] (-) TimerEvent: {}
+[36.276682] (-) TimerEvent: {}
+[36.377222] (-) TimerEvent: {}
+[36.477700] (-) TimerEvent: {}
+[36.578178] (-) TimerEvent: {}
+[36.678670] (-) TimerEvent: {}
+[36.779111] (-) TimerEvent: {}
+[36.879541] (-) TimerEvent: {}
+[36.980297] (-) TimerEvent: {}
+[37.080887] (-) TimerEvent: {}
+[37.181523] (-) TimerEvent: {}
+[37.282088] (-) TimerEvent: {}
+[37.315265] (autorace_lane_lite) StdoutLine: {'line': b'[100%] Linking CXX executable lane_lite_node\n'}
+[37.382312] (-) TimerEvent: {}
+[37.482799] (-) TimerEvent: {}
+[37.583254] (-) TimerEvent: {}
+[37.683899] (-) TimerEvent: {}
+[37.784682] (-) TimerEvent: {}
+[37.863091] (autorace_lane_lite) StdoutLine: {'line': b'[100%] Built target lane_lite_node\n'}
+[37.884897] (-) TimerEvent: {}
+[37.889550] (autorace_lane_lite) CommandEnded: {'returncode': 0}
+[37.891547] (autorace_lane_lite) JobProgress: {'identifier': 'autorace_lane_lite', 'progress': 'install'}
+[37.911068] (autorace_lane_lite) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite'], 'cwd': '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('PYTHONWARNINGS', 'ignore'), ('CMAKE_BUILD_PARALLEL_LEVEL', '2'), ('CONDA_PROMPT_MODIFIER', ''), ('CODEX_CI', '1'), ('TENSORRT_INSTALL', '/usr/local/TensorRT-10.3.0.26'), ('USER', 'wego'), ('XDG_SESSION_TYPE', 'x11'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/opt/ros/humble/lib:/usr/lib/aarch64-linux-gnu:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/lib:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib:/usr/local/cuda-12.6/lib64::/usr/local/TensorRT-10.3.0.26/lib'), ('HOME', '/home/wego'), ('CONDA_SHLVL', '0'), ('OLDPWD', '/home/wego/2026-AutoRace'), ('DESKTOP_SESSION', 'ubuntu'), ('JETSON_L4T', '36.4.7'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('JETSON_MODEL', 'NVIDIA Jetson Orin NX Engineering Reference Developer Kit'), ('PAGER', 'cat'), ('MANAGERPID', '3272'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '3710'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', 'truecolor'), ('_CE_M', ''), ('TERMINATOR_DBUS_NAME', 'net.tenshu.Terminator23558193cd9818af7fe4d2c2f5bd9d00f'), ('_CONDA_ROOT', '/home/wego/miniconda3'), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '5244'), ('IM_CONFIG_PHASE', '1'), ('COLCON_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install:/home/wego/2026-AutoRace/sensor_ws/install'), ('CODEX_PERMISSION_PROFILE', ':danger-full-access'), ('CODEX_TOOL_CALL_ID', 'exec-dea6cc88-1f71-46e5-8f42-c2fecc806c7b'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'ibus'), ('LOGNAME', 'wego'), ('JETSON_MODULE', 'NVIDIA Jetson Orin Nano (8GB ram)'), ('JETSON_SERIAL_NUMBER', '1422824337560'), ('JOURNAL_STREAM', '8:55181'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS', '1'), ('USERNAME', 'wego'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('_CE_CONDA', ''), ('ROS_LOCALHOST_ONLY', '1'), ('WINDOWPATH', '2'), ('PATH', '/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.local/bin:/home/wego/.codex/tmp/arg0-linux/codex-arg0MqgLEz:/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0sedJUH:/home/wego/.codex/packages/app-server-daemon/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0Ezw4Wc:/home/wego/.codex/packages/standalone/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/usr/src/tensorrt/bin:/opt/ros/humble/bin:/usr/local/cuda-12.6/bin:/home/wego/miniconda3/condabin:/home/wego/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin'), ('SESSION_MANAGER', 'local/ubuntu:@/tmp/.ICE-unix/3430,unix/ubuntu:/tmp/.ICE-unix/3430'), ('CODEX_VERSION', '0.167.0'), ('CODEX_SESSION_ID', '01a1b0e9-6bf5-7fe0-bffd-bba882395741'), ('INVOCATION_ID', '49a5cabc13c9442188d4ffec6c4edcf4'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('DISPLAY', ':1'), ('TERMINATOR_DBUS_PATH', '/net/tenshu/Terminator2'), ('LANG', 'en_US.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('XMODIFIERS', '@im=ibus'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('JETSON_SOC', 'tegra234'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('CONDA_PYTHON_EXE', '/home/wego/miniconda3/bin/python'), ('SHELL', '/bin/bash'), ('TERMINATOR_UUID', 'urn:uuid:61809fdc-659d-4cc8-bc93-c3a276a2f67e'), ('QT_ACCESSIBILITY', '1'), ('GDMSESSION', 'ubuntu'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CONDA_DEFAULT_ENV', ''), ('CODEX_THREAD_ID', '01a1b0fb-3444-7481-b79e-1257296d01b8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('_CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('JETSON_CUDA_ARCH_BIN', '8.7'), ('PWD', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite'), ('LC_ALL', 'en_US.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/wego/miniconda3/envs/dl_env/lib/python3.10/site-packages:/usr/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('CONDA_PREFIX', ''), ('COLCON', '1'), ('VTE_VERSION', '6800'), ('JETSON_JETPACK', ''), ('CMAKE_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('JETSON_P_NUMBER', 'p3767-0003')]), 'shell': False}
+[37.931324] (autorace_lane_lite) StdoutLine: {'line': b'-- Install configuration: "Release"\n'}
+[37.932186] (autorace_lane_lite) StdoutLine: {'line': b'-- Execute custom install script\n'}
+[37.932924] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/lib/autorace_lane_lite/lane_lite_node\n'}
+[37.934292] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/model/best.pt\n'}
+[37.935044] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/__init__.py\n'}
+[37.935739] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/__pycache__/__init__.cpython-310.pyc\n'}
+[37.936359] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/__pycache__/constants.cpython-310.pyc\n'}
+[37.936943] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/__pycache__/runtime.cpython-310.pyc\n'}
+[37.937427] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/bridge.py\n'}
+[37.937717] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/constants.py\n'}
+[37.937976] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/model.py\n'}
+[37.938129] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/python/lane_dl/runtime.py\n'}
+[37.938821] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/config/real/lane.yaml\n'}
+[37.939162] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/config/sim/lane.yaml\n'}
+[37.939289] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/config/sim/lane_camera.yaml\n'}
+[37.939516] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/launch/lane_lite.launch.py\n'}
+[37.939835] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/ament_index/resource_index/package_run_dependencies/autorace_lane_lite\n'}
+[37.940192] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/ament_index/resource_index/parent_prefix_path/autorace_lane_lite\n'}
+[37.941166] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/environment/ament_prefix_path.sh\n'}
+[37.941397] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/environment/ament_prefix_path.dsv\n'}
+[37.942108] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/environment/path.sh\n'}
+[37.942901] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/environment/path.dsv\n'}
+[37.943056] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/local_setup.bash\n'}
+[37.943189] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/local_setup.sh\n'}
+[37.943313] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/local_setup.zsh\n'}
+[37.943429] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/local_setup.dsv\n'}
+[37.943541] (autorace_lane_lite) StdoutLine: {'line': b'-- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/package.dsv\n'}
+[37.965098] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/ament_index/resource_index/packages/autorace_lane_lite\n'}
+[37.965790] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/cmake/autorace_lane_liteConfig.cmake\n'}
+[37.965972] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/cmake/autorace_lane_liteConfig-version.cmake\n'}
+[37.966110] (autorace_lane_lite) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite/share/autorace_lane_lite/package.xml\n'}
+[37.970744] (autorace_lane_lite) CommandEnded: {'returncode': 0}
+[37.985134] (-) TimerEvent: {}
+[38.019901] (autorace_lane_lite) JobEnded: {'identifier': 'autorace_lane_lite', 'rc': 0}
+[38.023767] (autorace_lane_pid) JobStarted: {'identifier': 'autorace_lane_pid'}
+[38.040989] (autorace_lane_pid) JobProgress: {'identifier': 'autorace_lane_pid', 'progress': 'cmake'}
+[38.043172] (autorace_lane_pid) JobProgress: {'identifier': 'autorace_lane_pid', 'progress': 'build'}
+[38.044113] (autorace_lane_pid) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid', '--', '-j6', '-l6'], 'cwd': '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('PYTHONWARNINGS', 'ignore'), ('CMAKE_BUILD_PARALLEL_LEVEL', '2'), ('CONDA_PROMPT_MODIFIER', ''), ('CODEX_CI', '1'), ('TENSORRT_INSTALL', '/usr/local/TensorRT-10.3.0.26'), ('USER', 'wego'), ('XDG_SESSION_TYPE', 'x11'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/opt/ros/humble/lib:/usr/lib/aarch64-linux-gnu:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/lib:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib:/usr/local/cuda-12.6/lib64::/usr/local/TensorRT-10.3.0.26/lib'), ('HOME', '/home/wego'), ('CONDA_SHLVL', '0'), ('OLDPWD', '/home/wego/2026-AutoRace'), ('DESKTOP_SESSION', 'ubuntu'), ('JETSON_L4T', '36.4.7'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('JETSON_MODEL', 'NVIDIA Jetson Orin NX Engineering Reference Developer Kit'), ('PAGER', 'cat'), ('MANAGERPID', '3272'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '3710'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', 'truecolor'), ('_CE_M', ''), ('TERMINATOR_DBUS_NAME', 'net.tenshu.Terminator23558193cd9818af7fe4d2c2f5bd9d00f'), ('_CONDA_ROOT', '/home/wego/miniconda3'), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '5244'), ('IM_CONFIG_PHASE', '1'), ('COLCON_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install:/home/wego/2026-AutoRace/sensor_ws/install'), ('CODEX_PERMISSION_PROFILE', ':danger-full-access'), ('CODEX_TOOL_CALL_ID', 'exec-dea6cc88-1f71-46e5-8f42-c2fecc806c7b'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'ibus'), ('LOGNAME', 'wego'), ('JETSON_MODULE', 'NVIDIA Jetson Orin Nano (8GB ram)'), ('JETSON_SERIAL_NUMBER', '1422824337560'), ('JOURNAL_STREAM', '8:55181'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS', '1'), ('USERNAME', 'wego'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('_CE_CONDA', ''), ('ROS_LOCALHOST_ONLY', '1'), ('WINDOWPATH', '2'), ('PATH', '/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.local/bin:/home/wego/.codex/tmp/arg0-linux/codex-arg0MqgLEz:/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0sedJUH:/home/wego/.codex/packages/app-server-daemon/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0Ezw4Wc:/home/wego/.codex/packages/standalone/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/usr/src/tensorrt/bin:/opt/ros/humble/bin:/usr/local/cuda-12.6/bin:/home/wego/miniconda3/condabin:/home/wego/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin'), ('SESSION_MANAGER', 'local/ubuntu:@/tmp/.ICE-unix/3430,unix/ubuntu:/tmp/.ICE-unix/3430'), ('CODEX_VERSION', '0.167.0'), ('CODEX_SESSION_ID', '01a1b0e9-6bf5-7fe0-bffd-bba882395741'), ('INVOCATION_ID', '49a5cabc13c9442188d4ffec6c4edcf4'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('DISPLAY', ':1'), ('TERMINATOR_DBUS_PATH', '/net/tenshu/Terminator2'), ('LANG', 'en_US.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('XMODIFIERS', '@im=ibus'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('JETSON_SOC', 'tegra234'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('CONDA_PYTHON_EXE', '/home/wego/miniconda3/bin/python'), ('SHELL', '/bin/bash'), ('TERMINATOR_UUID', 'urn:uuid:61809fdc-659d-4cc8-bc93-c3a276a2f67e'), ('QT_ACCESSIBILITY', '1'), ('GDMSESSION', 'ubuntu'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CONDA_DEFAULT_ENV', ''), ('CODEX_THREAD_ID', '01a1b0fb-3444-7481-b79e-1257296d01b8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('_CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('JETSON_CUDA_ARCH_BIN', '8.7'), ('PWD', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid'), ('LC_ALL', 'en_US.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/wego/miniconda3/envs/dl_env/lib/python3.10/site-packages:/usr/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('CONDA_PREFIX', ''), ('COLCON', '1'), ('VTE_VERSION', '6800'), ('JETSON_JETPACK', ''), ('CMAKE_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('JETSON_P_NUMBER', 'p3767-0003')]), 'shell': False}
+[38.085774] (-) TimerEvent: {}
+[38.144148] (autorace_lane_pid) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target gtest_main\n'}
+[38.146838] (autorace_lane_pid) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target gtest\n'}
+[38.152819] (autorace_lane_pid) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target lane_pid_core\n'}
+[38.166351] (autorace_lane_pid) StdoutLine: {'line': b'[ 16%] Built target gtest_main\n'}
+[38.167416] (autorace_lane_pid) StdoutLine: {'line': b'[ 33%] Built target gtest\n'}
+[38.169808] (autorace_lane_pid) StdoutLine: {'line': b'[ 50%] Built target lane_pid_core\n'}
+[38.186134] (-) TimerEvent: {}
+[38.197489] (autorace_lane_pid) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target test_pid\n'}
+[38.201558] (autorace_lane_pid) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target lane_pid_controller\n'}
+[38.203830] (autorace_lane_pid) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target lane_pid_tuner\n'}
+[38.221481] (autorace_lane_pid) StdoutLine: {'line': b'[ 66%] Built target test_pid\n'}
+[38.233569] (autorace_lane_pid) StdoutLine: {'line': b'[ 83%] Built target lane_pid_controller\n'}
+[38.242478] (autorace_lane_pid) StdoutLine: {'line': b'[100%] Built target lane_pid_tuner\n'}
+[38.264589] (autorace_lane_pid) CommandEnded: {'returncode': 0}
+[38.266389] (autorace_lane_pid) JobProgress: {'identifier': 'autorace_lane_pid', 'progress': 'install'}
+[38.267036] (autorace_lane_pid) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid'], 'cwd': '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('PYTHONWARNINGS', 'ignore'), ('CMAKE_BUILD_PARALLEL_LEVEL', '2'), ('CONDA_PROMPT_MODIFIER', ''), ('CODEX_CI', '1'), ('TENSORRT_INSTALL', '/usr/local/TensorRT-10.3.0.26'), ('USER', 'wego'), ('XDG_SESSION_TYPE', 'x11'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/opt/ros/humble/lib:/usr/lib/aarch64-linux-gnu:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera/lib:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/lib:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib:/usr/local/cuda-12.6/lib64::/usr/local/TensorRT-10.3.0.26/lib'), ('HOME', '/home/wego'), ('CONDA_SHLVL', '0'), ('OLDPWD', '/home/wego/2026-AutoRace'), ('DESKTOP_SESSION', 'ubuntu'), ('JETSON_L4T', '36.4.7'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('JETSON_MODEL', 'NVIDIA Jetson Orin NX Engineering Reference Developer Kit'), ('PAGER', 'cat'), ('MANAGERPID', '3272'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '3710'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', 'truecolor'), ('_CE_M', ''), ('TERMINATOR_DBUS_NAME', 'net.tenshu.Terminator23558193cd9818af7fe4d2c2f5bd9d00f'), ('_CONDA_ROOT', '/home/wego/miniconda3'), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '5244'), ('IM_CONFIG_PHASE', '1'), ('COLCON_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install:/home/wego/2026-AutoRace/sensor_ws/install'), ('CODEX_PERMISSION_PROFILE', ':danger-full-access'), ('CODEX_TOOL_CALL_ID', 'exec-dea6cc88-1f71-46e5-8f42-c2fecc806c7b'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'ibus'), ('LOGNAME', 'wego'), ('JETSON_MODULE', 'NVIDIA Jetson Orin Nano (8GB ram)'), ('JETSON_SERIAL_NUMBER', '1422824337560'), ('JOURNAL_STREAM', '8:55181'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS', '1'), ('USERNAME', 'wego'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('_CE_CONDA', ''), ('ROS_LOCALHOST_ONLY', '1'), ('WINDOWPATH', '2'), ('PATH', '/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.local/bin:/home/wego/.codex/tmp/arg0-linux/codex-arg0MqgLEz:/home/wego/.codex/packages/app-server-daemon/releases/0.167.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0sedJUH:/home/wego/.codex/packages/app-server-daemon/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/home/wego/.codex/tmp/arg0-linux/codex-arg0Ezw4Wc:/home/wego/.codex/packages/standalone/releases/0.166.0-aarch64-unknown-linux-musl/codex-path:/usr/src/tensorrt/bin:/opt/ros/humble/bin:/usr/local/cuda-12.6/bin:/home/wego/miniconda3/condabin:/home/wego/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin'), ('SESSION_MANAGER', 'local/ubuntu:@/tmp/.ICE-unix/3430,unix/ubuntu:/tmp/.ICE-unix/3430'), ('CODEX_VERSION', '0.167.0'), ('CODEX_SESSION_ID', '01a1b0e9-6bf5-7fe0-bffd-bba882395741'), ('INVOCATION_ID', '49a5cabc13c9442188d4ffec6c4edcf4'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('DISPLAY', ':1'), ('TERMINATOR_DBUS_PATH', '/net/tenshu/Terminator2'), ('LANG', 'en_US.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('XMODIFIERS', '@im=ibus'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('JETSON_SOC', 'tegra234'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('CONDA_PYTHON_EXE', '/home/wego/miniconda3/bin/python'), ('SHELL', '/bin/bash'), ('TERMINATOR_UUID', 'urn:uuid:61809fdc-659d-4cc8-bc93-c3a276a2f67e'), ('QT_ACCESSIBILITY', '1'), ('GDMSESSION', 'ubuntu'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CONDA_DEFAULT_ENV', ''), ('CODEX_THREAD_ID', '01a1b0fb-3444-7481-b79e-1257296d01b8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('_CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('JETSON_CUDA_ARCH_BIN', '8.7'), ('PWD', '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid'), ('LC_ALL', 'en_US.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('CONDA_EXE', '/home/wego/miniconda3/bin/conda'), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/wego/miniconda3/envs/dl_env/lib/python3.10/site-packages:/usr/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs/local/lib/python3.10/dist-packages:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('CONDA_PREFIX', ''), ('COLCON', '1'), ('VTE_VERSION', '6800'), ('JETSON_JETPACK', ''), ('CMAKE_PREFIX_PATH', '/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_lite:/home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid:/home/wego/2026-AutoRace/sensor_ws/install/autorace_sensor_bringup:/home/wego/2026-AutoRace/sensor_ws/install/ydlidar_ros2_driver:/home/wego/2026-AutoRace/sensor_ws/install/robot_localization:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera:/home/wego/2026-AutoRace/sensor_ws/install/orbbec_camera_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_base:/home/wego/2026-AutoRace/sensor_ws/install/limo_msgs:/home/wego/2026-AutoRace/sensor_ws/install/limo_description:/opt/ros/humble'), ('JETSON_P_NUMBER', 'p3767-0003')]), 'shell': False}
+[38.285901] (-) TimerEvent: {}
+[38.288064] (autorace_lane_pid) StdoutLine: {'line': b'-- Install configuration: "Release"\n'}
+[38.289365] (autorace_lane_pid) StdoutLine: {'line': b'-- Execute custom install script\n'}
+[38.290016] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/lib/autorace_lane_pid/lane_pid_controller\n'}
+[38.290500] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/lib/autorace_lane_pid/lane_pid_tuner\n'}
+[38.291365] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/config/real/pid.yaml\n'}
+[38.291730] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/config/sim/pid.yaml\n'}
+[38.292108] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/launch/lane_pid.launch.py\n'}
+[38.292524] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/ament_index/resource_index/package_run_dependencies/autorace_lane_pid\n'}
+[38.292827] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/ament_index/resource_index/parent_prefix_path/autorace_lane_pid\n'}
+[38.293232] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/environment/ament_prefix_path.sh\n'}
+[38.293488] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/environment/ament_prefix_path.dsv\n'}
+[38.293768] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/environment/path.sh\n'}
+[38.294043] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/environment/path.dsv\n'}
+[38.294314] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/local_setup.bash\n'}
+[38.294578] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/local_setup.sh\n'}
+[38.294877] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/local_setup.zsh\n'}
+[38.295199] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/local_setup.dsv\n'}
+[38.298392] (autorace_lane_pid) StdoutLine: {'line': b'-- Symlinking: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/package.dsv\n'}
+[38.316575] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/ament_index/resource_index/packages/autorace_lane_pid\n'}
+[38.317218] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/cmake/autorace_lane_pidConfig.cmake\n'}
+[38.317480] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/cmake/autorace_lane_pidConfig-version.cmake\n'}
+[38.317668] (autorace_lane_pid) StdoutLine: {'line': b'-- Up-to-date symlink: /home/wego/2026-AutoRace/lane_ws/install/autorace_lane_pid/share/autorace_lane_pid/package.xml\n'}
+[38.322146] (autorace_lane_pid) CommandEnded: {'returncode': 0}
+[38.352347] (autorace_lane_pid) JobEnded: {'identifier': 'autorace_lane_pid', 'rc': 0}
+[38.353579] (-) EventReactorShutdown: {}

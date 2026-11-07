@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Site BuildName="(empty)"
+	BuildStamp="20261106-1320-Experimental"
+	Name="ubuntu"
+	Generator="ctest-3.22.1"
+	CompilerName="/usr/bin/c++"
+	CompilerVersion="11.4.0"
+	OSName="Linux"
+	Hostname="ubuntu"
+	OSRelease="5.15.148-tegra"
+	OSVersion="#1 SMP PREEMPT Thu Sep 18 15:08:33 PDT 2025"
+	OSPlatform="aarch64"
+	Is64Bits="1"
+	VendorString=""
+	VendorID="Unknown Manufacturer"
+	FamilyID="8"
+	ModelID="0"
+	ProcessorCacheSize="0"
+	NumberOfLogicalCPU="6"
+	NumberOfPhysicalCPU="1"
+	TotalVirtualMemory="3809"
+	TotalPhysicalMemory="7619"
+	LogicalProcessorsPerPhysical="6"
+	ProcessorClockFrequency="0"
+	>
+	<Testing>
+		<StartDateTime>Nov 06 22:20 KST</StartDateTime>
+		<StartTestTime>1793971225</StartTestTime>
+		<TestList>
+			<Test>./test_pid</Test>
+		</TestList>
+		<Test Status="passed">
+			<Name>test_pid</Name>
+			<Path>.</Path>
+			<FullName>./test_pid</FullName>
+			<FullCommandLine>/usr/bin/python3 "-u" "/opt/ros/humble/share/ament_cmake_test/cmake/run_test.py" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml" "--package-name" "autorace_lane_pid" "--output-file" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/ament_cmake_gtest/test_pid.txt" "--command" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_pid" "--gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml"</FullCommandLine>
+			<Results>
+				<NamedMeasurement type="numeric/double" name="Execution Time">
+					<Value>0.180847</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="numeric/double" name="Processors">
+					<Value>1</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Completion Status">
+					<Value>Completed</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Command Line">
+					<Value>/usr/bin/python3 "-u" "/opt/ros/humble/share/ament_cmake_test/cmake/run_test.py" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml" "--package-name" "autorace_lane_pid" "--output-file" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/ament_cmake_gtest/test_pid.txt" "--command" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_pid" "--gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml"</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Environment">
+					<Value>#CTEST_RESOURCE_GROUP_COUNT=</Value>
+				</NamedMeasurement>
+				<Measurement>
+					<Value>-- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid':
+ - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_pid --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml
+Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc
+[==========] Running 12 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 12 tests from Pid
+[ RUN      ] Pid.DefaultsAreValidAndEveryParameterHasHelp
+[       OK ] Pid.DefaultsAreValidAndEveryParameterHasHelp (0 ms)
+[ RUN      ] Pid.LeftErrorSteersLeftProportionally
+[       OK ] Pid.LeftErrorSteersLeftProportionally (0 ms)
+[ RUN      ] Pid.ErrorCombinesNearHeadingAndLookahead
+[       OK ] Pid.ErrorCombinesNearHeadingAndLookahead (0 ms)
+[ RUN      ] Pid.DerivativeUsesMeasurementTime
+[       OK ] Pid.DerivativeUsesMeasurementTime (0 ms)
+[ RUN      ] Pid.IntegralAccumulatesAndIsClamped
+[       OK ] Pid.IntegralAccumulatesAndIsClamped (0 ms)
+[ RUN      ] Pid.NoWindupWhileSaturated
+[       OK ] Pid.NoWindupWhileSaturated (0 ms)
+[ RUN      ] Pid.LostLaneStopsAndResetsHistory
+[       OK ] Pid.LostLaneStopsAndResetsHistory (0 ms)
+[ RUN      ] Pid.TimeoutStopsImmediatelyAndSteeringIsRateLimited
+[       OK ] Pid.TimeoutStopsImmediatelyAndSteeringIsRateLimited (0 ms)
+[ RUN      ] Pid.AccelerationLimitedAndActiveSwitch
+[       OK ] Pid.AccelerationLimitedAndActiveSwitch (0 ms)
+[ RUN      ] Pid.YamlRoundTripKeepsDoubles
+[       OK ] Pid.YamlRoundTripKeepsDoubles (1 ms)
+[ RUN      ] Pid.RejectsInconsistentConfig
+[       OK ] Pid.RejectsInconsistentConfig (0 ms)
+[ RUN      ] Pid.SingleFrameGlitchIsSlewLimited
+[       OK ] Pid.SingleFrameGlitchIsSlewLimited (0 ms)
+[----------] 12 tests from Pid (1 ms total)
+
+[----------] Global test environment tear-down
+[==========] 12 tests from 1 test suite ran. (1 ms total)
+[  PASSED  ] 12 tests.
+-- run_test.py: return code 0
+-- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml'
+-- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml'
+</Value>
+				</Measurement>
+			</Results>
+			<Labels>
+				<Label>gtest</Label>
+			</Labels>
+		</Test>
+		<EndDateTime>Nov 06 22:20 KST</EndDateTime>
+		<EndTestTime>1793971226</EndTestTime>
+		<ElapsedMinutes>0</ElapsedMinutes>
+	</Testing>
+</Site>

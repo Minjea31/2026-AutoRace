@@ -17,7 +17,7 @@ from autorace_parking.node import validate_settings
 def profile():
     params=yaml.safe_load((Path(__file__).resolve().parents[1]/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     return replace(Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params}),
-                   min_turn_radius=.4,steering_response_scale=.38,prefer_straight_entry=False,max_planning_turn_radius=0.,entry_outward_penalty=0.,curvature_feedforward=False,reverse_steering_response_scale=1.,require_steering_calibration=False)
+                   clearance=.04,min_turn_radius=.4,steering_response_scale=.38,prefer_straight_entry=False,max_planning_turn_radius=0.,entry_outward_penalty=0.,curvature_feedforward=False,reverse_steering_response_scale=1.,require_steering_calibration=False)
 
 
 def clear_scan():return Scan([math.inf]*361,-math.pi,math.pi/180,.01,12.,(0.,0.,0.))
@@ -147,7 +147,7 @@ def test_same_goal_retains_a_valid_route_but_new_obstacle_allows_replacement(obs
         goal=Gap(1.,0.,0.,.6,0,1,support_ids=(1,2,3,4,5),confirmed=True)
         n.follower.accept(goal,[(0.,0.,0.),(.5,0.,0.),(1.,0.,0.)],True,(0.,0.,0.));old=n.follower.path
         if obstacle:n.scan.points=[(.6,0.)]
-        future=Future();future.set_result({'goal':goal,'path':[(0.,0.,0.),(.5,.4,.8),(1.,0.,0.)],'final':True,
+        future=Future();future.set_result({'goal':goal,'path':[(0.,0.,0.),(.25,.55,.8),(.8,.55,0.),(1.2,.3,-.5),(1.2,0.,-math.pi/2),(1.,0.,0.)],'final':True,
             'diagnostics':{'target':{'x':1.,'y':0.,'yaw':0.},'goal_confirmed':True,'support_ids':goal.support_ids,'reason_code':'path_ready'}})
         n.pending=future,n.epoch,(0.,0.,0.),20.;n.poll_plan()
         assert (n.follower.path is old)==(not obstacle)

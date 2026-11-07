@@ -62,7 +62,11 @@ def single_reverse_route(trace,pose,targets,scan,cfg):
         radius=cfg.wheelbase/(math.tan(cfg.steering_limit)*cfg.steering_response_scale*cfg.reverse_steering_response_scale)
         aligned=advance(pose,-radius*abs(angle),math.copysign(1/radius,angle))
         lateral=-math.sin(origin[2])*(aligned[0]-origin[0])+math.cos(origin[2])*(aligned[1]-origin[1])
-        if abs(lateral)<=cfg.exit_lane_tolerance:choices.insert(0,aligned)
+        # A short alignment arc must also reach the validated lane return.
+        # Stopping ahead of it can leave the enlarged body inside the grid,
+        # repeatedly accepting tiny arcs that cannot satisfy exit arrival.
+        beyond_return=(aligned[0]-targets[0][0])*math.cos(origin[2])+(aligned[1]-targets[0][1])*math.sin(origin[2])
+        if abs(lateral)<=cfg.exit_lane_tolerance and beyond_return<=0.:choices.insert(0,aligned)
     for index,target in enumerate(choices):
         remaining=deadline-time.monotonic()
         if remaining<=.005:break

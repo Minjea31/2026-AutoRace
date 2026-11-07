@@ -21,6 +21,7 @@ from autorace_parking.node import ParkingNode
 def node():
     rclpy.init()
     n = ParkingNode(parameter_overrides=[Parameter('localization_source', value='scan'),
+                                        Parameter('clearance', value=.04),
                                         Parameter('allow_reverse', value=True)])
     n.now_seconds = lambda: 20.
     try:

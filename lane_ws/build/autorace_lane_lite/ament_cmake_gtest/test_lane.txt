@@ -1,0 +1,37 @@
+-- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite':
+ - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_lane --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml
+
+Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc
+[==========] Running 10 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 10 tests from DLLane
+[ RUN      ] DLLane.BothBoundaries
+[       OK ] DLLane.BothBoundaries (39 ms)
+[ RUN      ] DLLane.SingleBoundary
+[       OK ] DLLane.SingleBoundary (32 ms)
+[ RUN      ] DLLane.HeldThenLost
+[       OK ] DLLane.HeldThenLost (97 ms)
+[ RUN      ] DLLane.JumpRejected
+[       OK ] DLLane.JumpRejected (222 ms)
+[ RUN      ] DLLane.MasksPassWithoutShapeFiltering
+[       OK ] DLLane.MasksPassWithoutShapeFiltering (32 ms)
+[ RUN      ] DLLane.ROIOnly
+[       OK ] DLLane.ROIOnly (30 ms)
+[ RUN      ] DLLane.NoViewsSameMeasurement
+[       OK ] DLLane.NoViewsSameMeasurement (184 ms)
+[ RUN      ] DLLane.InvalidMasksRejected
+[       OK ] DLLane.InvalidMasksRejected (24 ms)
+[ RUN      ] DLLane.DashedBoundaryNearToFar
+[       OK ] DLLane.DashedBoundaryNearToFar (685 ms)
+[ RUN      ] DLLane.TransverseHairpin
+[       OK ] DLLane.TransverseHairpin (35 ms)
+[----------] 10 tests from DLLane (1380 ms total)
+
+[----------] Global test environment tear-down
+[==========] 10 tests from 1 test suite ran. (1380 ms total)
+[  PASSED  ] 10 tests.
+
+
+-- run_test.py: return code 0
+-- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'
+-- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_lite/test_results/autorace_lane_lite/test_lane.gtest.xml'

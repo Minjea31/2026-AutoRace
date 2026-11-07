@@ -1,0 +1,66 @@
+UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini
+Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini
+   Site: ubuntu
+   Build name: (empty)
+ Add coverage exclude regular expressions.
+Create new tag: 20261106-1320 - Experimental
+UpdateCTestConfiguration  from :/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini
+Parse Config file:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/CTestConfiguration.ini
+Test project /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: test_pid
+
+1: Test command: /usr/bin/python3 "-u" "/opt/ros/humble/share/ament_cmake_test/cmake/run_test.py" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml" "--package-name" "autorace_lane_pid" "--output-file" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/ament_cmake_gtest/test_pid.txt" "--command" "/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_pid" "--gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml"
+1: Test timeout computed to be: 60
+1: -- run_test.py: invoking following command in '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid':
+1:  - /home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_pid --gtest_output=xml:/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml
+1: Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc
+1: [==========] Running 12 tests from 1 test suite.
+1: [----------] Global test environment set-up.
+1: [----------] 12 tests from Pid
+1: [ RUN      ] Pid.DefaultsAreValidAndEveryParameterHasHelp
+1: [       OK ] Pid.DefaultsAreValidAndEveryParameterHasHelp (0 ms)
+1: [ RUN      ] Pid.LeftErrorSteersLeftProportionally
+1: [       OK ] Pid.LeftErrorSteersLeftProportionally (0 ms)
+1: [ RUN      ] Pid.ErrorCombinesNearHeadingAndLookahead
+1: [       OK ] Pid.ErrorCombinesNearHeadingAndLookahead (0 ms)
+1: [ RUN      ] Pid.DerivativeUsesMeasurementTime
+1: [       OK ] Pid.DerivativeUsesMeasurementTime (0 ms)
+1: [ RUN      ] Pid.IntegralAccumulatesAndIsClamped
+1: [       OK ] Pid.IntegralAccumulatesAndIsClamped (0 ms)
+1: [ RUN      ] Pid.NoWindupWhileSaturated
+1: [       OK ] Pid.NoWindupWhileSaturated (0 ms)
+1: [ RUN      ] Pid.LostLaneStopsAndResetsHistory
+1: [       OK ] Pid.LostLaneStopsAndResetsHistory (0 ms)
+1: [ RUN      ] Pid.TimeoutStopsImmediatelyAndSteeringIsRateLimited
+1: [       OK ] Pid.TimeoutStopsImmediatelyAndSteeringIsRateLimited (0 ms)
+1: [ RUN      ] Pid.AccelerationLimitedAndActiveSwitch
+1: [       OK ] Pid.AccelerationLimitedAndActiveSwitch (0 ms)
+1: [ RUN      ] Pid.YamlRoundTripKeepsDoubles
+1: [       OK ] Pid.YamlRoundTripKeepsDoubles (1 ms)
+1: [ RUN      ] Pid.RejectsInconsistentConfig
+1: [       OK ] Pid.RejectsInconsistentConfig (0 ms)
+1: [ RUN      ] Pid.SingleFrameGlitchIsSlewLimited
+1: [       OK ] Pid.SingleFrameGlitchIsSlewLimited (0 ms)
+1: [----------] 12 tests from Pid (1 ms total)
+1: 
+1: [----------] Global test environment tear-down
+1: [==========] 12 tests from 1 test suite ran. (1 ms total)
+1: [  PASSED  ] 12 tests.
+1: -- run_test.py: return code 0
+1: -- run_test.py: inject classname prefix into gtest result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml'
+1: -- run_test.py: verify result file '/home/wego/2026-AutoRace/lane_ws/build/autorace_lane_pid/test_results/autorace_lane_pid/test_pid.gtest.xml'
+1/1 Test #1: test_pid .........................   Passed    0.18 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+gtest    =   0.18 sec*proc (1 test)
+
+Total Test time (real) =   0.18 sec

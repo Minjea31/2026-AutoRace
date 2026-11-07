@@ -1,0 +1,14 @@
+[INFO] [launch]: All log files can be found below /home/wego/.ros/log/2026-11-06-22-22-25-613067-ubuntu-19016
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [lane_lite_node-1]: process started with pid [19020]
+[INFO] [lane_pid_controller-2]: process started with pid [19022]
+[lane_pid_controller-2] [INFO] [1793971345.818913765] [lane_pid_controller]: lane_pid_controller: /lane_lite/target -> /lane_pid/command (vehicle output OFF)
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [lane_pid_controller-2]: sending signal 'SIGINT' to process[lane_pid_controller-2]
+[INFO] [lane_lite_node-1]: sending signal 'SIGINT' to process[lane_lite_node-1]
+[lane_pid_controller-2] [INFO] [1793971416.471488014] [rclcpp]: signal_handler(signum=2)
+[lane_lite_node-1] [INFO] [1793971416.471491982] [rclcpp]: signal_handler(signum=2)
+[lane_pid_controller-2] [INFO] [1793971416.475612901] [rclcpp]: signal_handler(signum=2)
+[lane_lite_node-1] [INFO] [1793971416.476487224] [rclcpp]: signal_handler(signum=2)
+[INFO] [lane_pid_controller-2]: process has finished cleanly [pid 19022]
+[INFO] [lane_lite_node-1]: process has finished cleanly [pid 19020]

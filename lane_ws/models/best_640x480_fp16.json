@@ -1,0 +1,13 @@
+{
+  "tensorrt": "10.3.0",
+  "precision": "FP16 enabled; TensorRT may retain FP32 layers",
+  "workspace_mib": 512,
+  "onnx": "best_640x480.onnx",
+  "input_shape": [
+    1,
+    3,
+    480,
+    640
+  ],
+  "build_on_target_required": true
+}

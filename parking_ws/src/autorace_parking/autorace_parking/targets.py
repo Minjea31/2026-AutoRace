@@ -5,6 +5,7 @@ import math
 from .core import Cluster,Gap,CollisionChecker,find_gaps,wrap
 from .enclosed import hull,physical_objects,inside
 from .tracking import compose,inverse
+from .roi import contains as roi_contains
 
 
 SEMANTIC_GOALS=('enclosed_center','pair_midpoint')
@@ -103,34 +104,43 @@ def automatic_goals(scan,clusters,cfg,origin,details,map_hint=None):
         layout=fit_slot_map(objects,cfg,map_hint)
         details['slot_map']=layout;details['target_center_method']='six_slot_map'
         details['enclosure_objects']=len(objects);details['enclosure_detected']=layout is not None
-        if layout is not None:
+        from .slot_map import pair_map_hypotheses
+        layouts=[layout] if layout is not None else pair_map_hypotheses(objects,cfg)
+        details['full_slot_map_matched']=bool(layout and layout.get('method')=='metric_six_slot_template')
+        details['pair_map_hypotheses']=sum(m.get('method')=='two_object_row_template' for m in layouts)
+        goals=[]
+        if layouts:
             from .regions import with_occupied_slots
-            scan=with_occupied_slots(scan,layout,origin,cfg)
-            checker=CollisionChecker(scan,cfg);transform=inverse(origin);goals=[]
-            for cell in layout['cells']:
-                if not cell['eligible_empty']:continue
-                local=compose(transform,(*cell['center'],0.))
-                options=available_headings(cell['center'],objects,cfg,origin,checker)
-                goals.append(Gap(local[0],local[1],options[0] if options else 0.,cfg.slot_width,-1,-1,
-                    support_ids=tuple(layout['support_ids']),confirmed=layout['locked'],kind='enclosed_center',
-                    heading_options=options,stop_tolerance=cfg.center_stop_tolerance,slot_id=cell['id'],bay_yaw=layout['yaw'],
-                    parking_grid={'origin':layout['origin'],'yaw':layout['yaw'],
-                        'width':cfg.slot_columns*cfg.slot_width+(cfg.slot_columns+1)*cfg.slot_border,
-                        'depth':cfg.slot_rows*cfg.slot_depth+(cfg.slot_rows+1)*cfg.slot_border}))
-            # Distances are evaluated in the current frame while all centers
-            # remain fixed in the odometry-anchored map. Ahead is preferred.
-            goals.sort(key=lambda g:(not bool(g.heading_options),g.x < -cfg.vehicle_length/2,math.hypot(g.x,g.y)))
-            details['target_mode']='enclosed_center' if goals else 'none'
-            details['enclosure_candidates']=len(goals)
-            details['slot_map_reason']='ready' if goals else 'no_consensus_empty_slot'
-            return goals
-        if len(objects)>=3:
-            details['target_mode']='none';details['enclosure_candidates']=0
-            details['slot_map_reason']='layout_not_matched'
-            return []
-        details['slot_map_reason']='insufficient_objects'
-        # Preserve the explicitly requested two-object fallback when the metric
-        # grid is still unobservable. Its goal is not called a mapped empty cell.
+            transform=inverse(origin)
+            for registered in layouts:
+                partial_pair=registered.get('method')=='two_object_row_template'
+                source=with_occupied_slots(scan,registered,origin,cfg)
+                checker=CollisionChecker(source,cfg)
+                for cell in registered['cells']:
+                    if not cell['eligible_empty'] or not roi_contains(cell['center'],cfg):continue
+                    local=compose(transform,(*cell['center'],0.))
+                    options=available_headings(cell['center'],objects,cfg,origin,checker)
+                    if partial_pair and not options:continue
+                    goals.append(Gap(local[0],local[1],options[0] if options else 0.,cfg.slot_width,-1,-1,
+                        support_ids=tuple(registered['support_ids']),confirmed=registered['locked'],kind='pair_midpoint' if partial_pair else 'enclosed_center',
+                        heading_options=options,stop_tolerance=cfg.pair_stop_tolerance if partial_pair else cfg.center_stop_tolerance,
+                        slot_id=-1 if partial_pair else cell['id'],bay_yaw=registered['yaw'],
+                        parking_grid=None if partial_pair else {'origin':registered['origin'],'yaw':registered['yaw'],
+                            'width':cfg.slot_columns*cfg.slot_width+(cfg.slot_columns+1)*cfg.slot_border,
+                            'depth':cfg.slot_rows*cfg.slot_depth+(cfg.slot_rows+1)*cfg.slot_border}))
+            goals.sort(key=lambda g:(not bool(g.heading_options),g.x<0,math.hypot(g.x,g.y)))
+            if goals:
+                pair=goals[0].kind=='pair_midpoint'
+                details['slot_map']=(next(m for m in layouts if set(m['support_ids'])==set(goals[0].support_ids)) if pair else layout)
+                details['_pair_maps']=[m for m in layouts if m.get('method')=='two_object_row_template']
+                details['target_center_method']='two_object_row_template' if pair else 'six_slot_map'
+                details['target_mode']='pair_midpoint' if pair else 'enclosed_center'
+                details['enclosure_candidates']=len(goals)
+                details['slot_map_reason']='two_object_partial_match' if pair else 'ready'
+                return goals
+        details['slot_map_reason']='layout_not_matched'
+        # Unrelated remembered objects must not suppress a geometrically valid
+        # pair. Every object and point still participates in clearance checks.
     merged=physical_objects(world,cfg)
     objects=[(indices,cluster) for indices,cluster in merged if cfg.min_cluster_size<=max(cluster.bounds[1]-cluster.bounds[0],cluster.bounds[3]-cluster.bounds[2])<=cfg.max_cluster_size]
     details['enclosure_objects']=len(objects);details['enclosure_detected']=False
@@ -160,7 +170,18 @@ def automatic_goals(scan,clusters,cfg,origin,details,map_hint=None):
     if not cfg.pair_fallback_enabled:
         details['target_mode']='none';return []
     # Pair geometry still uses the configured row alignment, size and gap bounds.
-    pairs=find_gaps(clusters,replace(cfg,goal_from_observed_front=False),origin,diagnostics=details)
+    axes=[cfg.row_yaw]
+    if cfg.slot_map_enabled:
+        for i,(_,a) in enumerate(objects):
+            for _,b in objects[i+1:]:
+                if cfg.slot_initial_right_only and (a.center[1]>=0 or b.center[1]>=0):continue
+                axes.append(wrap(math.atan2(b.center[1]-a.center[1],b.center[0]-a.center[0])-origin[2]))
+        details['target_center_method']='two_object_gap'
+    pairs=[];seen=set()
+    for angle in axes:
+        for candidate in find_gaps(clusters,replace(cfg,goal_from_observed_front=False,row_yaw=angle),origin,diagnostics=details):
+            key=tuple(sorted((candidate.left,candidate.right)))
+            if key not in seen:pairs.append(candidate);seen.add(key)
     accepted=[];checks=[]
     for pair in pairs:
         a,b=clusters[pair.left],clusters[pair.right]
@@ -196,7 +217,8 @@ def update_geometry_goal(previous,candidates):
         candidate=min(matches,key=lambda g:math.hypot(g.x-previous.x,g.y-previous.y))
         # Boundary geometry, rather than a minimum object count, identifies the bay.
     elif enclosed:
-        candidate=next((g for g in enclosed if set(previous.support_ids)<=set(g.support_ids)),enclosed[0])
+        matches=[g for g in enclosed if set(previous.support_ids)<=set(g.support_ids)]
+        candidate=min(matches,key=lambda g:math.hypot(g.x-previous.x,g.y-previous.y)) if matches else enclosed[0]
     else:
         matches=[g for g in candidates if set(g.support_ids)==set(previous.support_ids)]
         candidate=matches[0] if matches else previous

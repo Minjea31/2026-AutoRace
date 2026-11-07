@@ -46,3 +46,25 @@ def first_occupied_path_collision(checker,path,step):
             if not checker.occupied_free(pose):return checker.last_block_detail
         previous=point
     return None
+
+
+def first_path_collision(checker,path,step):
+    """Sweep a complete route against current points and configured regions."""
+    if not path:return None
+    previous=path[0]
+    def blocked(pose):
+        if checker.free(pose):return None
+        return checker.last_block_detail or {'kind':checker.last_block,'checked_pose':list(pose)}
+    collision=blocked(previous)
+    if collision:return collision
+    for point in path[1:]:
+        distance=math.hypot(point[0]-previous[0],point[1]-previous[1])
+        angle=math.atan2(math.sin(point[2]-previous[2]),math.cos(point[2]-previous[2]))
+        count=max(1,math.ceil(distance/step),math.ceil(abs(angle)/.05))
+        for i in range(1,count+1):
+            f=i/count
+            collision=blocked((previous[0]+f*(point[0]-previous[0]),
+                               previous[1]+f*(point[1]-previous[1]),previous[2]+f*angle))
+            if collision:return collision
+        previous=point
+    return None
