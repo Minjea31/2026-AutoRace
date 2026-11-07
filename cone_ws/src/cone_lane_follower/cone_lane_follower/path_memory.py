@@ -61,10 +61,10 @@ class PathMemory:
         tail = points[i+1:]
         extension = math.dist(q[:2], tail[0][:2])+sum(
             math.dist(a[:2], b[:2]) for a, b in zip(tail, tail[1:]))
-        if extension <= .05:
+        if extension <= 1e-8:
             self.update_reason = 'kept_shorter_path'
             return False
-        while tail and math.dist(old[-1][:2], tail[0][:2]) < .02:
+        while tail and math.dist(old[-1][:2], tail[0][:2]) <= 1e-8:
             tail = tail[1:]
         if not tail or len(old)+len(tail) > 1000:
             self.update_reason = 'kept_capacity_limit'
@@ -76,6 +76,37 @@ class PathMemory:
             return False
         self.points, self.index, self.finished = old+tail, 0, False
         self.update_reason = 'extended'
+        return True
+
+    def replace_from_vehicle(self, points, local_points, max_distance):
+        """Replace an unusable memory only with a nearby forward continuation."""
+        if len(points) != len(local_points) or len(points) < 2 or not all(
+                math.isfinite(v) for q in points+local_points for v in q):
+            self.update_reason = 'recovery_invalid_path'
+            return False
+        candidates = []
+        for i, (a, b) in enumerate(zip(local_points, local_points[1:])):
+            hit = projection((0., 0., 0.), a, b)
+            length = math.dist(a[:2], b[:2])
+            if hit and length > 1e-9 and (b[0]-a[0])/length >= math.cos(math.pi/4):
+                candidates.append((hit[0], i, hit[1]))
+        if not candidates:
+            self.update_reason = 'recovery_direction_mismatch'
+            return False
+        distance, i, t = min(candidates)
+        if distance > max_distance:
+            self.update_reason = 'recovery_too_far_from_vehicle'
+            return False
+        a, b = points[i:i+2]
+        q = tuple(a[k]+t*(b[k]-a[k]) for k in range(3))
+        tail = list(points[i+1:])
+        while tail and math.dist(q[:2], tail[0][:2]) < 1e-8:
+            tail.pop(0)
+        if not tail:
+            self.update_reason = 'recovery_insufficient_forward_path'
+            return False
+        self.points, self.index, self.finished = [q]+tail, 0, False
+        self.update_reason = 'replaced_unusable_memory'
         return True
 
     def remaining(self, local_points, goal_tolerance, max_distance):

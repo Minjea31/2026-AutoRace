@@ -11,7 +11,7 @@ cone_lane_roi:
     center_max_gap: 0.30
     center_max_turn: 75.0
     center_smoothing_weight: 0.25
-    center_width_timeout: 3.0
+    center_width_timeout: 30.0
     center_width_relative_tolerance: 0.25
     boundary_connect_distance: 0.50
     boundary_max_turn: 80.0
@@ -31,4 +31,5 @@ cone_lane_roi:
     control_max_path_distance: 0.50
     control_memory_speed: 0.15
     control_memory_goal_tolerance: 0.08
+    control_memory_recovery_distance: 0.15
     control_exit_timeout: 1.50

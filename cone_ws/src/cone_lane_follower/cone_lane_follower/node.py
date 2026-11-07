@@ -27,7 +27,7 @@ CLUSTER_DEFAULTS = dict(cluster_threshold=0.10, min_cluster_points=2,
 CENTER_DEFAULTS = dict(center_sample_step=0.05, center_min_width=0.10,
                        center_max_width=1.50, center_max_gap=0.30,
                        center_max_turn=75.0, center_smoothing_weight=0.25,
-                       center_width_timeout=3.0, center_width_relative_tolerance=0.25)
+                       center_width_timeout=30.0, center_width_relative_tolerance=0.25)
 
 
 BOUNDARY_DEFAULTS = dict(boundary_connect_distance=0.30, boundary_max_turn=80.0,
@@ -42,6 +42,7 @@ CONTROL_DEFAULTS = dict(control_speed=0.15, control_reference_x=0.25,
                         control_timeout=0.50, control_memory_tf_timeout=0.20,
                         control_max_path_distance=0.50,
                         control_memory_speed=0.15, control_memory_goal_tolerance=0.08,
+                        control_memory_recovery_distance=0.15,
                         control_exit_timeout=1.50)
 
 
@@ -633,9 +634,10 @@ class RoiNode(Node):
             self.reset_lane_width()
         self.width_mission_active = self.mission_cone
         p = {name: self.get_parameter(name).value for name in CENTER_DEFAULTS}
+        both_boundaries_valid = len(self.left_boundary) >= 3 and len(self.right_boundary) >= 3
         self.center_pairs = self.match_cross_sections(
             self.left_boundary, self.right_boundary, p['center_sample_step'],
-            p['center_min_width'], p['center_max_width'])
+            p['center_min_width'], p['center_max_width']) if both_boundaries_valid else []
         self.center_points = [tuple((a[k]+b[k])/2 for k in range(3)) for a, b in self.center_pairs]
         self.center_path = self.smooth_center_path(
             self.center_points, self.left_boundary, self.right_boundary,
@@ -656,9 +658,9 @@ class RoiNode(Node):
                 self.lane_width_samples += len(widths)
                 self.lane_width_mean = total/self.lane_width_samples
                 self.lane_width_updated = (time.monotonic(), self.get_clock().now().nanoseconds)
-            else:
-                self.lane_width_updated = None
-        if not self.center_path:
+            # Reject noisy measurements without discarding or refreshing the
+            # previously trusted width; its original expiry still applies.
+        if not self.center_path and both_boundaries_valid:
             projection_diagnostics = {}
             pairs = self.match_projected_sections(
                 self.left_boundary, self.right_boundary, p['center_sample_step'],
@@ -675,21 +677,23 @@ class RoiNode(Node):
             else:
                 self.projection_status = 'failed: '+', '.join(
                     f'{reason}={count}' for reason, count in projection_diagnostics.items())
+        if not both_boundaries_valid:
+            self.projection_status = 'not_attempted: requires_3_points_per_boundary'
         if (self.mission_cone and not self.control_fault and not self.center_path
-                and (len(self.left_boundary) >= 2) != (len(self.right_boundary) >= 2)):
+                and (len(self.left_boundary) >= 3) != (len(self.right_boundary) >= 3)):
             if not self.lane_width_is_fresh(p):
                 self.center_path_mode = 'Width Unavailable or Stale'
                 self.publish_center_path_markers(stamp)
                 return
-            left_visible = len(self.left_boundary) >= 2
+            left_visible = len(self.left_boundary) >= 3
             boundary = self.left_boundary if left_visible else self.right_boundary
             signed_width = -self.lane_width_mean if left_visible else self.lane_width_mean
             refs = self.sample_boundary(boundary, p['center_sample_step'])
             opposite = self.offset_boundary(boundary, signed_width, p['center_sample_step'])
             observed_opposite = self.right_boundary if left_visible else self.left_boundary
-            if observed_opposite and not self.point_near_boundary(
-                    observed_opposite[0], opposite,
-                    self.lane_width_mean*p['center_width_relative_tolerance']):
+            if any(not self.point_near_boundary(
+                    point, opposite, self.lane_width_mean*p['center_width_relative_tolerance'])
+                   for point in observed_opposite):
                 self.center_path_mode = 'Boundary Width Conflict'
                 self.publish_center_path_markers(stamp)
                 return
@@ -785,18 +789,25 @@ class RoiNode(Node):
         return self.path_memory.remaining(local, p['control_memory_goal_tolerance'],
                                           p['control_max_path_distance'])
 
-    def remember_live_path(self):
-        if self.memory_scan_stamp == self.control_scan_stamp:
+    def remember_live_path(self, replace=False):
+        if self.memory_scan_stamp == self.control_scan_stamp and not replace:
             return
         try:
             tf = self.memory_transform('odom', 'base_link',
                                        Time(nanoseconds=self.control_scan_stamp))
             points = self.transform_points(self.center_path, tf)
+            if replace:
+                tf = self.memory_transform('base_link', 'odom', Time())
+                local = self.transform_points(points, tf)
         except (TransformException, ValueError):
             self.memory_status = 'save_tf_unavailable_or_stale'
             self.memory_update_reason = 'save_tf_unavailable_or_stale'
             return
-        self.path_memory.store(points)
+        if replace:
+            self.path_memory.replace_from_vehicle(
+                points, local, self.get_parameter('control_memory_recovery_distance').value)
+        else:
+            self.path_memory.store(points)
         self.memory_scan_stamp = self.control_scan_stamp
         self.memory_status = self.path_memory.update_reason
         self.memory_update_reason = self.path_memory.update_reason
@@ -893,9 +904,16 @@ class RoiNode(Node):
         # Advance old path progress before considering an extension; past points
         # cannot make a new short observation appear longer than the stored path.
         if self.path_memory.points:
-            _, memory_reason = self.remaining_memory_path(p)
+            previous, memory_reason = self.remaining_memory_path(p)
+            if memory_reason is None and self.path_errors(
+                    previous, p['control_reference_x'], p['control_max_path_distance']) is None:
+                memory_reason = 'memory_'+self.path_stop_reason(previous, p['control_reference_x'])
         if live_errors is not None and memory_reason in (None, 'memory_goal_reached'):
             self.remember_live_path()
+            if self.path_memory.finished:
+                self.remember_live_path(replace=True)
+        elif live_errors is not None and memory_reason != 'memory_tf_unavailable_or_stale':
+            self.remember_live_path(replace=True)
         elif live_errors is None:
             self.memory_update_reason = 'not_attempted: '+self.path_stop_reason(
                 self.center_path, p['control_reference_x'])

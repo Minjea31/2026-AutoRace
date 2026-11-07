@@ -230,14 +230,14 @@ def test_update_failure_remains_visible_after_goal_status_overwrites_memory(harn
     roi, *_ = harness
     prepare(roi, monkeypatch)
     roi.path_memory.finished = True
-    roi.center_path = [(.1, 0., 0.), (.5, 0., 0.)]
+    roi.center_path = [(.3, 0., 0.), (.4, 0., 0.)]
     tick(roi)
     assert roi.memory_status == 'memory_goal_reached'
     assert roi.control_stop_reason == 'memory_goal_reached'
-    assert roi.memory_update_reason == 'kept_no_aligned_extension'
+    assert roi.memory_update_reason == 'recovery_too_far_from_vehicle'
     summary = roi.control_log_summary()
     assert 'memory=memory_goal_reached' in summary
-    assert 'Path update: kept_no_aligned_extension' in summary
+    assert 'Path update: recovery_too_far_from_vehicle' in summary
     roi.center_path = []
     tick(roi)
     assert roi.memory_update_reason == 'not_attempted: empty_path'
@@ -254,6 +254,81 @@ def test_update_log_reports_unusable_new_path_and_tf_failure(harness, monkeypatc
     tf.fail = True
     tick(roi)
     assert roi.memory_update_reason == 'save_tf_unavailable_or_stale'
+
+
+def test_two_points_on_both_boundaries_use_existing_memory(harness, monkeypatch):
+    roi, *_ = harness
+    _, messages = prepare(roi, monkeypatch)
+    roi.left_boundary = [(.1, .3, 0.), (.8, .3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.8, -.3, 0.)]
+    roi.update_center_path(roi.get_clock().now().to_msg())
+    assert not roi.center_path
+    tick(roi)
+    assert roi.control_mode == 'Memory Path Feedback'
+    assert roi.memory_status == 'following'
+    assert 0. < messages[-1].drive.speed <= .15
+
+
+@pytest.mark.parametrize('bad_memory', ['lateral', 'too_far', 'finished'])
+def test_unusable_memory_is_replaced_by_connected_live_path(harness, monkeypatch, bad_memory):
+    roi, *_ = harness
+    tf, messages = prepare(roi, monkeypatch)
+    old = roi.path_memory.points[:]
+    if bad_memory == 'lateral':
+        tf.yaw = math.pi/2
+    elif bad_memory == 'too_far':
+        tf.y += 1.
+    else:
+        roi.path_memory.finished = True
+    roi.center_path = [(.1, 0., 0.), (.3, 0., 0.), (.6, 0., 0.)]
+    tick(roi)
+    assert roi.control_mode == 'Memory Path Feedback'
+    assert roi.memory_update_reason == 'replaced_unusable_memory'
+    assert roi.path_memory.points != old and not roi.path_memory.finished
+    assert roi.control_stop_reason is None
+    assert 0. < messages[-1].drive.speed <= .15
+
+
+@pytest.mark.parametrize('live_path,reason', [
+    ([(.3, 0., 0.), (.8, 0., 0.)], 'recovery_too_far_from_vehicle'),
+    ([(.05, .05, 0.), (.25, .4, 0.)], 'recovery_direction_mismatch'),
+])
+def test_unusable_memory_and_disconnected_live_path_stop(harness, monkeypatch, live_path, reason):
+    roi, *_ = harness
+    tf, messages = prepare(roi, monkeypatch)
+    old = roi.path_memory.points[:]
+    tf.yaw = math.pi/2
+    roi.center_path = live_path
+    assert roi.path_errors(live_path, .25) is not None
+    tick(roi)
+    assert roi.control_mode == 'Stopped' and messages[-1].drive.speed == 0.
+    assert roi.path_memory.points == old
+    assert roi.memory_update_reason == reason
+
+
+def test_valid_live_path_cannot_replace_memory_during_tf_failure(harness, monkeypatch):
+    roi, *_ = harness
+    tf, messages = prepare(roi, monkeypatch)
+    old = roi.path_memory.points[:]
+    tf.fail = True
+    roi.center_path = [(.1, 0., 0.), (.5, 0., 0.)]
+    tick(roi)
+    assert roi.path_memory.points == old
+    assert roi.control_stop_reason == 'memory_tf_unavailable_or_stale'
+    assert messages[-1].drive.speed == 0.
+
+
+@pytest.mark.parametrize('length', [.1, .2])
+def test_completed_memory_can_switch_to_short_new_path(harness, monkeypatch, length):
+    roi, *_ = harness
+    _, messages = prepare(roi, monkeypatch)
+    roi.path_memory.finished = True
+    roi.center_path = [(.1, 0., 0.), (.1+length, 0., 0.)]
+    tick(roi)
+    assert roi.memory_update_reason == 'replaced_unusable_memory'
+    assert roi.control_mode == 'Memory Path Feedback'
+    assert not roi.path_memory.finished
+    assert 0. < messages[-1].drive.speed <= .15
 
 
 def test_scan_tolerates_277ms_gap_while_memory_tf_limit_stays_200ms(harness, monkeypatch):

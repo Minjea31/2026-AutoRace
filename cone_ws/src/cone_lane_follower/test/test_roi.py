@@ -652,25 +652,25 @@ def test_stop_reason_logs_only_on_change_and_resets_on_recovery(harness, monkeyp
 def test_learn_lane_width_and_drive_with_one_boundary(harness, side):
     roi, *_ = harness
     roi.mission_cone = True
-    roi.left_boundary = [(.1, .3, 0.), (.8, .3, 0.)]
-    roi.right_boundary = [(.1, -.3, 0.), (.8, -.3, 0.)]
+    roi.left_boundary = [(.1, .3, 0.), (.45, .3, 0.), (.8, .3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.45, -.3, 0.), (.8, -.3, 0.)]
     stamp = roi.get_clock().now().to_msg()
     roi.update_center_path(stamp)
     assert roi.lane_width_mean == pytest.approx(.6)
     samples = roi.lane_width_samples
     assert samples > 0
     # Learn a second measured width; each perpendicular sample has equal weight.
-    roi.left_boundary = [(.1, .4, 0.), (.8, .4, 0.)]
-    roi.right_boundary = [(.1, -.4, 0.), (.8, -.4, 0.)]
+    roi.left_boundary = [(.1, .4, 0.), (.45, .4, 0.), (.8, .4, 0.)]
+    roi.right_boundary = [(.1, -.4, 0.), (.45, -.4, 0.), (.8, -.4, 0.)]
     roi.update_center_path(stamp)
     assert roi.lane_width_mean == pytest.approx(.7)
     assert roi.lane_width_samples == 2*samples
     if side == 'left':
-        roi.left_boundary = [(.1, .35, 0.), (.8, .35, 0.)]
+        roi.left_boundary = [(.1, .35, 0.), (.45, .35, 0.), (.8, .35, 0.)]
         roi.right_boundary = []
     else:
         roi.left_boundary = []
-        roi.right_boundary = [(.1, -.35, 0.), (.8, -.35, 0.)]
+        roi.right_boundary = [(.1, -.35, 0.), (.45, -.35, 0.), (.8, -.35, 0.)]
     roi.update_center_path(stamp)
     assert roi.center_path_mode == f'{side.title()} Boundary Offset'
     assert roi.center_path and all(abs(q[1]) < 1e-8 for q in roi.center_path)
@@ -688,7 +688,7 @@ def test_learn_lane_width_and_drive_with_one_boundary(harness, side):
     roi.update_center_path(stamp)
     assert roi.lane_width_mean is None and roi.lane_width_samples == 0
     roi.mission_cone = True
-    roi.left_boundary = [(.1, .35, 0.), (.8, .35, 0.)]
+    roi.left_boundary = [(.1, .35, 0.), (.45, .35, 0.), (.8, .35, 0.)]
     roi.update_center_path(stamp)
     assert not roi.center_path  # A new mission cannot reuse the old learned width.
 
@@ -699,8 +699,8 @@ def test_single_opposite_point_uses_only_fresh_consistent_width(harness, visible
     roi, *_ = harness
     roi.mission_cone = True
     stamp = roi.get_clock().now().to_msg()
-    roi.left_boundary = [(.1, .3, 0.), (.8, .3, 0.)]
-    roi.right_boundary = [(.1, -.3, 0.), (.8, -.3, 0.)]
+    roi.left_boundary = [(.1, .3, 0.), (.45, .3, 0.), (.8, .3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.45, -.3, 0.), (.8, -.3, 0.)]
     roi.update_center_path(stamp)
     assert roi.lane_width_mean == pytest.approx(.6)
     if visible_side == 'left':
@@ -709,7 +709,7 @@ def test_single_opposite_point_uses_only_fresh_consistent_width(harness, visible
         roi.left_boundary = [(.4, .3, 0.)]
     if failure == 'stale':
         steady, ros = roi.lane_width_updated
-        roi.lane_width_updated = (steady-3.1, ros-3_100_000_000)
+        roi.lane_width_updated = (steady-30.1, ros-30_100_000_000)
     elif failure == 'clock_reverse':
         steady, ros = roi.lane_width_updated
         roi.lane_width_updated = (steady, ros+1_000_000_000)
@@ -740,6 +740,8 @@ def test_single_opposite_point_uses_only_fresh_consistent_width(harness, visible
 def test_inconsistent_cross_sections_are_not_learned(harness, monkeypatch):
     roi, *_ = harness
     roi.mission_cone = True
+    roi.left_boundary = [(.1, .3, 0.), (.3, .3, 0.), (.5, .3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.3, -.3, 0.), (.5, -.8, 0.)]
     pairs = [((.1, .3, 0.), (.1, -.3, 0.)), ((.5, .3, 0.), (.5, -.8, 0.))]
     monkeypatch.setattr(roi, 'match_cross_sections', lambda *args: pairs)
     monkeypatch.setattr(roi, 'smooth_center_path', lambda *args: [(.1, 0., 0.), (.5, 0., 0.)])
@@ -764,18 +766,94 @@ def test_control_log_summary_contains_only_requested_status(harness):
     roi.mission_cone = True
     roi.candidate_clusters = [[], []]
     roi.left_boundary = [(.1, .3, 0.)]
-    roi.right_boundary = [(.1, -.3, 0.), (.8, -.3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.45, -.3, 0.), (.8, -.3, 0.)]
     roi.update_center_path(roi.get_clock().now().to_msg())
     summary = roi.control_log_summary()
     assert 'mission=True | roi_candidates=2' in summary
     assert 'Path       : Width Unavailable or Stale' in summary
     assert 'Control    : active=' in summary and 'state=' in summary
     assert 'Stop reason:' in summary
-    assert 'Projection : failed: insufficient_boundary_points=1' in summary
+    assert 'Projection : not_attempted: requires_3_points_per_boundary' in summary
     assert 'LiDAR Points' not in summary and 'Cone Candidate' not in summary
-    roi.left_boundary = [(.1, .3, 0.), (.8, .3, 0.)]
+    roi.left_boundary = [(.1, .3, 0.), (.45, .3, 0.), (.8, .3, 0.)]
     roi.update_center_path(roi.get_clock().now().to_msg())
     assert roi.projection_status == 'not_attempted'  # No stale failure after recovery.
+
+
+@pytest.mark.parametrize('left_count,right_count', [(3, 3), (4, 3), (3, 2), (2, 3),
+    (3, 1), (1, 3), (3, 0), (0, 3), (2, 2), (2, 1), (0, 0)])
+def test_three_point_boundary_selection_rules(harness, left_count, right_count):
+    roi, *_ = harness
+    roi.mission_cone = True
+    stamp = roi.get_clock().now().to_msg()
+    left = [(x, .3, 0.) for x in (.1, .3, .5, .7)]
+    right = [(x, -.3, 0.) for x in (.1, .3, .5, .7)]
+    roi.left_boundary, roi.right_boundary = left, right
+    roi.update_center_path(stamp)
+    assert roi.lane_width_mean == pytest.approx(.6)
+    roi.left_boundary, roi.right_boundary = left[:left_count], right[:right_count]
+    roi.update_center_path(stamp)
+    if left_count >= 3 and right_count >= 3:
+        assert roi.center_path_mode == 'Normal Sections' and roi.center_path
+    elif left_count >= 3 or right_count >= 3:
+        expected = 'Left Boundary Offset' if left_count >= 3 else 'Right Boundary Offset'
+        assert roi.center_path_mode == expected and roi.center_path
+        assert roi.projection_status == 'not_attempted: requires_3_points_per_boundary'
+    else:
+        assert not roi.center_path
+        assert roi.projection_status == 'not_attempted: requires_3_points_per_boundary'
+
+
+@pytest.mark.parametrize('visible_side', ['left', 'right'])
+def test_both_remaining_opposite_points_must_match_width(harness, visible_side):
+    roi, *_ = harness
+    roi.mission_cone = True
+    stamp = roi.get_clock().now().to_msg()
+    roi.left_boundary = [(.1, .3, 0.), (.4, .3, 0.), (.8, .3, 0.)]
+    roi.right_boundary = [(.1, -.3, 0.), (.4, -.3, 0.), (.8, -.3, 0.)]
+    roi.update_center_path(stamp)
+    if visible_side == 'left':
+        roi.right_boundary = [(.2, -.3, 0.), (.6, -.8, 0.)]
+    else:
+        roi.left_boundary = [(.2, .3, 0.), (.6, .8, 0.)]
+    roi.update_center_path(stamp)
+    assert not roi.center_path and roi.center_path_mode == 'Boundary Width Conflict'
+
+
+@pytest.mark.parametrize('age,accepted', [(10., True), (29., True), (31., False)])
+def test_trusted_lane_width_survives_longer_single_boundary_loss(harness, age, accepted):
+    roi, *_ = harness
+    roi.mission_cone = True
+    stamp = roi.get_clock().now().to_msg()
+    roi.left_boundary = [(x, .3, 0.) for x in (.1, .4, .8)]
+    roi.right_boundary = [(x, -.3, 0.) for x in (.1, .4, .8)]
+    roi.update_center_path(stamp)
+    steady, ros = roi.lane_width_updated
+    aged = (steady-age, ros-int(age*1e9))
+    roi.lane_width_updated = aged
+    roi.right_boundary = []
+    roi.update_center_path(stamp)
+    assert bool(roi.center_path) == accepted
+    assert roi.lane_width_mean == pytest.approx(.6)
+    assert roi.lane_width_updated == aged  # Using an old width never refreshes its age.
+
+
+def test_noisy_measurement_preserves_last_trusted_width_and_timestamp(harness, monkeypatch):
+    roi, *_ = harness
+    roi.mission_cone = True
+    stamp = roi.get_clock().now().to_msg()
+    roi.left_boundary = [(x, .3, 0.) for x in (.1, .4, .8)]
+    roi.right_boundary = [(x, -.3, 0.) for x in (.1, .4, .8)]
+    roi.update_center_path(stamp)
+    trusted = roi.lane_width_mean, roi.lane_width_samples, roi.lane_width_updated
+    pairs = [((.1, .3, 0.), (.1, -.3, 0.)), ((.5, .3, 0.), (.5, -.8, 0.))]
+    monkeypatch.setattr(roi, 'match_cross_sections', lambda *args: pairs)
+    monkeypatch.setattr(roi, 'smooth_center_path', lambda *args: [(.1, 0., 0.), (.5, 0., 0.)])
+    roi.update_center_path(stamp)
+    assert (roi.lane_width_mean, roi.lane_width_samples, roi.lane_width_updated) == trusted
+    roi.mission_cone = False
+    roi.update_center_path(stamp)
+    assert roi.lane_width_mean is None and roi.lane_width_updated is None
 
 
 def test_boundary_offset_follows_local_normal():
@@ -991,6 +1069,7 @@ def test_normal_path_has_priority_over_projection(harness, monkeypatch):
 def test_projection_reported_corner_and_crossing_rejection(harness):
     roi, *_ = harness
     roi.left_boundary = [(.132, .195, 0.), (.197, .359, 0.)]
+    roi.left_boundary.insert(1, tuple((a+b)/2 for a, b in zip(roi.left_boundary[0], roi.left_boundary[1])))
     roi.right_boundary = [(.166, -.189, 0.), (.352, -.164, 0.), (.479, -.030, 0.)]
     assert not roi.match_cross_sections(roi.left_boundary, roi.right_boundary, .05, .1, 1.5)
     roi.update_center_path(roi.get_clock().now().to_msg())
@@ -1004,6 +1083,7 @@ def test_projection_reported_corner_and_crossing_rejection(harness):
 def test_projection_accepts_reported_endpoint_overrun(harness):
     roi, *_ = harness
     roi.left_boundary = [(.131, .305, 0.), (.236, .448, 0.)]
+    roi.left_boundary.insert(1, tuple((a+b)/2 for a, b in zip(roi.left_boundary[0], roi.left_boundary[1])))
     roi.right_boundary = [(.087, -.237, 0.), (.250, -.160, 0.), (.360, -.022, 0.)]
     pairs = roi.match_projected_sections(roi.left_boundary, roi.right_boundary, .05, .1, 1.5)
     assert len(pairs) >= 2

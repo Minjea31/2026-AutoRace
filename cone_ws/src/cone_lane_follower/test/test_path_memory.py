@@ -54,6 +54,37 @@ def test_memory_extension_allows_up_to_ninety_degree_join(angle, accepted):
     assert memory.points[-1] == (end if accepted else original[-1])
 
 
+@pytest.mark.parametrize('extension,accepted', [(0., False), (1e-10, False),
+    (.001, True), (.01, True), (.049, True), (.05, True)])
+def test_any_positive_extension_is_kept_beyond_numeric_tolerance(extension, accepted):
+    memory = PathMemory()
+    original = [(.1, 0., 0.), (.5, 0., 0.), (1., 0., 0.)]
+    memory.store(original)
+    assert memory.store([(.8, 0., 0.), (1., 0., 0.), (1.+extension, 0., 0.)]) == accepted
+    if accepted:
+        assert memory.points[-1] == (1.+extension, 0., 0.)
+    else:
+        assert memory.points == original
+
+
+@pytest.mark.parametrize('length', [.001, .1, .2])
+def test_replacement_has_no_minimum_remaining_length(length):
+    memory = PathMemory()
+    memory.store([(.1, 1., 0.), (.5, 1., 0.)])
+    points = [(.1, 0., 0.), (.1+length, 0., 0.)]
+    assert memory.replace_from_vehicle(points, points, .15)
+    assert memory.points == points
+
+
+def test_replacement_still_requires_a_nonzero_remaining_segment():
+    memory = PathMemory()
+    original = [(.1, 1., 0.), (.5, 1., 0.)]
+    memory.store(original)
+    passed = [(-.1, 0., 0.), (0., 0., 0.)]
+    assert not memory.replace_from_vehicle(passed, passed, .15)
+    assert memory.points == original
+
+
 def test_memory_stops_if_vehicle_leaves_path():
     memory = PathMemory()
     memory.store([(.1, 0., 0.), (.5, 0., 0.)])
