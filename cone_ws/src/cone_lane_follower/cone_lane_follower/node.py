@@ -38,7 +38,6 @@ CONTROL_DEFAULTS = dict(control_speed=0.15, control_reference_x=0.25,
                         control_max_steering=math.radians(80.), control_max_steering_rate=1.0,
                         control_speed_reference_steering=0.48,
                         control_timeout=0.20, control_max_path_distance=0.50,
-                        control_hold_speed=0.15, control_hold_steering_gain=1.2,
                         control_exit_timeout=1.50)
 
 
@@ -60,6 +59,7 @@ class RoiNode(Node):
         # Retain the outline for RViz instances that connect after startup.
         outline_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.roi_pub = self.create_publisher(Marker, '/cone_lane/roi_marker', outline_qos)
+        self.status_pub = self.create_publisher(Marker, '/cone_lane/control_status', outline_qos)
         self.points_pub = self.create_publisher(Marker, '/cone_lane/roi_points', 1)
         self.clusters_pub = self.create_publisher(MarkerArray, '/cone_lane/clusters', 1)
         self.centers_pub = self.create_publisher(MarkerArray, '/cone_lane/cone_centers', 1)
@@ -76,7 +76,6 @@ class RoiNode(Node):
         self.control_received = None
         self.last_control_tick = None
         self.last_steering = 0.
-        self.last_valid_control = None
         self.control_mode = 'Idle'
         self.control_stop_reason = None
         self.control_lateral_error = self.control_heading_error = 0.
@@ -91,7 +90,9 @@ class RoiNode(Node):
         self.last_stats = self.last_warning = -math.inf
         self.outline_timer = self.create_timer(0.2, self.publish_roi_marker)
         self.control_timer = self.create_timer(.05, self.control_tick)
+        self.status_timer = self.create_timer(.2, self.publish_control_status)
         self.publish_roi_marker()
+        self.publish_control_status()
 
     def roi_bounds(self):
         return {name: self.get_parameter(name).value for name in ROI_DEFAULTS}
@@ -168,7 +169,7 @@ class RoiNode(Node):
         self.all_clusters = self.cluster_points(roi_points, roi_indices)
         self.candidate_clusters = self.filter_clusters(self.all_clusters)
         # Candidate count gates entry only; after entry, path validity gates driving.
-        if len(self.candidate_clusters) > 6:
+        if len(self.candidate_clusters) > 5:
             self.mission_cone = True
         centers = [self.calculate_cluster_center(cluster) for cluster in self.candidate_clusters]
         self.update_boundary_markers(centers, msg.header.stamp)
@@ -632,7 +633,7 @@ class RoiNode(Node):
     @staticmethod
     def path_stop_reason(path, reference_x):
         if not path:
-            return 'empty_path_no_history'
+            return 'empty_path'
         if len(path) < 2:
             return 'path_too_few_points'
         if not all(math.isfinite(v) for q in path for v in q):
@@ -642,10 +643,9 @@ class RoiNode(Node):
         return 'path_too_far_from_reference'
 
     def stop_control(self, reason='unspecified'):
-        """Stop immediately and discard history so faults cannot revive old commands."""
+        """Stop immediately and reset steering."""
         self.publish_drive(0., 0.)
         self.last_steering = 0.
-        self.last_valid_control = None
         self.control_mode = 'Stopped'
         if reason != self.control_stop_reason:
             self.get_logger().warning(
@@ -672,14 +672,13 @@ class RoiNode(Node):
             self.control_tick()
 
     def control_tick(self):
-        """20 Hz feedback; hold a valid command during path-generation loss."""
+        """20 Hz feedback; stop whenever no usable path is available."""
         steady, now = time.monotonic(), self.get_clock().now().nanoseconds
         dt = .05 if self.last_control_tick is None else max(0., min(.1, steady-self.last_control_tick))
         self.last_control_tick = steady
         if not self.control_engaged:
             self.mission_exit_since = None
             self.last_steering = 0.
-            self.last_valid_control = None
             self.control_mode = 'Idle'
             return
         p = {name: self.get_parameter(name).value for name in CONTROL_DEFAULTS}
@@ -726,22 +725,7 @@ class RoiNode(Node):
         else:
             self.mission_exit_since = None
         if errors is None:
-            # Only empty generated paths qualify: an existing but unusable path stops.
-            history = self.last_valid_control
-            if not self.center_path and history is not None:
-                saved_steady, saved_ros, speed, steering = history
-                if steady >= saved_steady and now >= saved_ros:
-                    # Always amplify the last path command, never the previous hold.
-                    limit = p['control_max_steering']
-                    steering = max(-limit, min(limit, steering*p['control_hold_steering_gain']))
-                    self.last_steering = steering
-                    self.control_mode = 'Hold Last Steering'
-                    self.control_stop_reason = None
-                    self.publish_drive(min(speed, p['control_hold_speed']), steering)
-                    return  # Never renew the valid-control timestamp while holding.
-            reason = ('hold_history_clock_reversed' if not self.center_path and history is not None
-                      else self.path_stop_reason(self.center_path, p['control_reference_x']))
-            self.stop_control(reason)
+            self.stop_control(self.path_stop_reason(self.center_path, p['control_reference_x']))
             return
         self.control_lateral_error, self.control_heading_error = errors
         target = p['control_lateral_gain']*errors[0]+p['control_heading_gain']*errors[1]
@@ -753,7 +737,6 @@ class RoiNode(Node):
         # Saturate slowdown independently of the permitted steering range.
         slowdown = min(1., abs(target)/p['control_speed_reference_steering'])
         speed = p['control_speed']*(1.-.7*slowdown)
-        self.last_valid_control = (steady, now, speed, self.last_steering)
         self.control_mode = 'Path Feedback'
         self.control_stop_reason = None
         self.publish_drive(speed, self.last_steering)
@@ -807,6 +790,23 @@ class RoiNode(Node):
         marker.color.a = 1.0
         marker.frame_locked = True
         return marker
+
+    def publish_control_status(self):
+        marker = self.new_marker('control_status', Marker.TEXT_VIEW_FACING)
+        b = self.roi_bounds()
+        marker.pose.position = Point(x=(b['roi_x_min']+b['roi_x_max'])/2,
+                                     y=b['roi_y_max']+.4, z=.3)
+        marker.scale.z = .12
+        marker.text = (f'Control: {self.control_mode} | mission: {self.mission_cone}\n'
+                       f'stop_reason: {self.control_stop_reason or "None"}')
+        if self.control_stop_reason:
+            marker.color.r, marker.color.g, marker.color.b = 1., .25, .25
+        elif self.control_mode == 'Path Feedback':
+            marker.color.r, marker.color.g, marker.color.b = .25, 1., .25
+        else:
+            marker.color.r = marker.color.g = marker.color.b = .8
+        marker.lifetime = Duration(seconds=.6).to_msg()
+        self.status_pub.publish(marker)
 
     def publish_roi_marker(self):
         b = self.roi_bounds()

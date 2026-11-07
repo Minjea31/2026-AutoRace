@@ -302,10 +302,10 @@ def test_mission_cone_candidate_count_entry_and_fault_stop(harness, monkeypatch,
     candidates = [[(1., .2, 0.), (1.01, .2, 0.)] for _ in range(count)]
     monkeypatch.setattr(roi, 'filter_clusters', lambda clusters: candidates)
     roi.scan_callback(scan([1.]))
-    assert roi.mission_cone is (count > 6)
+    assert roi.mission_cone is (count > 5)
     candidates[:] = candidates[:6]
     roi.scan_callback(scan([1.]))
-    assert roi.mission_cone is (count > 6)
+    assert roi.mission_cone is (count > 5)
     roi.mission_cone = True
     msg = scan([1.])
     msg.header.frame_id = ''
@@ -313,7 +313,7 @@ def test_mission_cone_candidate_count_entry_and_fault_stop(harness, monkeypatch,
     assert roi.mission_cone and roi.control_fault
 
 
-def test_mission_keeps_driving_with_fewer_candidates_and_holds_on_path_loss(harness, monkeypatch):
+def test_mission_keeps_driving_with_fewer_candidates_and_stops_on_path_loss(harness, monkeypatch):
     roi, *_ = harness
     messages = []
 
@@ -352,13 +352,9 @@ def test_mission_keeps_driving_with_fewer_candidates_and_holds_on_path_loss(harn
     candidates.clear()
     send()
     assert roi.mission_cone and not roi.center_path
-    assert roi.control_mode == 'Hold Last Steering'
-    assert 0. < messages[-1].drive.speed <= .15
-    h = roi.last_valid_control
-    roi.last_valid_control = (h[0]-.31, h[1]-310_000_000, h[2], h[3])
-    roi.control_tick()
-    assert roi.control_mode == 'Hold Last Steering'
-    assert 0. < messages[-1].drive.speed <= .15
+    assert roi.control_mode == 'Stopped'
+    assert messages[-1].drive.speed == messages[-1].drive.steering_angle == 0.
+    assert roi.control_stop_reason == 'empty_path'
     assert roi.mission_cone
 
     candidates.extend(saved_candidates)
@@ -513,7 +509,7 @@ def test_control_signed_errors(offset, sign):
 
 
 @pytest.mark.parametrize('path,reason', [
-    ([], 'empty_path_no_history'),
+    ([], 'empty_path'),
     ([(.1, 0., 0.)], 'path_too_few_points'),
     ([(.1, 0., 0.), (float('nan'), 0., 0.)], 'path_nonfinite_coordinates'),
     ([(.1, 0., 0.), (.1, .2, 0.)], 'path_no_usable_forward_segment'),
@@ -604,6 +600,35 @@ def test_boundary_offset_follows_local_normal():
         assert math.dist(q[:2], p[:2]) == pytest.approx(.3)
         assert (p[0]-q[0])*(b[0]-a[0])+(p[1]-q[1])*(b[1]-a[1]) == pytest.approx(0.)
         assert p[0] > q[0] and p[1] < q[1]
+
+
+def test_rviz_control_status_updates_reason_and_color(harness):
+    roi, *_ = harness
+    messages = []
+
+    class Capture:
+        def publish(self, msg):
+            messages.append(msg)
+
+    roi.status_pub = Capture()
+    roi.publish_control_status()
+    marker = messages[-1]
+    assert marker.type == Marker.TEXT_VIEW_FACING
+    assert marker.header.frame_id == 'base_link' and marker.frame_locked
+    assert 'Control: Idle' in marker.text and 'stop_reason: None' in marker.text
+    roi.stop_control('path_no_usable_forward_segment')
+    roi.publish_control_status()
+    marker = messages[-1]
+    assert 'Control: Stopped' in marker.text
+    assert 'stop_reason: path_no_usable_forward_segment' in marker.text
+    assert marker.color.r > marker.color.g
+    roi.control_mode = 'Path Feedback'
+    roi.control_stop_reason = None
+    roi.publish_control_status()
+    marker = messages[-1]
+    assert 'stop_reason: None' in marker.text
+    assert marker.color.g > marker.color.r
+    assert marker.ns == messages[0].ns and marker.id == messages[0].id
 
 
 def test_control_heading_and_invalid_path():
@@ -800,12 +825,14 @@ def test_projection_accepts_reported_endpoint_overrun(harness):
 
 
 @pytest.mark.parametrize('speed', [.1, .4])
-def test_control_holds_last_command_without_renewal_and_recovers(harness, speed):
+def test_path_loss_stops_immediately_and_recovers(harness, speed):
     roi, *_ = harness
     messages = []
+
     class Capture:
         def publish(self, msg):
             messages.append(msg)
+
     roi.command_pub = Capture()
     roi.set_parameters_atomically([Parameter('control_speed', value=speed)])
     roi.mission_cone = True
@@ -813,29 +840,22 @@ def test_control_holds_last_command_without_renewal_and_recovers(harness, speed)
     roi.control_scan_stamp = roi.get_clock().now().nanoseconds
     roi.control_received = time.monotonic()
     roi.update_control_activation()
-    roi.last_control_tick = time.monotonic()-.05
     roi.control_tick()
-    valid = roi.last_valid_control
-    previous = messages[-1]
+    assert messages[-1].drive.speed > 0.
+    assert messages[-1].drive.steering_angle > 0.
     roi.center_path = []
     roi.update_control_activation()
-    assert roi.control_mode == 'Hold Last Steering'
-    assert messages[-1].drive.speed == pytest.approx(min(previous.drive.speed, .15))
-    assert messages[-1].drive.steering_angle == pytest.approx(previous.drive.steering_angle*1.2)
-    roi.control_tick()
-    assert roi.last_valid_control == valid
+    for _ in range(3):
+        roi.control_tick()
+        assert roi.control_mode == 'Stopped'
+        assert roi.control_stop_reason == 'empty_path'
+        assert messages[-1].drive.speed == messages[-1].drive.steering_angle == 0.
+    assert roi.mission_cone
     roi.center_path = [(.1, -.1, 0.), (.8, -.1, 0.)]
     roi.control_tick()
     assert roi.control_mode == 'Path Feedback'
-    assert roi.last_valid_control != valid
-    roi.center_path = []
-    h = roi.last_valid_control
-    roi.last_valid_control = (h[0]-60., h[1]-60_000_000_000, h[2], h[3])
-    roi.control_tick()
-    assert roi.control_mode == 'Hold Last Steering'
-    assert messages[-1].drive.speed == pytest.approx(min(h[2], .15))
-    assert messages[-1].drive.steering_angle == pytest.approx(h[3]*1.2)
-    assert roi.last_valid_control is not None
+    assert messages[-1].drive.speed > 0.
+    assert roi.control_stop_reason is None
 
 
 @pytest.mark.parametrize('target,expected_speed', [(0., .4), (.24, .26),
@@ -859,35 +879,6 @@ def test_corner_slowdown_independent_of_maximum_steering(harness, monkeypatch, t
         roi.control_tick()
         assert messages[-1].drive.speed == pytest.approx(expected_speed)
         assert abs(messages[-1].drive.steering_angle) <= limit
-
-
-@pytest.mark.parametrize('steering', [-1.3, -.2, 0., .2, 1.3])
-@pytest.mark.parametrize('gain', [1.2, 1.5])
-def test_hold_amplifies_saved_steering_without_compounding(harness, steering, gain):
-    roi, *_ = harness
-    messages = []
-
-    class Capture:
-        def publish(self, msg):
-            messages.append(msg)
-
-    roi.command_pub = Capture()
-    roi.set_parameters_atomically([Parameter('control_hold_steering_gain', value=gain)])
-    roi.mission_cone = roi.control_engaged = True
-    roi.candidate_clusters = [[], [], [], []]
-    now = roi.get_clock().now().nanoseconds
-    roi.control_scan_stamp = now
-    roi.control_received = time.monotonic()
-    saved = (time.monotonic()-60., now-60_000_000_000, .3, steering)
-    roi.last_valid_control = saved
-    for _ in range(3):
-        roi.control_tick()
-        limit = math.radians(80.)
-        assert roi.get_parameter('control_max_steering').value == pytest.approx(limit)
-        assert messages[-1].drive.steering_angle == pytest.approx(max(-limit, min(limit, steering*gain)))
-        assert messages[-1].drive.speed == pytest.approx(.15)
-        assert roi.last_valid_control == saved
-        assert roi.last_steering == messages[-1].drive.steering_angle
 
 
 @pytest.mark.parametrize('recovery', ['path', 'candidates', 'stale', 'tf'])
@@ -945,7 +936,7 @@ def test_mission_exit_requires_continuous_healthy_detection_loss(harness, monkey
 
 
 @pytest.mark.parametrize('failure', ['tf', 'stale', 'mission', 'clock_reverse', 'unusable_path'])
-def test_hold_does_not_override_hard_stop(harness, failure):
+def test_control_stops_on_fault_or_unusable_path(harness, failure):
     roi, *_ = harness
     messages = []
     class Capture:
@@ -957,7 +948,6 @@ def test_hold_does_not_override_hard_stop(harness, failure):
     now = roi.get_clock().now().nanoseconds
     roi.control_scan_stamp = now
     roi.control_received = time.monotonic()
-    roi.last_valid_control = (time.monotonic(), now, .3, .2)
     if failure == 'tf':
         roi.control_fault = True
     elif failure == 'stale':
@@ -965,10 +955,8 @@ def test_hold_does_not_override_hard_stop(harness, failure):
     elif failure == 'mission':
         roi.mission_cone = False
     elif failure == 'clock_reverse':
-        h = roi.last_valid_control
-        roi.last_valid_control = (h[0], now+1_000_000_000, h[2], h[3])
+        roi.control_scan_stamp = now+1_000_000_000
     else:
         roi.center_path = [(-.8, .1, 0.), (-.1, .1, 0.)]
     roi.control_tick()
     assert messages[-1].drive.speed == messages[-1].drive.steering_angle == 0.
-    assert roi.last_valid_control is None
