@@ -91,6 +91,17 @@ Visualization Manager:
       History Policy: Keep Last
       Depth: 1
     Namespaces: {}
+  - Class: rviz_default_plugins/Marker
+    Name: Control status and stop reason
+    Enabled: true
+    Topic:
+      Value: /cone_lane/control_status
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      History Policy: Keep Last
+      Depth: 1
+    Namespaces:
+      control_status: true
   - Class: rviz_default_plugins/Image
     Name: Camera color
     Enabled: true
