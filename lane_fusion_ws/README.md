@@ -57,7 +57,7 @@ PYTHONNOUSERSITE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
    source ~/2026-AutoRace/lane_fusion_ws/install/setup.bash
    ros2 launch autorace_lane_fusion_pid lane_fusion_pid.launch.py profile:=real
    ```
-   - **차량 출력은 기본으로 꺼져 있습니다**(재설계 후 실차 검증 전). `/lane_fusion_pid/command` 미리보기만 나옵니다. 주행하려면 `enable_vehicle_output:=true`.
+   - `/mission/lane`을 기본으로 발행합니다(2026-11-07 06번 차 주행 확인). 미리보기만 보려면 `enable_vehicle_output:=false`(`/lane_fusion_pid/command`만).
    - `deep:=false`: 딥 노드 없이 실행(HSV만), `lane_gui:=true` / `gui:=true`: 인식 / PID 튜너
    - `model_path:=/abs/model.engine`, `deep_device:=cpu|cuda`: 모델·장치 직접 지정
 
@@ -95,5 +95,5 @@ PYTHONNOUSERSITE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 - 마스크 1~2 프레임 지연(`--mask-delay 1|2`): valid·튐 거의 같음(예: 234303 26 → 30 / 37).
 - **Jetson(06번 차) fast bag**: 이전 퓨전 mode 3 **21.3 ms** → 새 퓨전 **11.8 ms**(max 32.9, HSV를 돌린 프레임), 딥만 9.3 → **3.1 ms**, HSV만 22.1 → 24.2 ms. JPEG 디코딩은 HSV가 필요한 38% 프레임에서만.
 - 지그재그 구간(slow #790~#840): 체인만 쓰던 중간 버전은 지그재그 이빨에서 선이 끊겨 한쪽을 잃었고, 윈도우 정제 후 평균선을 따라갑니다.
-- 남은 과제: 커브에서 한쪽만 보일 때 목표점이 5~8 cm씩 움직이는 프레임(실제 이동 포함), Jetson에서 HSV 경로가 무거움(약 24 ms). 실차 주행 검증 전.
+- 2026-11-07 06번 차 저속 주행 확인. 남은 과제: 커브에서 한쪽만 보일 때 목표점이 5~8 cm씩 움직이는 프레임(실제 이동 포함), Jetson에서 HSV 경로가 무거움(약 24 ms), 퓨전 PID 게인·`curvature_ff`를 새 BEV 축척에 맞춰 재튜닝.
 - 단위 테스트 26개(기존 HSV 회귀 + 퓨전·출력 검증·마스크 선택) 통과.
