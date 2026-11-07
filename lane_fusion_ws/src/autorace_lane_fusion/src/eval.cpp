@@ -12,11 +12,14 @@ int main(int argc, char **argv) {
   if (argc < 3) {
     std::cerr << "lane_fusion_eval BAG|IMAGE CONFIG.yaml [OUT_DIR|OUT.png] [--topic T] "
                  "[--every N] [--start I] [--count N] [--no-views] [--video OUT.mp4] [--tracks]\n"
-                 "  [--deep-masks DIR (NNNNNN.png per bag frame)] [--deep-mode 0|1|2|3]\n";
+                 "  [--deep-masks DIR (NNNNNN.png per bag frame)] [--no-hsv] [--mask-delay N]\n"
+                 "  --no-hsv: deep only (HSV colours off); without --deep-masks: HSV only\n"
+                 "  --mask-delay N: use the mask of frame i-N (as the node does while the network lags)\n";
     return 1;
   }
   std::string bag_path = argv[1], config_path = argv[2], out, topic, video_path, deep_dir;
-  int deep_mode = -1; // -1: keep the YAML value
+  bool no_hsv = false;
+  size_t mask_delay = 0;
   bool tracks = false; // --tracks: also draw the tracked boundaries/centre in the video
   size_t every = 0, first = 0, count = ~size_t(0);
   bool views = true; // --no-views: time the pipeline as the driving node runs it
@@ -30,13 +33,14 @@ int main(int argc, char **argv) {
     else if (a == "--video" && i + 1 < argc) video_path = argv[++i];
     else if (a == "--tracks") tracks = true;
     else if (a == "--deep-masks" && i + 1 < argc) deep_dir = argv[++i];
-    else if (a == "--deep-mode" && i + 1 < argc) deep_mode = std::stoi(argv[++i]);
+    else if (a == "--no-hsv") no_hsv = true;
+    else if (a == "--mask-delay" && i + 1 < argc) mask_delay = std::stoul(argv[++i]);
     else out = a;
   }
   try {
     auto config = lane_lite::Config::load(config_path);
-    if (deep_mode >= 0)
-      config.values["deep_mode"] = deep_mode;
+    if (no_hsv)
+      config.values["yellow_enabled"] = config.values["white_enabled"] = 0;
     config.validate();
     lane_lite::Pipeline pipeline(config);
     size_t deep_frames = 0;
@@ -80,7 +84,7 @@ int main(int argc, char **argv) {
       std::filesystem::create_directories(out);
       csv.open(out + "/frames.csv");
       csv << "frame,time,state,left,right,valid,lateral_m,heading,lookahead_m,"
-             "confidence,width_px,ms,near_lateral_m,near_heading,notes\n";
+             "confidence,width_px,ms,near_lateral_m,near_heading,curvature,source,hsv,notes\n";
     }
     // --video: recognised lane paint on the ORIGINAL frame (yellow / white).
     cv::VideoWriter video;
@@ -92,13 +96,30 @@ int main(int argc, char **argv) {
       if (!video.isOpened())
         throw std::runtime_error("cannot open video " + video_path);
     }
-    size_t n = 0, valid = 0, both = 0, single = 0, held = 0, jumps = 0;
-    double ms = 0, worst_ms = 0, jitter = 0, previous = NAN;
+    size_t n = 0, valid = 0, both = 0, single = 0, held = 0, jumps = 0, hsv = 0, decoded = 0, gated = 0,
+           swaps = 0;
+    double ms = 0, worst_ms = 0, jitter = 0, previous = NAN, kappa_jitter = 0, previous_kappa = NAN;
+    lane_lite::Path previous_side[2];
     const size_t last = std::min(bag.size(), first + count);
     for (size_t i = first; i < last; ++i) {
       auto frame = bag.frame(i);
       auto r = pipeline.process(frame.image, frame.time, views || (every && i % every == 0),
-                                deep_mask(i));
+                                i >= first + mask_delay ? deep_mask(i - mask_delay) : cv::Mat());
+      hsv += r.hsv_used;
+      decoded += r.image_used;
+      for (const auto &note : r.notes)
+        gated += note.rfind("출력 보류", 0) == 0;
+      // A boundary that takes over the place of the other side's previous one.
+      const lane_lite::Line *sides[2] = {&r.left, &r.right};
+      for (int s = 0; s < 2; ++s) {
+        const auto &line = *sides[s];
+        if (line.state == lane_lite::LineState::Detected && !previous_side[1 - s].empty() &&
+            lane_lite::geo::distanceTo(line.path, previous_side[1 - s]) < 30 &&
+            (previous_side[s].empty() || lane_lite::geo::distanceTo(line.path, previous_side[s]) > 30))
+          ++swaps;
+      }
+      for (int s = 0; s < 2; ++s)
+        previous_side[s] = sides[s]->state == lane_lite::LineState::Lost ? lane_lite::Path() : sides[s]->path;
       ++n;
       ms += r.processing_ms;
       worst_ms = std::max(worst_ms, r.processing_ms);
@@ -110,15 +131,17 @@ int main(int argc, char **argv) {
         const double d = std::abs(r.lateral_m - previous);
         jitter += d;
         jumps += d > .05;
+        kappa_jitter += std::abs(r.curvature - previous_kappa);
       }
       previous = r.valid ? r.lateral_m : NAN;
+      previous_kappa = r.curvature;
       if (csv.is_open()) {
         csv << i << ',' << frame.time << ',' << r.state << ','
             << lane_lite::name(r.left.state) << ',' << lane_lite::name(r.right.state)
             << ',' << r.valid << ',' << r.lateral_m << ',' << r.heading << ','
             << r.lookahead_m << ',' << r.confidence << ',' << r.lane_width_px
             << ',' << r.processing_ms << ',' << r.near_lateral_m << ','
-            << r.near_heading << ',';
+            << r.near_heading << ',' << r.curvature << ',' << r.source << ',' << r.hsv_used << ',';
         for (size_t k = 0; k < r.notes.size(); ++k)
           csv << (k ? " | " : "") << r.notes[k];
         csv << '\n';
@@ -154,8 +177,10 @@ int main(int argc, char **argv) {
               << 100. * both / n << "% | single " << 100. * single / n
               << "% | held " << 100. * held / n << "% | lateral jitter "
               << jitter / std::max<size_t>(1, valid) << " m/frame | >5cm jumps "
-              << jumps << " | CV " << ms / n << " ms (max " << worst_ms << ")"
-              << (deep_frames ? " | deep mode " + std::to_string(int(config["deep_mode"])) : "") << '\n';
+              << jumps << " | curvature jitter " << kappa_jitter / std::max<size_t>(1, valid)
+              << " | L/R swaps " << swaps << " | output gated " << gated << " | HSV " << 100. * hsv / n
+              << "% | image " << 100. * decoded / n << "% | CV " << ms / n << " ms (max " << worst_ms << ")"
+              << (deep_frames ? " | deep masks" : " | no deep") << '\n';
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';
     return 1;

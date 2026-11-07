@@ -2,7 +2,7 @@
 // separate autorace_lane_fusion_pid tuner window and never appear here.
 #include "autorace_lane_fusion/lane.hpp"
 #include "autorace_lane_fusion/bag.hpp"
-#include "autorace_lane_fusion/deep_pairing.hpp"
+#include "autorace_lane_fusion/deep_latest.hpp"
 #include "autorace_lane_fusion/roi_view.hpp"
 #include <QApplication>
 #include <QComboBox>
@@ -121,11 +121,12 @@ struct Shared {
   size_t revision = 0, source = 0, incoming = 0;
   std::string path, topic, error, status = "Open a bag or press Live";
   std::string config_path; // YAML loaded / saved last (GUI thread only)
-  // Deep fusion input. Bag: NNNNNN.png class masks per bag frame (deep_dir,
-  // default <bag parent>/deep_masks/<bag name>). Live: /lane_fusion/deep_mask paired
-  // with the camera frame as in lane_fusion_node.
+  // Deep input. Bag: NNNNNN.png class masks per bag frame (deep_dir, default
+  // <bag parent>/deep_masks/<bag name>). Live: the newest camera frame with the
+  // newest /lane_fusion/deep_mask no older than deep_max_age, as lane_fusion_node.
   std::string deep_dir;
-  lane_lite::DeepPairing pairing;
+  lane_lite::DeepLatest deep;
+  sensor_msgs::msg::CompressedImage::ConstSharedPtr frame; // newest live frame
   bool live = false, playing = false;
   double rate = 1;
   int64_t seek = -1;
@@ -154,6 +155,7 @@ void worker(Shared &s) {
       sensor_msgs::msg::CompressedImage::ConstSharedPtr compressed;
       sensor_msgs::msg::Image::ConstSharedPtr live_mask;
       bool own = false, incoming = false;
+      double mask_age = -1;
       {
         std::unique_lock<std::mutex> lock(s.mutex);
         s.cv.wait_for(lock, std::chrono::milliseconds(5));
@@ -162,9 +164,13 @@ void worker(Shared &s) {
         path = s.path, topic = s.topic, live = s.live, playing = s.playing, rate = s.rate;
         new_source = s.source, new_revision = s.revision, config = s.config;
         seek = s.seek, s.seek = -1, step = s.step, s.step = 0;
-        if (live)
-          incoming = s.pairing.next(config["deep_mode"] > 0, wall(), .3, .5, compressed,
-                                    live_mask, own);
+        if (live && s.frame) {
+          compressed = s.frame;
+          s.frame.reset();
+          incoming = true;
+          live_mask = s.deep.pick(lane_lite::DeepLatest::nanos(compressed->header.stamp),
+                                  config["deep_max_age"], mask_age, own);
+        }
       }
       const bool changed = revision != new_revision;
       if (changed) {
@@ -259,12 +265,15 @@ void worker(Shared &s) {
       d->result = pipeline.process(frame.image, frame.time, true, deep);
       d->deep_mask = deep;
       const auto &r = d->result;
-      static const char *modes[] = {"끔 (HSV만)", "gated (HSV∧딥)", "딥만", "딥 우선 (놓친 쪽만 HSV)"};
-      d->deep = std::string("딥 퓨전: ") + modes[std::clamp(int(config["deep_mode"]), 0, 3)] +
-                " | 이 프레임: " + r.source +
-                (deep.empty() ? " (딥 마스크 없음)"
-                 : r.source == "deep+hsv" ? " (딥이 놓친 쪽을 HSV로 보완)"
-                 : live && !own ? " (직전 프레임 마스크)" : "");
+      d->deep = std::string("딥 마스크: ") +
+                (deep.empty() ? (live && mask_age >= 0 ? "너무 오래됨 " + std::to_string(int(mask_age * 1000)) +
+                                                             " ms → HSV만"
+                                                       : std::string("없음 → HSV만"))
+                 : !live ? std::string("bag 프레임 마스크")
+                 : own   ? std::string("이 프레임 것")
+                         : "이전 프레임 것 (" + std::to_string(int(mask_age * 1000)) + " ms 전)") +
+                " | HSV 후보: " + (r.hsv_used ? "계산함" : "안 함 (딥으로 충분)") +
+                " | 선택된 경계 출처: " + r.source;
       d->frame = index;
       d->count = live ? 0 : bag.size();
       d->time = live ? 0 : frame.time;
@@ -346,7 +355,7 @@ public:
         if (i == 1) {
           binary_mode = new QComboBox;
           binary_mode->addItems({"색상 후보 (HSV, ROI∩BEV)", "최종 특징 (Top-hat·두께·면적)",
-                                 "차선으로 사용된 픽셀", "비교: 색상 | 최종 특징",
+                                 "선택된 경계", "비교: 색상 | 최종 특징",
                                  "딥 마스크 (U-Net: 노랑/흰 점선)"});
           binary_mode->setCurrentIndex(3);
           layout->addWidget(binary_mode);
@@ -355,10 +364,11 @@ public:
         }
         if (i == 2) {
           bev_mode = new QComboBox;
-          bev_mode->addItems({"BEV 원본", "BEV 특징 마스크", "Sliding Window 탐색"});
+          bev_mode->addItems({"BEV 원본", "BEV 특징 마스크 (딥+HSV)", "후보 (딥 보라 / HSV 주황)"});
           bev_mode->setCurrentIndex(2);
-          bev_mode->setToolTip("탐색: 초록/청록=왼쪽/오른쪽 관측 윈도우, 회색=미관측, "
-                               "원=시작점, 자홍 점선=이전 추적 경계");
+          bev_mode->setToolTip("후보: 보라=딥 후보, 주황 점선=HSV 단독 후보, 점=체인 중심점, "
+                               "초록/하늘=선택된 왼쪽/오른쪽, 회색 점선=이전 추적 경계. "
+                               "밝은 노랑/흰=딥 마스크, 어두운 노랑/회색=HSV 특징");
           layout->addWidget(bev_mode);
           connect(bev_mode, qOverload<int>(&QComboBox::currentIndexChanged), this,
                   [this](int) { refresh(); });
@@ -444,10 +454,10 @@ public:
     syncWidgets(s.config);
 
     outer->addWidget(new QLabel(
-        "<span style='color:#e02020'>빨강: 관측 경계</span> · "
+        "<span style='color:#20b020'>초록/</span><span style='color:#00a0e0'>하늘: 왼쪽/오른쪽 관측 경계</span> · "
         "<span style='color:#c050c0'>자홍 점선: 유지(HELD) 경계</span> · "
-        "<span style='color:#e6a000'>주황 점선: 폭으로 추정한 반대 경계 / 탈락 후보</span> · "
-        "<span style='color:#2060e0'>파랑: 중앙 경로(실선=양쪽 관측)</span> · "
+        "<span style='color:#e6a000'>주황 점선: 폭으로 추정한 반대 경계 / 탈락</span> · "
+        "<span style='color:#e02020'>빨강: 중앙 경로(실선=양쪽 관측)</span> · "
         "<span style='color:#20b020'>초록 점: 목표점</span>"));
     auto transport = new QHBoxLayout;
     outer->addLayout(transport);
@@ -634,9 +644,10 @@ private:
       const auto &r = d->result;
       QStringList lines;
       lines << QString::fromStdString(d->deep);
-      lines << QString("상태 %1 | %2 | 차로 폭 학습값 %3 px")
+      lines << QString("상태 %1 | %2 | 후보 %3개 | 차로 폭 학습값 %4 px")
                    .arg(QString::fromStdString(r.state))
                    .arg(r.valid ? "유효" : "무효")
+                   .arg(r.candidates.size())
                    .arg(r.lane_width_px, 0, 'f', 0);
       lines << QString("인식 출력(/lane_fusion/target): 횡오차 %1 m (좌+) | 헤딩 %2 rad | "
                        "목표 거리 %3 m | 곡률 %4 1/m | 신뢰도 %5")
@@ -647,11 +658,13 @@ private:
                    .arg(r.near_lateral_m, 0, 'f', 3).arg(r.near_heading, 0, 'f', 3)
                    .arg(r.near_m, 0, 'f', 2);
       for (const auto *line : {&r.left, &r.right})
-        lines << QString("%1 %2 | 관측 윈도우 %3 | RMS %4 px | 품질 %5 | %6 | %7")
+        lines << QString("%1 %2 | 출처 %3 | 중심점 %4 | RMS %5 px | 품질 %6 | %7 | 추적 %8프레임 | %9")
                      .arg(line == &r.left ? "왼쪽" : "오른쪽")
                      .arg(lane_lite::name(line->state))
+                     .arg(lane_lite::sourceName(line->source))
                      .arg(line->observed).arg(line->residual, 0, 'f', 1)
                      .arg(line->quality, 0, 'f', 2).arg(line->yellow ? "노랑" : "흰색")
+                     .arg(line->frames)
                      .arg(QString::fromStdString(line->note));
       for (const auto &n : r.notes)
         lines << QString::fromStdString(n);
@@ -706,8 +719,8 @@ int main(int argc, char **argv) {
                    "[--config YAML] [--deep-masks DIR] [--screenshot PNG]\n"
                    "  live input: sensor_msgs/CompressedImage, default /camera/color/image_raw/compressed\n"
                    "  --profile NAME loads config/NAME/lane.yaml from the package source tree\n"
-                   "  deep fusion (deep_mode>0): live pairs /lane_fusion/deep_mask by stamp; a bag uses\n"
-                   "  --deep-masks DIR (default <bag parent>/deep_masks/<bag name>) NNNNNN.png\n";
+                   "  deep: live uses the newest /lane_fusion/deep_mask within deep_max_age of the frame;\n"
+                   "  a bag uses --deep-masks DIR (default <bag parent>/deep_masks/<bag name>) NNNNNN.png\n";
       return 0;
     }
     if (i + 1 >= argc)
@@ -745,15 +758,15 @@ int main(int argc, char **argv) {
       rclcpp::SensorDataQoS().keep_last(1),
       [&](sensor_msgs::msg::CompressedImage::ConstSharedPtr m) {
         std::lock_guard<std::mutex> lock(s.mutex);
-        s.pairing.addFrame(m, wall());
+        s.frame = m;
+        s.deep.addFrame(lane_lite::DeepLatest::nanos(m->header.stamp), wall());
         s.cv.notify_one();
       });
   auto deep_subscription = node->create_subscription<sensor_msgs::msg::Image>(
       "/lane_fusion/deep_mask", rclcpp::SensorDataQoS().keep_last(4),
       [&](sensor_msgs::msg::Image::ConstSharedPtr m) {
         std::lock_guard<std::mutex> lock(s.mutex);
-        if (s.pairing.addMask(m, wall()))
-          s.cv.notify_one();
+        s.deep.addMask(m, wall());
       });
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);

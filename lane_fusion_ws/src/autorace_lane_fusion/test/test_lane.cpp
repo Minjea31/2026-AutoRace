@@ -205,26 +205,93 @@ TEST(LaneLite, TrackedBoundaryKeepsItsRoleAcrossTheCarCentre) {
   }
 }
 TEST(LaneLite, DeepFirstFillsTheMissedSideFromHsv) {
-  // The network sees only the yellow line; HSV also sees the white one. Mode 3
-  // adds the white line (it lies where the right boundary is expected), but
-  // not a white blob far from that corridor. Mode 2 stays deep-only.
+  // The network sees only the yellow line; HSV also sees the white one and a
+  // white blob far left. The white line becomes the right boundary (HSV
+  // candidate at the lane width); the blob is never chosen. With HSV off the
+  // result stays deep only.
   cv::Mat img = scene(170, 300);
-  cv::rectangle(img, {20, 300}, {40, 470}, cv::Scalar(240, 240, 240), cv::FILLED); // outside
+  cv::rectangle(img, {20, 300}, {40, 470}, cv::Scalar(240, 240, 240), cv::FILLED);
   cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
   cv::line(deep, {170, 479}, {190, 0}, 1, 14);
-  for (const int mode : {2, 3}) {
+  for (const bool hsv : {true, false}) {
     auto c = identity();
-    c.values["deep_mode"] = mode;
+    c.values["yellow_enabled"] = c.values["white_enabled"] = hsv;
     lane_lite::Pipeline p(c);
     lane_lite::Result r;
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 4; ++i)
       r = p.process(img, i * .05, true, deep);
-    ASSERT_TRUE(r.valid) << mode;
-    EXPECT_EQ(r.state, mode == 3 ? "both" : "left only") << mode;
-    EXPECT_EQ(r.source, mode == 3 ? "deep+hsv" : "deep") << mode;
-    EXPECT_NEAR(r.target_x, 330, 12) << mode;
-    EXPECT_EQ(cv::countNonZero(r.feature_mask.colRange(10, 50)), 0) << mode;
+    ASSERT_TRUE(r.valid) << hsv;
+    EXPECT_EQ(r.state, hsv ? "both" : "left only") << hsv;
+    EXPECT_EQ(r.source, hsv ? "deep+hsv" : "deep") << hsv;
+    EXPECT_EQ(r.left.source & lane_lite::kDeep, lane_lite::kDeep) << hsv;
+    EXPECT_NEAR(r.target_x, 330, 12) << hsv;
   }
+}
+TEST(LaneLite, ConfidentDeepSkipsHsvAndTheImage) {
+  // Both boundaries from the network: HSV is not computed and the frame is
+  // never decoded (no views).
+  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
+  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
+  cv::line(deep, {470, 479}, {490, 0}, 1, 14);
+  lane_lite::Pipeline p(identity());
+  int decoded = 0;
+  lane_lite::Result r;
+  for (int i = 0; i < 4; ++i)
+    r = p.process(lane_lite::Pipeline::Image([&] {
+                    ++decoded;
+                    return scene(170, 300);
+                  }),
+                  i * .05, false, deep);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.state, "both");
+  EXPECT_EQ(r.source, "deep");
+  EXPECT_FALSE(r.hsv_used);
+  EXPECT_EQ(decoded, 0);
+}
+TEST(LaneLite, HsvSolidWhiteDoesNotReplaceDeepBoundary) {
+  // Deep sees the yellow line and only a short piece of the white right one
+  // (weak side -> HSV runs); HSV also sees a solid white line just outside
+  // (outer road edge). The right boundary is the lane line, not the edge.
+  lane_lite::Pipeline p(identity());
+  cv::Mat img = scene(170, 300);
+  cv::line(img, {560, 479}, {580, 0}, cv::Scalar(240, 240, 240), 14);
+  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
+  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
+  cv::line(deep, {470, 479}, {473, 380}, 2, 14);
+  lane_lite::Result r;
+  for (int i = 0; i < 4; ++i)
+    r = p.process(img, i * .05, true, deep);
+  ASSERT_TRUE(r.valid);
+  EXPECT_TRUE(r.hsv_used);
+  EXPECT_EQ(r.state, "both");
+  EXPECT_NEAR(r.target_x, 330, 12);
+}
+TEST(LaneLite, UncertainSingleSideGivesNoNewCentre) {
+  // A single fresh line right under the vehicle centre: its role (left or
+  // right) is not certain, so no centre path is produced from it.
+  lane_lite::Pipeline p(identity());
+  cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+  cv::line(img, {325, 479}, {335, 0}, cv::Scalar(0, 200, 230), 14);
+  const auto r = p.process(img, 0);
+  EXPECT_FALSE(r.valid);
+}
+TEST(LaneLite, TargetJumpIsGatedThenConfirmed) {
+  // The whole lane jumps sideways by 0.2 m at once (beyond max_target_jump_m):
+  // the old target is held for two frames, the third confirms the new one.
+  auto c = identity();
+  c.values["track_jump_px"] = 400; // let the boundaries follow at once
+  c.values["smoothing"] = 1;       // no filter: the jump reaches the output in one frame
+  lane_lite::Pipeline p(c);
+  lane_lite::Result r;
+  for (int i = 0; i < 4; ++i)
+    r = p.process(scene(170, 300), i * .05);
+  const double before = r.lateral_m;
+  for (int i = 4; i < 7; ++i) {
+    r = p.process(scene(280, 300), i * .05);
+    if (i < 6)
+      EXPECT_NEAR(r.lateral_m, before, .03) << i;
+  }
+  EXPECT_LT(r.lateral_m, before - .1);
 }
 TEST(LaneLite, CentreFollowsTheMiddleOfABend) {
   // Concentric arcs (right-hand bend), radii 650 / 350 around (820, 479):
@@ -244,8 +311,8 @@ TEST(LaneLite, CentreFollowsTheMiddleOfABend) {
 }
 TEST(LaneLite, ConfigRoundTrip) {
   auto c = identity();
-  c.values["margin"] = 61;
+  c.values["cell"] = 12;
   const auto path = testing::TempDir() + "/lane_lite.yaml";
   c.save(path);
-  EXPECT_EQ(lane_lite::Config::load(path)["margin"], 61);
+  EXPECT_EQ(lane_lite::Config::load(path)["cell"], 12);
 }

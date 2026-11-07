@@ -21,9 +21,9 @@ Two separate windows (both optional):
   gui:=true       lane_fusion_pid_tuner   - PID / speed parameters only
                   (default: on for sim, off for real - the car has no display
                    over ssh; run the tuner on the laptop instead)
-/mission/lane is published by default (enable_vehicle_output:=true); the mux
-(real) or simul/adapter.sh (sim) forwards it to the vehicle. Pass
-enable_vehicle_output:=false to only publish the /lane_fusion_pid/command preview.
+Vehicle output is OFF by default until the redesigned fusion is validated on
+the car: only the /lane_fusion_pid/command preview is published. Pass
+enable_vehicle_output:=true to publish /mission/lane (the mux forwards it).
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -58,7 +58,7 @@ def generate_launch_description():
             ["'true' if '", profile, "' == 'sim' else 'false'"]), description='open lane_fusion_pid_tuner'),
         DeclareLaunchArgument('use_sim_time', default_value=PythonExpression(
             ["'true' if '", profile, "' == 'sim' else 'false'"])),
-        DeclareLaunchArgument('enable_vehicle_output', default_value='true',
+        DeclareLaunchArgument('enable_vehicle_output', default_value='false',
                               description='publish /mission/lane (false = /lane_fusion_pid/command preview only)'),
         DeclareLaunchArgument('deep', default_value=PythonExpression(
             ["'true' if '", profile, "' == 'real' else 'false'"]),
