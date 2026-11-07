@@ -52,7 +52,7 @@ def prepare(roi, monkeypatch, yaw=0.):
 
     roi.command_pub = Capture()
     tick(roi)
-    assert roi.control_mode == 'Path Feedback'
+    assert roi.control_mode == 'Memory Path Feedback'
     assert roi.path_memory.points and roi.memory_status == 'stored'
     return tf, messages
 
@@ -105,11 +105,13 @@ def test_memory_cannot_override_sensor_or_transform_faults(harness, monkeypatch,
     assert messages[-1].drive.speed == 0.
     if failure in ('missing_tf', 'stale_tf'):
         assert roi.control_stop_reason == 'memory_tf_unavailable_or_stale'
+    elif failure == 'scan_timeout':
+        assert roi.path_memory.points and roi.memory_status == 'paused_scan_timeout'
     else:
         assert not roi.path_memory.points
 
 
-def test_memory_rejoins_only_continuous_new_path(harness, monkeypatch):
+def test_shorter_or_shifted_observation_cannot_replace_saved_path(harness, monkeypatch):
     roi, *_ = harness
     prepare(roi, monkeypatch)
     roi.center_path = []
@@ -118,8 +120,161 @@ def test_memory_rejoins_only_continuous_new_path(harness, monkeypatch):
     roi.center_path = [(.1, .4, 0.), (.8, .4, 0.)]
     tick(roi)
     assert roi.control_mode == 'Memory Path Feedback'
-    assert roi.memory_status == 'rejoin_rejected'
+    assert roi.memory_status == 'kept_no_aligned_extension'
     roi.center_path = [(.1, .03, 0.), (.8, .03, 0.)]
     tick(roi)
-    assert roi.control_mode == 'Path Feedback'
-    assert not roi.memory_following and roi.memory_status == 'stored'
+    assert roi.control_mode == 'Memory Path Feedback'
+    assert roi.memory_following and roi.memory_status == 'kept_no_aligned_extension'
+    assert roi.control_lateral_error == pytest.approx(0.)
+
+
+def test_memory_extends_goal_but_ignores_shorter_live_paths(harness, monkeypatch):
+    roi, *_ = harness
+    tf, messages = prepare(roi, monkeypatch)
+    original = roi.path_memory.points[:]
+    roi.center_path = [(.1, .1, 0.), (.5, .1, 0.)]
+    tick(roi)
+    assert roi.path_memory.points == original
+    assert roi.control_lateral_error == pytest.approx(0.)
+    # The new live route observes beyond the old 1.1 m goal.
+    roi.center_path = [(.5, 0., 0.), (.9, 0., 0.), (1.2, 0., 0.), (1.5, 0., 0.)]
+    tick(roi)
+    assert roi.memory_status == 'extended'
+    assert roi.path_memory.points[:len(original)] == original
+    assert roi.path_memory.points[-1] == pytest.approx((3.5, 3., 0.))
+    assert roi.control_mode == 'Memory Path Feedback'
+    # Seeing only the old part must not reset the endpoint or path order.
+    tf.x = 2.4
+    roi.center_path = [(.1, 0., 0.), (.5, 0., 0.)]
+    tick(roi)
+    assert roi.path_memory.points[-1] == pytest.approx((3.5, 3., 0.))
+    assert 0. < messages[-1].drive.speed <= .15
+
+
+@pytest.mark.parametrize('failure', ['receive', 'stamp'])
+def test_scan_timeout_preserves_path_and_resumes_only_with_fresh_tf(harness, monkeypatch, failure):
+    roi, *_ = harness
+    tf, messages = prepare(roi, monkeypatch)
+    stored = roi.path_memory.points[:]
+    roi.center_path = []
+    if failure == 'receive':
+        roi.control_received = time.monotonic()-.6
+    else:
+        roi.control_scan_stamp = roi.get_clock().now().nanoseconds-600_000_000
+    roi.control_tick()
+    assert roi.control_mode == 'Stopped' and messages[-1].drive.speed == 0.
+    assert roi.control_stop_reason == ('scan_receive_timeout' if failure == 'receive' else 'scan_stamp_timeout')
+    assert roi.path_memory.points == stored
+    assert roi.memory_status == 'paused_scan_timeout'
+    assert roi.mission_exit_since is None
+    # Sensor recovery alone cannot override an unavailable odometry transform.
+    tf.fail = True
+    tick(roi)
+    assert messages[-1].drive.speed == 0.
+    assert roi.control_stop_reason == 'memory_tf_unavailable_or_stale'
+    assert roi.path_memory.points == stored
+    tf.fail = False
+    tf.x += .35
+    tick(roi)
+    assert roi.control_mode == 'Memory Path Feedback'
+    assert roi.path_memory.points == stored and roi.path_memory.index > 0
+    assert 0. < messages[-1].drive.speed <= .15
+
+
+@pytest.mark.parametrize('live_path', [
+    [(.2, -.3, 0.), (.2, .3, 0.)],
+    [(.8, 0., 0.), (.1, 0., 0.)],
+    [(-.8, 0., 0.), (-.1, 0., 0.)],
+    [(.1, .8, 0.), (.8, .8, 0.)],
+    [(.1, 0., 0.)],
+])
+def test_unusable_nonempty_live_path_falls_back_to_valid_memory(harness, monkeypatch, live_path):
+    roi, *_ = harness
+    _, messages = prepare(roi, monkeypatch)
+    stored = roi.path_memory.points[:]
+    roi.center_path = live_path
+    assert roi.path_errors(live_path, .25) is None
+    tick(roi)
+    assert roi.control_mode == 'Memory Path Feedback'
+    assert roi.memory_status == 'following'
+    assert roi.control_stop_reason is None
+    assert roi.path_memory.points == stored
+    assert roi.memory_local_path
+    assert 0. < messages[-1].drive.speed <= .15
+    assert roi.mission_exit_since is None
+
+
+def test_invalid_live_and_memory_paths_report_memory_failure(harness, monkeypatch):
+    roi, *_ = harness
+    tf, messages = prepare(roi, monkeypatch)
+    roi.center_path = [(.2, -.3, 0.), (.2, .3, 0.)]
+    tf.yaw = math.pi/2
+    tick(roi)
+    assert roi.control_mode == 'Stopped'
+    assert roi.control_stop_reason == 'memory_path_no_usable_forward_segment'
+    assert roi.memory_status == roi.control_stop_reason
+    assert messages[-1].drive.speed == messages[-1].drive.steering_angle == 0.
+
+
+def test_invalid_live_path_cannot_override_memory_tf_error(harness, monkeypatch):
+    roi, *_ = harness
+    tf, messages = prepare(roi, monkeypatch)
+    roi.center_path = [(.2, -.3, 0.), (.2, .3, 0.)]
+    tf.fail = True
+    tick(roi)
+    assert roi.control_stop_reason == 'memory_tf_unavailable_or_stale'
+    assert messages[-1].drive.speed == 0.
+
+
+def test_update_failure_remains_visible_after_goal_status_overwrites_memory(harness, monkeypatch):
+    roi, *_ = harness
+    prepare(roi, monkeypatch)
+    roi.path_memory.finished = True
+    roi.center_path = [(.1, 0., 0.), (.5, 0., 0.)]
+    tick(roi)
+    assert roi.memory_status == 'memory_goal_reached'
+    assert roi.control_stop_reason == 'memory_goal_reached'
+    assert roi.memory_update_reason == 'kept_no_aligned_extension'
+    summary = roi.control_log_summary()
+    assert 'memory=memory_goal_reached' in summary
+    assert 'Path update: kept_no_aligned_extension' in summary
+    roi.center_path = []
+    tick(roi)
+    assert roi.memory_update_reason == 'not_attempted: empty_path'
+
+
+def test_update_log_reports_unusable_new_path_and_tf_failure(harness, monkeypatch):
+    roi, *_ = harness
+    tf, _ = prepare(roi, monkeypatch)
+    roi.center_path = [(.2, -.3, 0.), (.2, .3, 0.)]
+    tick(roi)
+    assert roi.memory_update_reason == 'not_attempted: path_no_usable_forward_segment'
+    roi.clear_path_memory()
+    roi.center_path = [(.1, 0., 0.), (.5, 0., 0.)]
+    tf.fail = True
+    tick(roi)
+    assert roi.memory_update_reason == 'save_tf_unavailable_or_stale'
+
+
+def test_scan_tolerates_277ms_gap_while_memory_tf_limit_stays_200ms(harness, monkeypatch):
+    roi, *_ = harness
+    tf, messages = prepare(roi, monkeypatch)
+    roi.center_path = []
+    roi.control_received = time.monotonic()-.277
+    roi.control_scan_stamp = roi.get_clock().now().nanoseconds-277_000_000
+    roi.control_tick()
+    assert roi.control_mode == 'Memory Path Feedback'
+    assert messages[-1].drive.speed > 0.
+    assert roi.get_parameter('control_timeout').value == .5
+    assert roi.get_parameter('control_memory_tf_timeout').value == .2
+    lookup = tf.lookup_transform
+
+    def delayed_tf(*args):
+        result = lookup(*args)
+        result.header.stamp = Time(nanoseconds=roi.get_clock().now().nanoseconds-300_000_000).to_msg()
+        return result
+
+    monkeypatch.setattr(tf, 'lookup_transform', delayed_tf)
+    tick(roi)
+    assert roi.control_stop_reason == 'memory_tf_unavailable_or_stale'
+    assert messages[-1].drive.speed == 0.

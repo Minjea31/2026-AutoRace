@@ -20,28 +20,62 @@ class PathMemory:
         self.points = []
         self.index = 0
         self.finished = False
+        self.update_reason = 'empty'
 
     def store(self, points):
-        """Keep a compatible previously observed tail beyond the new observation."""
+        """Initialize once; subsequently append only an aligned extension of the goal.
+
+        The old prefix is never replaced by a shorter or laterally shifted detection.
+        Extension is measured along the new polyline past the old goal, not by
+        Euclidean distance from the vehicle (which is misleading in a hairpin).
+        """
         points = list(points)
         if len(points) < 2 or not all(math.isfinite(v) for q in points for v in q):
+            self.update_reason = 'invalid_observation'
             return False
-        old = self.points[self.index:] if not self.finished else []
+        if not self.points:
+            self.points, self.index, self.finished = points[:1000], 0, False
+            self.update_reason = 'stored'
+            return True
+        old = self.points[self.index:]
+        dx, dy = old[-1][0]-old[-2][0], old[-1][1]-old[-2][1]
         candidates = []
-        dx, dy = points[-1][0]-points[-2][0], points[-1][1]-points[-2][1]
-        for i, (a, b) in enumerate(zip(old, old[1:])):
-            hit = projection(points[-1], a, b)
+        for i, (a, b) in enumerate(zip(points, points[1:])):
+            hit = projection(old[-1], a, b)
             vx, vy = b[0]-a[0], b[1]-a[1]
             norm = math.hypot(dx, dy)*math.hypot(vx, vy)
-            if hit and hit[0] <= .10 and norm > 1e-12 and (dx*vx+dy*vy)/norm >= math.cos(math.pi/4):
-                candidates.append((hit[0], i))
-        if candidates:
-            _, i = min(candidates)
-            tail = old[i+1:]
-            while tail and math.dist(points[-1][:2], tail[0][:2]) < .02:
-                tail = tail[1:]
-            points.extend(tail)
-        self.points, self.index, self.finished = points[:1000], 0, False
+            if hit and hit[0] <= .10 and norm > 1e-12 and (dx*vx+dy*vy)/norm >= -1e-12:
+                candidates.append((hit[0], i, hit[1], hit[2]))
+        if not candidates:
+            self.update_reason = 'kept_no_aligned_extension'
+            return False
+        _, i, t, q = min(candidates)
+        # Require the old end to lie on the new observation, rather than beyond it.
+        # A clamped endpoint alone must never be mistaken for forward progress.
+        a, b = points[i:i+2]
+        vx, vy = b[0]-a[0], b[1]-a[1]
+        raw_t = ((old[-1][0]-a[0])*vx+(old[-1][1]-a[1])*vy)/(vx*vx+vy*vy)
+        if not -1e-8 <= raw_t <= 1.+1e-8:
+            self.update_reason = 'kept_shorter_path'
+            return False
+        tail = points[i+1:]
+        extension = math.dist(q[:2], tail[0][:2])+sum(
+            math.dist(a[:2], b[:2]) for a, b in zip(tail, tail[1:]))
+        if extension <= .05:
+            self.update_reason = 'kept_shorter_path'
+            return False
+        while tail and math.dist(old[-1][:2], tail[0][:2]) < .02:
+            tail = tail[1:]
+        if not tail or len(old)+len(tail) > 1000:
+            self.update_reason = 'kept_capacity_limit'
+            return False
+        tx, ty = tail[0][0]-old[-1][0], tail[0][1]-old[-1][1]
+        norm = math.hypot(dx, dy)*math.hypot(tx, ty)
+        if norm < 1e-12 or (dx*tx+dy*ty)/norm < -1e-12:
+            self.update_reason = 'kept_discontinuous_join'
+            return False
+        self.points, self.index, self.finished = old+tail, 0, False
+        self.update_reason = 'extended'
         return True
 
     def remaining(self, local_points, goal_tolerance, max_distance):

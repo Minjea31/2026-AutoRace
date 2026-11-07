@@ -39,7 +39,8 @@ CONTROL_DEFAULTS = dict(control_speed=0.15, control_reference_x=0.25,
                         control_lateral_gain=2.0, control_heading_gain=1.0,
                         control_max_steering=math.radians(80.), control_max_steering_rate=1.0,
                         control_speed_reference_steering=0.48,
-                        control_timeout=0.20, control_max_path_distance=0.50,
+                        control_timeout=0.50, control_memory_tf_timeout=0.20,
+                        control_max_path_distance=0.50,
                         control_memory_speed=0.15, control_memory_goal_tolerance=0.08,
                         control_exit_timeout=1.50)
 
@@ -86,6 +87,7 @@ class RoiNode(Node):
         self.memory_scan_stamp = None
         self.memory_local_path = []
         self.memory_status = 'empty'
+        self.memory_update_reason = 'not_attempted'
         self.memory_following = False
         self.control_lateral_error = self.control_heading_error = 0.
         self.mission_cone = False
@@ -759,13 +761,14 @@ class RoiNode(Node):
         self.memory_scan_stamp = None
         self.memory_local_path = []
         self.memory_status = 'empty'
+        self.memory_update_reason = 'not_attempted'
         self.memory_following = False
 
     def memory_transform(self, target, source, stamp):
         tf = self.tf_buffer.lookup_transform(target, source, stamp)
         age = (self.get_clock().now().nanoseconds-Time.from_msg(tf.header.stamp).nanoseconds)/1e9
         if (tf.header.frame_id != target or tf.child_frame_id != source
-                or not 0 <= age <= self.get_parameter('control_timeout').value):
+                or not 0 <= age <= self.get_parameter('control_memory_tf_timeout').value):
             raise ValueError('Missing or stale odom transform')
         return tf
 
@@ -791,10 +794,12 @@ class RoiNode(Node):
             points = self.transform_points(self.center_path, tf)
         except (TransformException, ValueError):
             self.memory_status = 'save_tf_unavailable_or_stale'
+            self.memory_update_reason = 'save_tf_unavailable_or_stale'
             return
-        if self.path_memory.store(points):
-            self.memory_scan_stamp = self.control_scan_stamp
-            self.memory_status = 'stored'
+        self.path_memory.store(points)
+        self.memory_scan_stamp = self.control_scan_stamp
+        self.memory_status = self.path_memory.update_reason
+        self.memory_update_reason = self.path_memory.update_reason
 
     @staticmethod
     def path_stop_reason(path, reference_x):
@@ -854,7 +859,6 @@ class RoiNode(Node):
                  and 0 <= steady-self.control_received <= p['control_timeout']
                  and 0 <= (now-self.control_scan_stamp)/1e9 <= p['control_timeout'])
         if not fresh or self.control_fault or not self.mission_cone:
-            self.clear_path_memory()
             self.mission_exit_since = None
             if self.control_fault:
                 reason = 'tf_error'
@@ -872,34 +876,44 @@ class RoiNode(Node):
                 reason = 'scan_stamp_in_future'
             else:
                 reason = 'scan_stamp_timeout'
+            if reason in ('scan_receive_timeout', 'scan_stamp_timeout'):
+                # Stop on stale sensor data, but keep the odom path for recovery.
+                self.memory_following = False
+                self.memory_local_path = []
+                self.memory_status = 'paused_scan_timeout' if self.path_memory.points else 'empty'
+                self.publish_center_path_markers(self.get_clock().now().to_msg())
+            else:
+                self.clear_path_memory()
             self.stop_control(reason)
             return
         errors = self.path_errors(self.center_path, p['control_reference_x'], p['control_max_path_distance'])
-        memory_errors, memory_reason = None, None
-        use_memory = not self.center_path
-        if self.memory_following and errors is not None:
-            remaining, memory_reason = self.remaining_memory_path(p)
-            previous = self.path_errors(remaining, p['control_reference_x'], p['control_max_path_distance'])
-            if previous is not None:
-                heading_jump = math.atan2(math.sin(errors[1]-previous[1]), math.cos(errors[1]-previous[1]))
-                if abs(errors[0]-previous[0]) > .25 or abs(heading_jump) > math.pi/4:
-                    use_memory = True
-                    self.memory_status = 'rejoin_rejected'
+        live_errors = errors
+        memory_reason = None
         self.memory_local_path = []
-        if use_memory and self.path_memory.points:
+        # Advance old path progress before considering an extension; past points
+        # cannot make a new short observation appear longer than the stored path.
+        if self.path_memory.points:
+            _, memory_reason = self.remaining_memory_path(p)
+        if live_errors is not None and memory_reason in (None, 'memory_goal_reached'):
+            self.remember_live_path()
+        elif live_errors is None:
+            self.memory_update_reason = 'not_attempted: '+self.path_stop_reason(
+                self.center_path, p['control_reference_x'])
+        else:
+            self.memory_update_reason = 'not_attempted: '+memory_reason
+        self.memory_following = False
+        if self.path_memory.points:
             remaining, memory_reason = self.remaining_memory_path(p)
-            memory_errors = self.path_errors(remaining, p['control_reference_x'], p['control_max_path_distance'])
-            if memory_errors is not None:
+            errors = self.path_errors(remaining, p['control_reference_x'], p['control_max_path_distance'])
+            if errors is not None:
                 self.memory_local_path = remaining
-                errors = memory_errors
-                if self.memory_status != 'rejoin_rejected':
+                self.memory_following = True
+                if live_errors is None:
                     self.memory_status = 'following'
             else:
-                errors = None
-                self.memory_status = memory_reason or 'memory_path_unusable'
-        self.memory_following = memory_errors is not None
-        if errors is not None and not self.memory_following:
-            self.remember_live_path()
+                memory_reason = memory_reason or 'memory_'+self.path_stop_reason(
+                    remaining, p['control_reference_x'])
+                self.memory_status = memory_reason
         self.publish_center_path_markers(self.get_clock().now().to_msg())
         if errors is None and len(self.candidate_clusters) <= 3:
             if self.mission_exit_since is None:
@@ -993,6 +1007,7 @@ class RoiNode(Node):
     def control_log_summary(self):
         return (f'[Cone] mission={self.mission_cone} | roi_candidates={len(self.candidate_clusters)}\n'
                 f'  Path       : {self.center_path_mode} | memory={self.memory_status}\n'
+                f'  Path update: {self.memory_update_reason}\n'
                 f'  Control    : active={self.control_engaged} | state={self.control_mode}\n'
                 f'  Stop reason: {self.control_stop_reason or "None"}\n'
                 f'  Projection : {self.projection_status}')

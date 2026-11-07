@@ -1107,6 +1107,8 @@ def test_mission_exit_requires_continuous_healthy_detection_loss(harness, monkey
         roi.candidate_clusters.append([])
     elif recovery == 'tf':
         roi.control_fault = True
+    elif recovery == 'stale':
+        roi.control_received -= 1.
     tick(101.8, fresh=recovery != 'stale')
     assert roi.mission_cone and roi.mission_exit_since is None
     roi.center_path = []
