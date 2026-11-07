@@ -55,7 +55,7 @@ class Settings:
     curvature_feedforward: bool = False
     steering_preview_time: float = 0.0
     visualization_period: float = 0.10
-    block_occupied_slots: bool = True
+    block_occupied_slots: bool = False
     exit_to_grid_edge: bool = True
     exit_grid_margin: float = 0.10
     exit_lane_tolerance: float = 0.10
@@ -374,7 +374,7 @@ class CollisionChecker:
         self.scan, self.cfg = scan, cfg
         self.last_block = ''
         self.last_block_detail = None
-        self.occupied_slots=getattr(scan,'occupied_slots',())
+        self.occupied_slots=getattr(scan,'occupied_slots',()) if cfg.block_occupied_slots else ()
         self.initial_clear_center = initial_clear_center
         self.half_length = cfg.vehicle_length / 2 + cfg.clearance
         self.half_width = cfg.vehicle_width / 2 + cfg.clearance

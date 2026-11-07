@@ -44,6 +44,8 @@ def test_snapshot_and_map_fit_reused_until_new_input_or_occupancy(node,monkeypat
     calls=[]
     def fit(objects,cfg,hint):calls.append(1);return dict(hint)
     monkeypatch.setattr(maps,'fit_slot_map',fit)
+    node.cfg=replace(node.cfg,block_occupied_slots=True)
+    node.follower.cfg=node.cfg
     node.scan=clear();node.slot_map=layout()
     first=node.planning_scan()
     for _ in range(5):assert node.planning_scan() is first
@@ -57,6 +59,8 @@ def test_snapshot_and_map_fit_reused_until_new_input_or_occupancy(node,monkeypat
 
 def test_visual_collision_cache_never_hides_newly_occupied_cell(node,monkeypatch):
     import autorace_parking.node as module
+    node.cfg=replace(node.cfg,block_occupied_slots=True)
+    node.follower.cfg=node.cfg
     node.scan=clear();node.slot_map=layout();node.slot_map['locked']=False
     node.follower.accept(Gap(1.5,0.,0.,.5,0,1),[(0.,0.,0.),(1.5,0.,0.)],True,(0.,0.,0.))
     calls=[];original=module.first_occupied_path_collision
@@ -110,7 +114,7 @@ def test_position_only_arrival_does_not_require_a_perpendicular_heading():
 
 
 def test_position_only_arrival_still_rejects_an_occupied_footprint():
-    cfg=Settings(assume_unobserved_free=True,auto_exit_after_parking=False)
+    cfg=Settings(assume_unobserved_free=True,auto_exit_after_parking=False,block_occupied_slots=True)
     f=Follower(cfg,require_parking_heading=False,parking_position_tolerance=.03)
     goal=Gap(0.,0.,-math.pi/2,.5,0,1,kind='enclosed_center',heading_options=(-math.pi/2,),stop_tolerance=.03)
     f.accept(goal,[(0.,0.,0.)],True,(0.,0.,0.))

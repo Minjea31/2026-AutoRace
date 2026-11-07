@@ -249,6 +249,7 @@ class ParkingNode(Node):
                                f'위치 추정: {source_label}, 최소 회전 반경: {self.cfg.turn_radius*100:.1f}cm, '
                                f'중앙 조향 한계: {math.degrees(self.cfg.steering_limit):.1f}도. '
                                '경로: /parking/path, 제어 출력: /mission/parking/command_03')
+        self.get_logger().info('충돌 검사: '+('점유 칸 전체와 실제 장애물' if self.cfg.block_occupied_slots else '관측·기억한 실제 장애물과 차체·안전 여유. 칸 영역은 목표 선택에만 사용합니다.'))
         self.get_logger().info(f'조향 추종 비율 {self.cfg.steering_gain:.2f}, 실측 응답 비율 {self.cfg.steering_response_scale:.2f}, '
                                f'조향 변화율 제한 {self.follower.max_steering_rate:.2f}rad/s (0이면 즉시 출력).')
         if self.cfg.allow_reverse:
@@ -655,6 +656,7 @@ class ParkingNode(Node):
     def visible_path(self):
         path=self.follower.local_path(self.tracker.pose)
         self.path_hidden_by_slot=False
+        if not self.cfg.block_occupied_slots:return path
         scan=self.planning_scan()
         if scan is not None and path:
             layout=self.slot_map
@@ -944,7 +946,7 @@ class ParkingNode(Node):
                 diagnostics['retained_valid_path']=True
                 self.failed_plans=0
                 return
-        if path and self.slot_map is not None:
+        if path and self.cfg.block_occupied_slots and self.slot_map is not None:
             checker=CollisionChecker(self.planning_scan(),self.cfg)
             local_path=[compose(inverse(self.tracker.pose),compose(origin,p)) for p in path]
             blocked=first_occupied_path_collision(checker,local_path,self.cfg.collision_step)
@@ -1200,6 +1202,8 @@ class ParkingNode(Node):
                 'last_recovery_stop':self.last_recovery_stop,
                 'steering_gain': self.cfg.steering_gain,
                 'curvature_feedforward':self.cfg.curvature_feedforward,
+                'block_occupied_slots':self.cfg.block_occupied_slots,
+                'collision_mode':'occupied_slots_and_obstacles' if self.cfg.block_occupied_slots else 'observed_and_remembered_obstacles',
                 'previous_control_tick_s':self.last_tick_duration,
                 'fusion_health_age_s':now-self.fusion_health['stamp'] if self.fusion_health else None,
                 'fusion_health_callback_age_s':time.monotonic()-self.fusion_health_received if self.fusion_health_received is not None else None,

@@ -123,7 +123,8 @@ parking_node:
     arrival_use_rear_axle: true
     rear_axle_offset_x: -0.10
     rear_axle_offset_y: 0.0
-    block_occupied_slots: true
+    # Slot occupancy chooses a target; only measured/remembered obstacles block motion.
+    block_occupied_slots: false
     enclosed_space_detection: true
     continuous_replanning: true
     require_complete_entry_path: true

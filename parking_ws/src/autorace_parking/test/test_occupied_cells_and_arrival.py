@@ -18,7 +18,7 @@ def layout(yaw=0.):
 
 @pytest.mark.parametrize('yaw',[0.,.63])
 def test_whole_occupied_cell_blocks_vehicle_corner_even_when_it_has_no_points(yaw):
-    cfg=Settings();source=with_occupied_slots(scan(),layout(yaw),(0.,0.,0.),cfg);checker=CollisionChecker(source,cfg)
+    cfg=Settings(block_occupied_slots=True);source=with_occupied_slots(scan(),layout(yaw),(0.,0.,0.),cfg);checker=CollisionChecker(source,cfg)
     pose=(1.-.45*math.cos(yaw),-.45*math.sin(yaw),yaw)
     assert not checker.free(pose,allow_unknown=True)
     assert checker.last_block=='occupied_slot' and checker.last_block_detail['slot_id']==2
@@ -27,7 +27,7 @@ def test_whole_occupied_cell_blocks_vehicle_corner_even_when_it_has_no_points(ya
 
 
 def test_sparse_path_cannot_jump_across_filled_cell_between_endpoints():
-    checker=CollisionChecker(with_occupied_slots(scan(),layout(),(0.,0.,0.),Settings()),Settings())
+    checker=CollisionChecker(with_occupied_slots(scan(),layout(),(0.,0.,0.),Settings(block_occupied_slots=True)),Settings(block_occupied_slots=True))
     assert checker.free((0.,0.,0.)) and checker.free((2.,0.,0.))
     collision=first_occupied_path_collision(checker,[(0.,0.,0.),(2.,0.,0.)],.02)
     assert collision['kind']=='occupied_slot' and collision['slot_id']==2
@@ -82,7 +82,7 @@ def node():
     import rclpy
     from rclpy.parameter import Parameter
     from autorace_parking.node import ParkingNode
-    rclpy.init();n=ParkingNode(parameter_overrides=[Parameter('localization_source',value='scan'),Parameter('assume_unobserved_free',value=True)])
+    rclpy.init();n=ParkingNode(parameter_overrides=[Parameter('localization_source',value='scan'),Parameter('assume_unobserved_free',value=True),Parameter('block_occupied_slots',value=True)])
     n.activation.active=True;n.now_seconds=lambda:20.;n.scan=scan();n.scan_time=20.
     try:yield n
     finally:n.destroy_node();rclpy.shutdown()

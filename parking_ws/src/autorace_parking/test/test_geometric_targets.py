@@ -143,7 +143,7 @@ def test_real_profile_enables_selection_rear_arrival_and_three_second_departure(
     assert params['automatic_target_selection'] and params['pair_fallback_enabled']
     assert params['auto_exit_after_parking'] and params['parking_hold_seconds']==3.
     assert params['arrival_use_rear_axle'] and params['rear_axle_offset_x']==-.1
-    assert params['block_occupied_slots']
+    assert not params['block_occupied_slots']
     assert params['steering_gain']==2.0 and params['curvature_feedforward'] and params['recovery_total_distance']==1.5 and params['max_recovery_attempts']==5
 
 
