@@ -1,11 +1,13 @@
-# REAL CAR ONLY. Tune with: lane_fusion_tuner --profile real --bag <bag>
+# REAL CAR ONLY. Tune with: lane_lite_tuner --profile real --bag <bag>
 # (Save YAML writes back to this source file; rebuild to install it).
-# BEV from the 2026-11-04 tuner session on lane_1104_ctrack/lane_20261104_192410.
-# lane_width_px measured on that bag: both-boundary separation median ~470 px
-# (the old 240 px made the right line fail the width check and put the
-# centre line at a quarter of the road).
-# bev_near_m / bev_far_m are PLACEHOLDERS: measure the ground distance from
-# base_link to the BEV bottom/top rows before closed-loop driving.
+# BEV measured with tape on car 06 (2026-11-07, lane_ws/BEV1 .yaml): ground marks
+# 0.50 m (+/-0.20 m) and 1.20 m (+/-0.30 m) ahead of the front axle, then widened
+# to a 1.20 m x 0.90 m ground rectangle (0.39-1.29 m ahead of the front axle,
+# square 1.88 mm/px). bev_near_m / bev_far_m are from base_link (front axle
+# - wheelbase/2 = 0.10 m). Lane 0.52 m centre-to-centre -> ~277 px (11-04
+# slow/fast bags learn ~285 px). Pixel-size parameters (and deep_dilate) were scaled by 0.59
+# from the old 470 px BEV. Old values: lane_real_before_bev1 (git history).
+# Copied from lane_ws commit 0867daa.
 lane_lite:
   width: 640
   height: 480
@@ -21,45 +23,45 @@ lane_lite:
   # Removes crosswalk stripes / road text (~50 px thick in this BEV). Must stay
   # above the 3-lane white dashes (~30 px thick here, camera blur included):
   # 24 erased them. 44 chosen on the 2026-11-04 dark/fast/slow bags.
-  white_max_width: 44
+  white_max_width: 26
   # Only white DASHED lines are boundaries on this track: continuous white
   # lines (outer road edge, neighbouring road) longer than this in BEV are
   # removed. 3-lane dashes (0.20 m) are ~170-220 px here; the outer solid
   # white beside the yellow curve was ~600 px (2026-11-04 ctrack bag #1530,
   # where the old config tracked it as the left boundary).
-  white_max_length: 320
+  white_max_length: 190
   roi_top: 0.55
   roi_bottom: 1.0
   roi_left: 0.0
   roi_right: 1.0
-  bev_top_y: 0.558
-  bev_bottom_y: 0.989
-  bev_top_left: 0.304
-  bev_top_right: 0.684
-  bev_bottom_left: -0.304
-  bev_bottom_right: 1.232
-  line_width_max: 40
-  min_area: 60
+  bev_top_y: 0.567
+  bev_bottom_y: 0.962
+  bev_top_left: 0.126
+  bev_top_right: 0.892
+  bev_bottom_left: -1.001
+  bev_bottom_right: 1.959
+  line_width_max: 24
+  min_area: 35
   windows: 12
-  margin: 50
-  min_pixels: 30
+  margin: 30
+  min_pixels: 18
   max_misses: 3
   min_windows: 3
-  max_residual: 10
+  max_residual: 6
   histogram_start: 0.5
-  lane_width_px: 470
+  lane_width_px: 277
   width_tolerance: 0.35
   role_by_color: 0
   vehicle_center_u: 0.5
   lookahead_row: 0.55
   smoothing: 0.6
-  track_jump_px: 60
+  track_jump_px: 35
   track_memory: 0.5
-  lane_width_m: 0.55
-  bev_near_m: 0.25
-  bev_far_m: 1.2
+  lane_width_m: 0.52
+  bev_near_m: 0.49
+  bev_far_m: 1.39
   # Deep: 3 = deep first; a boundary the network missed is searched in HSV
   # only around where it is expected. 1 = gated (HSV ∧ deep), 2 = deep only.
   # Without lane_fusion_deep_mask running the node stays HSV-only.
   deep_mode: 3
-  deep_dilate: 6
+  deep_dilate: 4
