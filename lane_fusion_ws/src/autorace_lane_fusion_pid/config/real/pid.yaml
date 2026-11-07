@@ -1,0 +1,47 @@
+# Lane PID controller (REAL CAR). NOT closed-loop validated on the car yet.
+# 2026-11-06 (pid11061.yaml, tuned on the car): heading_weight 0.27, lookahead_weight 0.95,
+#   kd 0.2, max_steering 0.6, steering_rate 3.6, speed 0.81, steer_slowdown 0.35.
+# 2026-11-06: speed 0.15 -> 0.5, steer_slowdown 1.0 -> 0.5 from the user's tuner
+#   save (pid1106.yaml). mux caps forward speed at 0.5 m/s.
+# max_steering 0.40 -> 0.65: matches mux max_steering_angle_rad 0.65 and the
+#   limo_base inner-wheel limit raised to 0.80 rad (RC reaches ~38 deg centre).
+# 2026-11-05: kp 0.4 -> 1.0, lateral_weight 0.5 -> 0.3, heading_weight 0.10 -> 0.15,
+#   kd 0.06 -> 0.12.
+#   The real BEV puts the target ~0.68 m ahead (sim ~1.2 m), so the sim gains
+#   steered only ~55-65 % of the arc through the target on the curve frames of
+#   the 2026-11-04 slow/fast bags (median 0.15 rad vs 0.29 needed). These gains
+#   reach the 0.40 rad limit on about half of the curve frames, so a higher kp
+#   no longer adds steering (straight |steer| 90th percentile 0.034 -> 0.077 rad).
+#   Tune with:
+#   ros2 launch autorace_lane_fusion_pid lane_fusion_pid.launch.py profile:=real
+# (lane_fusion_pid_tuner Save YAML writes back here; rebuild to install it).
+# Note: lane_lite real bev_near_m / bev_far_m are still placeholders, so
+# near_heading is only approximate until they are measured.
+# e = lateral_weight*near_lateral + heading_weight*near_heading + lookahead_weight*lateral
+# steer = kp*e + ki*int(e) + kd*de/dt + ff
+lane_fusion_pid_controller:
+  ros__parameters:
+    lateral_weight: 0.3
+    heading_weight: 0.27
+    lookahead_weight: 0.95
+    lateral_rate_limit: 0.6
+    heading_rate_limit: 2.0
+    error_deadband: 0.0
+    kp: 1.0
+    ki: 0.0
+    kd: 0.2
+    d_filter_tau: 0.05
+    integral_limit: 0.2
+    curvature_ff: 0.0
+    wheelbase: 0.2
+    max_steering: 0.6
+    steering_rate: 3.6
+    speed: 0.81
+    min_speed: 0.06
+    steer_slowdown: 0.35
+    curvature_slowdown: 0.0
+    acceleration: 0.5
+    confidence_stop: 0.1
+    confidence_full: 0.5
+    timeout: 0.3
+    active: 1.0

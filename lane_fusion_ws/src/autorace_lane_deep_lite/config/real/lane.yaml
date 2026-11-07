@@ -1,0 +1,33 @@
+# REAL CAR (06). Deep-only lane perception (autorace_lane_deep_lite).
+# BEV/distance = lane_ws commit 0867daa (tape-measured 2026-11-07): ground
+# 0.39-1.29 m ahead of the front axle, +/-0.60 m, square 1.88 mm/px;
+# bev_near_m/bev_far_m from base_link. Lane 0.52 m -> 277 px, lines 2 cm ~ 11 px.
+# White dash 0.20 m ~ 107 px, gap 0.15 m ~ 80 px -> max_gap 110 bridges a gap
+# but stays well under the lane width.
+lane_deep_lite:
+  width: 640
+  height: 480
+  bev_top_y: 0.567
+  bev_bottom_y: 0.962
+  bev_top_left: 0.126
+  bev_top_right: 0.892
+  bev_bottom_left: -1.001
+  bev_bottom_right: 1.959
+  cell: 16
+  min_cell_pixels: 6
+  max_gap: 110
+  max_turn_deg: 35
+  min_length: 60
+  max_residual: 6
+  lane_width_px: 277
+  width_tolerance: 0.35
+  vehicle_center_u: 0.5
+  lookahead_row: 0.55
+  smoothing: 0.6
+  track_jump_px: 35
+  track_memory: 0.5
+  lane_width_m: 0.52
+  bev_near_m: 0.49
+  bev_far_m: 1.39
+  curvature_span_m: 0.6
+  max_curvature: 3.0
