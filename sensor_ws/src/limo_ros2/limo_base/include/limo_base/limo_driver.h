@@ -125,7 +125,10 @@ private:
     ImuData imu_data_;
     std::atomic<int> motion_mode_{-1}; // -1 until the first system-state frame  // current motion type
 
-    static constexpr double max_inner_angle_ = 0.48869;  // 28 degree
+    // Was 0.48869 (28 deg), which capped the ROS steering at ~23 deg centre
+    // angle while the RC transmitter reaches ~38 deg on the same servo
+    // (2026-11-05 /odom feedback). 0.80 rad ~ 46 deg inner wheel.
+    static constexpr double max_inner_angle_ = 0.80;
     static constexpr double track_ = 0.172;           // m (left right wheel distance)
     static constexpr double wheelbase_ = 0.2;         // m (front rear wheel distance)
     static constexpr double left_angle_scale_ = 2.47;
