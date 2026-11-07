@@ -1,44 +1,41 @@
-# lane_fusion_ws — 차선 인식 퓨전 버전 (HSV + lanedeep U-Net)
+# lane_fusion_ws — 차선 인식 퓨전 버전 (lanedeep U-Net 우선 + HSV 보완)
 
 `lane_ws`(HSV 차선 인식 + PID)와 `lanedeep_ws`(U-Net 차선 분할)를 **복사해서 합친 별도 워크스페이스**입니다. 원본 두 워크스페이스는 수정하지 않았습니다. 패키지·실행 파일·토픽 이름을 모두 바꿔서 원본과 같은 셸에서 source해도 섞이지 않습니다. 단, 둘 다 `/mission/lane`을 내므로 **주행은 둘 중 하나만** 띄웁니다.
 
 ```text
 /camera/color/image_raw/compressed
   ├─ lane_fusion_deep_mask (U-Net) ── /lane_fusion/deep_mask  (mono8 0=배경 1=노랑 2=흰 점선, 카메라 header 그대로)
-  └─ lane_fusion_node ── 같은 stamp의 mask와 짝지어 딥 우선 + 놓친 쪽만 HSV ── /lane_fusion/target
+  └─ lane_fusion_node ── 딥 후보 우선, 필요할 때만 HSV 후보 ── /lane_fusion/target
                                                         └─ lane_fusion_pid_controller ── /mission/lane → mux
 ```
 
 | 패키지 | 원본 | 실행 파일 |
 | --- | --- | --- |
-| `autorace_lane_fusion` | `lane_ws/src/autorace_lane_lite` + 딥 퓨전 | `lane_fusion_node`, `lane_fusion_tuner`, `lane_fusion_eval` |
+| `autorace_lane_fusion` | `lane_ws/src/autorace_lane_lite` 기반, 퓨전 파이프라인으로 재설계 | `lane_fusion_node`, `lane_fusion_tuner`, `lane_fusion_eval` |
 | `autorace_lane_fusion_pid` | `lane_ws/src/autorace_lane_pid` (입력만 `/lane_fusion/target`) | `lane_fusion_pid_controller`, `lane_fusion_pid_tuner` |
-| `autorace_lane_fusion_deep` | `lanedeep_ws`의 추론 코드(`runtime.py`, `model.py`, `constants.py`) + 마스크 전용 노드 | `lane_fusion_deep_mask` |
+| `autorace_lane_fusion_deep` | `lanedeep_ws`의 추론 코드 + 마스크 전용 노드 | `lane_fusion_deep_mask` |
+| `autorace_lane_deep_lite` | (보관용) 딥 마스크만 쓰는 실험 패키지. 주행에 쓰지 않음 | — |
 
-모델: `src/autorace_lane_fusion_deep/model/best.pt`(lanedeep 학습 결과, 640×480, 3 epoch)와 ONNX 두 가지.
-- `lane_640_mask.onnx` (기본): 정규화·softmax·argmax를 모델 안에 넣어 `label`/`prob`를 바로 출력합니다. Jetson에서 픽셀 단위 후처리가 GPU로 가고 CPU는 JPEG 디코딩·`blobFromImage`·임계값 비교만 합니다. `tools/export_mask_onnx.py`로 만들며 실제 프레임 20장에서 logits 방식과 mask가 100% 같습니다.
-- `lane_640.onnx`: lanedeep 원래 형식(`rgb` → `logits`, CPU 후처리). 런타임은 두 형식을 모두 지원합니다. 설정 YAML 형식은 원본과 같아 `lane_ws` 튜닝 값을 그대로 옮길 수 있습니다.
+모델: `src/autorace_lane_fusion_deep/model/best.pt`(lanedeep 학습 결과, 640×480)와 ONNX 두 가지. `lane_640_mask.onnx`(기본)는 정규화·softmax·argmax를 모델 안에 넣어 Jetson에서 후처리가 GPU로 갑니다.
 
-## 퓨전 방식
+## 퓨전 파이프라인 (하나, 모드 없음)
 
-`config/<profile>/lane.yaml`의 `deep_mode`:
+2026-11-07 재설계: 예전 `deep_mode 0~3` 분기, 마스크 OR/AND(gated), 프레임 짝짓기 대기를 없애고 하나의 파이프라인으로 합쳤습니다.
 
-| 값 | 의미 |
-| --- | --- |
-| `0` | HSV만 (원본 lane_lite와 동일) — sim 기본 |
-| `1` | gated: HSV 특징 중 딥도 차선이라고 한 픽셀만 사용(딥 mask를 `deep_dilate` px 넓힘). 노면 글자·마름모·횡단보도·흰 실선 제거 |
-| `2` | 딥 mask만 (HSV·컬러 BEV 생략) |
-| `3` | **딥 우선**: 딥 mask로 먼저 찾고, 딥이 놓친 쪽 경계만 HSV로 보완 — **real 기본**. HSV는 그 경계가 있을 자리(자기 트랙, 없으면 반대편 경계를 차로 폭만큼 옮긴 곡선) 주변 띠 안에서만 쓰므로 다른 곳의 글자·다른 도로 선은 들어오지 않습니다. 아무 기준이 없을 때만 BEV 전체 HSV. 이 프레임은 `source`가 `deep+hsv` |
+1. **딥 후보**: 클래스 마스크 → BEV → 격자(`cell`) 칸마다 클래스별 중심점 → 방향을 유지하며 체인으로 연결(`max_gap`으로 흰 점선 빈칸 연결, 끊긴 체인 잇기) → 각 체인을 시작점으로 **슬라이딩 윈도우**가 선을 따라가며 정제(윈도우가 지그재그 이빨보다 넓어 평균선을 따라감) → 곡선 피팅 → 같은 띠의 중복 제거.
+2. **HSV 후보 (필요할 때만)**: 딥 마스크가 없거나(`deep_max_age`보다 오래됨), 한쪽 경계가 없거나, 고른 경계의 품질이 `hsv_min_quality`보다 낮을 때만 계산합니다. HSV 특징(Top-hat·두께·흰 실선 길이·두께 띠·면적 필터)도 1과 같은 방식으로 후보가 됩니다. **딥 후보와 겹치는 HSV 후보는 그 딥 후보를 확인**(출처 `deep+hsv`)하고, 나머지는 `hsv_penalty`를 더한 채 선택에 참여합니다. 딥이 충분한 프레임은 HSV도, JPEG 디코딩도 하지 않습니다.
+3. **좌우 선택**: 모든 (왼쪽, 오른쪽, 없음) 조합을 한 비용으로 비교합니다 — 이전 트랙과의 거리(연속성), 차량이 경계 안쪽에 있는지(진행 방향 기준, 화면 x가 아님), 차로 폭, 좌우 방향 차이(노랑+노랑은 급커브라 제외), 출처, 길이. **추적 중인 선은 차량이 그 선을 넘어가도(차로 폭의 절반까지) 역할을 유지**해서 급커브·지그재그에서 좌우가 뒤바뀌지 않습니다. 진행 방향에 가로로 누운 흰 선(정지선·횡단보도)은 새 경계가 될 수 없습니다.
+4. **추적**: 평활(`smoothing`), 급격한 이동·클래스 변경은 3프레임 확인, 놓치면 `track_memory` 동안 유지.
+5. **센터패스**: 기준 경계 **하나**에서 만듭니다(반대쪽이 보이면 대응점 사이 중점 = 측정 폭으로 보정, 안 보이면 학습 폭의 절반만큼 법선 방향). 기준 쪽은 보이는 동안 바꾸지 않아서 양쪽↔한쪽 전환에 중앙이 튀지 않습니다. **한쪽만 보이면 그 선을 `role_frames` 이상 추적했거나 차량이 분명히 안쪽에 있을 때만** 중앙 경로를 만듭니다. 커브 안쪽으로는 반지름의 80%까지만 옮겨 접히지 않게 하고, 한 번 더 매끄럽게 피팅합니다.
+6. **출력 검증**: 가까운 점이 차로 밖(`0.9 × lane_width_m` 초과)이거나 목표점 횡오차가 한 프레임에 `max_target_jump_m`보다 크게 바뀌면, 3프레임 연속 확인 전까지 직전 출력을 유지(`held`)합니다. 곡률은 중앙 경로 `curvature_span_m` 구간의 원 맞춤(`max_curvature`로 제한).
 
-- 프레임 짝짓기(`include/autorace_lane_fusion/deep_pairing.hpp`, 노드·튜너 Live 공용): 자기 mask가 오면 바로 처리합니다. 딥이 바빠 건너뛴 프레임은 버리지 않고, 평소 mask 지연(측정값×1.2+10 ms, 최대 `deep_wait` 0.3 s)이 지나면 직전 mask(0.25 s 이내)로 처리합니다. 그래서 출력은 카메라 주기를 따르고, 기다림은 네트워크가 실제로 걸리는 만큼만입니다.
-- mask가 `deep_timeout`(0.5 s) 동안 없으면 기다리지 않고 HSV만으로 동작합니다. 딥 노드가 죽어도 주행은 계속됩니다.
-- 노드 로그(5초마다): `xx Hz | mask own N / previous M / none K | side filled by HSV F | mask latency L ms`. `deep_mode`는 실행 중 튜너 또는 `ros2 param set /lane_fusion_node deep_mode 2.0`으로 바꿀 수 있습니다.
+코드: `src/candidates.cpp`(HSV 특징·후보 생성·윈도우 정제), `src/geometry.cpp`(경로 기하·센터라인·피팅·곡률), `src/lane.cpp`(설정·선택·추적·센터패스·검증·시각화), `include/autorace_lane_fusion/deep_latest.hpp`(마스크 선택).
 
-## 인식 (경계 피팅·좌우 추적·중앙 경로)
+### 비동기 처리 (노드·튜너 Live 공용)
 
-- **피팅**: 관측된 윈도우 중심을 호 길이 매개변수 다항식 x(τ), y(τ)로 맞춥니다(중심 5개까지 2차, 그 이상 3차). 방향과 무관해서 90°가 넘는 헤어핀도 현(chord) 좌표계처럼 펴지거나 잘리지 않습니다. 윈도우 사이 꺾임은 `max_turn_deg`(기본 40°)까지만 허용해서, 차선 끝이 노면 글자·정지선으로 꺾여 들어가는 것을 막습니다.
-- **좌우 역할**: 추적 중인 경계는 이전 트랙과의 연속성으로 역할을 유지합니다(화면에서 차량 중앙을 넘어가도 바뀌지 않음). 새로 잡은 경계만 기하로 판단합니다. 반대편 경계(이번 검출 또는 트랙)가 진행 방향 기준 안쪽에 있어야 하고, 아무 것도 없으면 차량이 안쪽에 있어야 합니다. 경로 방향(가까운 쪽 → 먼 쪽)도 트랙과의 연속성으로 정해서, 양 끝이 차량에서 비슷한 거리인 헤어핀에서 프레임마다 뒤집히지 않습니다.
-- **중앙 경로**: 기준 경계의 각 점에서 법선이 반대편 경계와 만나는 점과의 중점을 씁니다. 안 만나면(헤어핀 진입) 반대편 경계의 가장 가까운 점과의 중점을 씁니다. 한쪽만 있으면 측정 폭(없으면 학습 폭)의 절반만큼 법선 방향으로 옮기며, 커브 안쪽으로는 곡률 반지름의 80%까지만 옮겨 경로가 접히지 않게 합니다.
+- 워커는 **항상 가장 최근 카메라 프레임**을 처리하고 딥 결과를 기다리지 않습니다(밀린 프레임은 버림).
+- 그 프레임 자신의 마스크가 이미 왔으면 그것, 아니면 **촬영 시각이 `deep_max_age`(기본 0.12 s) 이내인 가장 최근 마스크**를 씁니다. 더 오래됐거나 미래 시각인 마스크는 쓰지 않고 그 프레임은 HSV만으로 처리합니다.
+- 노드 로그(5초마다): `Hz | valid % | mask own / older (평균 나이) / none | HSV % | JPEG decoded % | 처리 ms (max) | network latency`.
 
 ## 빌드
 
@@ -50,58 +47,53 @@ PYTHONNOUSERSITE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 ## 실차 (Jetson)
 
-1. TensorRT 엔진을 **Jetson에서** 패키지 model 폴더로 빌드하고, 다시 colcon build해서 설치합니다(처음 한 번, 모델이 바뀔 때마다). `*.engine`은 git에 올리지 않습니다.
+1. TensorRT 엔진을 **Jetson에서** 패키지 model 폴더로 빌드하고 다시 colcon build합니다(처음 한 번, 모델이 바뀔 때마다). `*.engine`은 git에 올리지 않습니다.
    ```bash
-   cd ~/2026-AutoRace/lane_fusion_ws
    python3 tools/build_tensorrt.py --onnx src/autorace_lane_fusion_deep/model/lane_640_mask.onnx \
      --output src/autorace_lane_fusion_deep/model/lane_640_mask.engine --workspace-mib 1024
-   PYTHONNOUSERSITE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
    ```
 2. 센서와 mux는 기존 방법으로 띄우고, 차선은 이것 하나만 실행합니다(`lane_ws`의 lane과 동시에 띄우지 않음).
    ```bash
    source ~/2026-AutoRace/lane_fusion_ws/install/setup.bash
    ros2 launch autorace_lane_fusion_pid lane_fusion_pid.launch.py profile:=real
    ```
-   딥 마스크 노드·퓨전 인식·PID가 한 번에 뜹니다. 모델은 설치된 것 중 `lane_640_mask.engine` > `lane_640.engine` > `lane_640_mask.onnx` > `lane_640.onnx` 순으로 자동 선택합니다(로그 첫 줄 `tensorrt (mask output) ...`로 확인).
-   - `deep:=false`: 딥 노드 없이 실행(HSV만)
-   - `lane_gui:=true` / `gui:=true`: 인식 / PID 튜너
-   - `enable_vehicle_output:=false`: `/mission/lane` 대신 `/lane_fusion_pid/command` 미리보기만
+   - **차량 출력은 기본으로 꺼져 있습니다**(재설계 후 실차 검증 전). `/lane_fusion_pid/command` 미리보기만 나옵니다. 주행하려면 `enable_vehicle_output:=true`.
+   - `deep:=false`: 딥 노드 없이 실행(HSV만), `lane_gui:=true` / `gui:=true`: 인식 / PID 튜너
    - `model_path:=/abs/model.engine`, `deep_device:=cpu|cuda`: 모델·장치 직접 지정
-   - 따로 띄우기: `ros2 launch autorace_lane_fusion_deep deep_mask.launch.py`, `ros2 launch autorace_lane_fusion lane_fusion.launch.py profile:=real`
-   - `./fusion.sh real`은 위 launch를 감싼 단축 스크립트입니다.
-3. 로그에서 `lane_fusion: xx Hz | mask own ...`와 `lane_fusion_deep_mask: xx masks/s`를 확인합니다. `previous`가 많으면 딥이 카메라보다 느린 것입니다(출력 주기는 유지됨). YOLO와 함께 돌릴 때 15 Hz보다 낮으면 YOLO 입력 크기나 512×288 모델을 검토합니다.
 
 ## 튜너·오프라인 비교
 
-- 튜너 Live: `/lane_fusion/deep_mask`를 자동으로 짝짓습니다. Binary 창의 "딥 마스크" 보기와 상세창 첫 줄(`딥 퓨전: 딥 우선 | 이 프레임: deep+hsv ...`)로 확인합니다. 튜너는 화면에 보이는 보기만 변환하고(비교·딥 마스크 보기는 선택했을 때만 생성), 상세 텍스트는 초당 10회까지만 갱신합니다.
-- bag: 먼저 프레임별 mask를 만듭니다. 그다음 튜너가 `<bag 상위>/deep_masks/<bag 이름>`을 자동으로 읽습니다(다른 위치는 `--deep-masks DIR`).
+- 튜너 Live: 가장 최근 프레임과 `deep_max_age` 이내 마스크를 노드와 같은 방식으로 씁니다. 상세창 첫 줄에 마스크 상태(이 프레임 것 / 이전 프레임 것 n ms 전 / 너무 오래됨), HSV 후보 계산 여부, 선택된 경계 출처가 나옵니다. BEV 창 "후보" 보기: 보라 = 딥 후보, 주황 점선 = HSV 단독 후보, 초록/하늘 = 선택된 왼쪽/오른쪽. 영상 표시(화면 갱신)와 인식 처리는 다른 스레드이고, 보이는 보기만 변환합니다.
+- bag: 프레임별 마스크를 먼저 만들고(`tools/bag_masks.py BAG MODEL - --topic T --masks DIR`), 튜너는 `<bag 상위>/deep_masks/<bag 이름>`을 자동으로 읽습니다.
   ```bash
-  source /opt/ros/humble/setup.bash
-  python3 tools/bag_masks.py ~/AutoRace_bag/<bag> src/autorace_lane_fusion_deep/model/lane_640.onnx \
-    ~/AutoRace_bag/videos/<bag>_deep.mp4 --masks ~/AutoRace_bag/deep_masks/<bag>
-  source install/setup.bash
   ros2 run autorace_lane_fusion lane_fusion_tuner --profile real --bag ~/AutoRace_bag/<bag>
-  ros2 run autorace_lane_fusion lane_fusion_eval ~/AutoRace_bag/<bag> \
-    src/autorace_lane_fusion/config/real/lane.yaml --topic /camera/color/image_raw \
-    --deep-masks ~/AutoRace_bag/deep_masks/<bag> --deep-mode 1 /tmp/eval --video out.mp4 --tracks
+  ros2 run autorace_lane_fusion lane_fusion_eval BAG src/autorace_lane_fusion/config/real/lane.yaml OUT_DIR \
+    --deep-masks DIR [--no-hsv] [--mask-delay N] [--no-views] [--every 60] [--video out.mp4 --tracks]
   ```
-  `.pt` 모델은 torch가 있는 Python에서, `.onnx`는 onnxruntime이 있는 Python에서 실행합니다. 출력 영상은 원본 위에 인식된 노란선/흰 점선을 칠하고, `--tracks`면 추적 경계(빨강)와 중앙 경로(파랑)를 겹칩니다.
+  `--no-hsv`: 딥만, `--deep-masks` 없이: HSV만, `--mask-delay N`: N프레임 묵은 마스크(노드에서 딥이 늦을 때). 요약 줄: valid·held 비율, 횡오차 흔들림, 5 cm 튐, 곡률 흔들림, 좌우 뒤바뀜, 출력 보류 횟수, HSV·이미지 사용 비율, 처리 시간.
 
-## 확인한 것 (2026-11-07, PC RTX 4060 / bag `lane_20261106_234303`)
+## 검증 (2026-11-07, 06번 차 BEV, bag 4개 + 프레임별 딥 마스크)
 
-- 통합 launch: ONNX CPU 30 ms/frame → `lane_fusion` **29.9 Hz, 150/150 프레임 딥 퓨전**, PID 50 Hz. 딥 노드가 없으면 30 Hz HSV만.
-- 오프라인 gated: #452 흰 실선을 경계로 잡던 것, #880 굵은 흰 선, #1456~1472 "천천히" 글자의 획을 오른쪽 경계로 잡던 것이 사라짐. 전체 valid·both 비율은 HSV와 비슷.
-- 테스트 35개 통과(colcon test). Jetson TensorRT 속도와 실주행은 아직 확인하지 않았습니다.
+5 cm 튐 = 목표점 횡오차가 한 프레임에 5 cm 넘게 바뀐 횟수(커브에서 실제 이동도 포함). 좌우 뒤바뀜 = 한쪽 경계가 직전 프레임 반대쪽 경계 자리로 넘어간 횟수. 처리 시간은 JPEG 디코딩 제외.
 
-## 인식 개선 전후 (2026-11-07, `lane_fusion_eval --no-views`, real/lane.yaml, mode 3)
-
-| bag | 횡오차 변화/프레임 | >5 cm 튐 | >10 cm 튐 | 부호 반전(>20 cm) | valid | 양쪽 경계 | CV ms |
+| bag (프레임) | 방식 | valid | 흔들림 mm/프레임 | 5 cm 튐 | 좌우 뒤바뀜 | HSV 사용 | PC ms |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `lane_20261106_191317` 전 | 0.030 m | 134 | 51 | 26 | 92.0% | 24.0% | 4.0 |
-| 후 | **0.015 m** | **62** | **20** | **2** | 89.5% | 22.3% | 6.2 |
-| `lane_20261106_234303` 전 | 0.012 m | 116 | 47 | 8 | 99.7% | 60.5% | 3.6 |
-| 후 | **0.009 m** | **72** | **18** | **1** | 99.2% | 61.6% | 4.5 |
+| 191317 (1118) | 이전 퓨전 mode 3 | 97.9% | 10.4 | 22 | – | – | 5.8 |
+| | lane_ws HSV | 100% | 14.6 | 53 | – | 100% | 8.5 |
+| | **새 퓨전** | 97.6% | **9.9** | 24 | 2 | 66% | **4.3** |
+| 234303 (1731) | 이전 퓨전 mode 3 | 99.1% | 6.5 | 35 | – | – | 3.7 |
+| | lane_ws HSV | 100% | 9.3 | 76 | – | 100% | 8.7 |
+| | **새 퓨전** | 99.5% | 6.8 | **26** | 1 | 29% | **2.3** |
+| slow (2982) | 이전 퓨전 mode 3 | 98.8% | 5.2 | 27 | – | – | 5.3 |
+| | lane_ws HSV | 99.8% | 8.6 | 111 | – | 100% | 8.9 |
+| | **새 퓨전** | 98.9% | 6.2 | 38 | 1 | 40% | **3.1** |
+| fast (1781) | 이전 퓨전 mode 3 | 98.3% | 8.8 | 40 | – | – | 5.5 |
+| | lane_ws HSV | 100% | 12.3 | 90 | – | 100% | 8.8 |
+| | **새 퓨전** | 99.3% | 9.7 | 48 | 0 | 38% | **3.1** |
 
-- 줄어든 valid는 주로 차가 차로를 벗어난 장면(191317 #437~452)과 U자 회차 구간입니다. CV 시간이 늘어난 것은 딥이 한쪽을 놓친 프레임에서 HSV 보완을 하기 때문입니다(이전에는 양쪽을 다 놓친 프레임에서만 HSV를 돌림).
-- 통합 실행(bag 재생 → compressed 재발행 → 딥 노드 ONNX CPU 35 ms → 퓨전 노드): `lane_fusion` 28~29 Hz, 5초당 mask own 142~145 / previous 0.
-- 남은 과제: U자 회차 구간(234303 #1078~1144)처럼 한 노란선이 왼쪽·위·오른쪽을 다 이루는 장면, 차체가 크게 돌아 경계가 거의 가로로 보이는 장면(#1248~1258)은 여전히 횡오차가 흔들립니다. odom 기반 이동 보정으로 다룰 예정입니다.
+- 같은 파이프라인의 단독 결과: 딥만 0.8~1.0 ms(5 cm 튐 24/26/34/42), HSV만 5.2~5.8 ms(32/44/37/56). 새 파이프라인의 HSV만도 lane_ws HSV보다 튐이 절반 이하입니다.
+- 마스크 1~2 프레임 지연(`--mask-delay 1|2`): valid·튐 거의 같음(예: 234303 26 → 30 / 37).
+- **Jetson(06번 차) fast bag**: 이전 퓨전 mode 3 **21.3 ms** → 새 퓨전 **11.8 ms**(max 32.9, HSV를 돌린 프레임), 딥만 9.3 → **3.1 ms**, HSV만 22.1 → 24.2 ms. JPEG 디코딩은 HSV가 필요한 38% 프레임에서만.
+- 지그재그 구간(slow #790~#840): 체인만 쓰던 중간 버전은 지그재그 이빨에서 선이 끊겨 한쪽을 잃었고, 윈도우 정제 후 평균선을 따라갑니다.
+- 남은 과제: 커브에서 한쪽만 보일 때 목표점이 5~8 cm씩 움직이는 프레임(실제 이동 포함), Jetson에서 HSV 경로가 무거움(약 24 ms). 실차 주행 검증 전.
+- 단위 테스트 26개(기존 HSV 회귀 + 퓨전·출력 검증·마스크 선택) 통과.
