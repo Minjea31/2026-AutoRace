@@ -9,7 +9,7 @@ from autorace_parking.control import Follower, build_plan, local_goal
 from autorace_parking.tracking import ScanTracker, compose, inverse
 
 
-def test_three_true_frames_retrigger_in_groups_false_and_timeout_reset_counts():
+def test_three_true_frames_start_once_until_reset_false_and_timeout_reset_counts():
     trigger = Activation()
     for value, now in [(True, 0), (True, .1), (False, .2), (True, .3), (True, .4)]:
         assert not trigger.update(value, now)
@@ -20,19 +20,25 @@ def test_three_true_frames_retrigger_in_groups_false_and_timeout_reset_counts():
     assert trigger.update(False, 2.0)  # sign leaving the image cannot cancel parking
     for value, now in [(True, 2.1), (True, 2.2), (True, 2.3)]:
         trigger.update(value, now)
-    assert trigger.generation == 2 and trigger.count == 0
+    assert trigger.generation == 1 and trigger.count == 0
     trigger.update(True, 2.4)
     trigger.update(True, 2.5)
     trigger.expire(3.1)
     assert trigger.count == 0 and trigger.active
     for now in (3.2, 3.3, 3.4, 3.5, 3.6, 3.7):
         trigger.update(True, now)
-    assert trigger.generation == 4  # even a continuous stream is grouped in threes
+    assert trigger.generation == 1  # a continuous stream cannot restart a mission
+    for now in (10., 10.1, 10.2):
+        trigger.update(True, now)
+    assert trigger.generation == 1 and trigger.count == 0
     trigger.reset()
     assert not trigger.active and trigger.count == 0
     trigger.update(True, 3.0)
     trigger.expire(4.0)
     assert trigger.count == 0
+    for now in (4.1, 4.2, 4.3):
+        trigger.update(True, now)
+    assert trigger.active and trigger.generation == 1
 
 
 def test_scan_filters_invalid_and_applies_extrinsics():
@@ -214,7 +220,7 @@ def test_occluded_bay_approach_starts_straight_then_turns_right():
     from limo_parking_sim.config import load_config
     from limo_parking_sim.model import Simulation
     sim = Simulation(load_config())
-    cfg = Settings()
+    cfg = Settings(clearance=.04)
     scan = Scan(sim.scan(), sim.angles[0], sim.angles[1]-sim.angles[0], .01, 64.)
     goal, path, final = build_plan(scan, cfg)
     assert goal.y < 0 and path and not final
@@ -303,7 +309,7 @@ def test_simulator_straight_right_entry_and_turn_reverse_without_collision():
     from limo_parking_sim.config import load_config
     from limo_parking_sim.model import Simulation
     sim = Simulation(load_config())
-    cfg = Settings()
+    cfg = Settings(clearance=.04)
     tracker, follower = ScanTracker(), Follower(cfg)
     start = sim.x, sim.y, sim.yaw
     parked_at = exiting_at = None
@@ -353,3 +359,85 @@ def test_simulator_straight_right_entry_and_turn_reverse_without_collision():
     assert abs(math.atan2(math.sin(sim.yaw-exit_goal[2]), math.cos(sim.yaw-exit_goal[2]))) < .20
     assert entry_left_excursion < .05
     assert abs(sim.speed) < .03
+
+
+def test_precise_low_speed_arrival_does_not_brake_to_zero_six_cm_short():
+    cfg = replace(Settings(), goal_tolerance=.035, goal_yaw_tolerance=.12)
+    follower = Follower(cfg, speed=.15)
+    scan = Scan([10.]*361, -math.pi, math.pi/180, .01, 12., (0.,0.,0.))
+    follower.accept(Gap(.8,0.,0.,.8,0,1), [(i/100,0.,0.) for i in range(74,81)], True, (0.,0.,0.))
+    speed, _, state = follower.command(scan, (.74,0.,0.), now=0.)
+    assert speed > 0. and state == 'PARKING'
+    for i in range(3):
+        result = follower.command(scan, (.775,0.,0.), new_scan=True, now=.1*(i+1))
+    assert result[2] == 'PARKED'
+
+
+def test_planner_and_controller_use_the_same_physical_turning_radius():
+    cfg = replace(Settings(), max_steering=.65, min_turn_radius=.5)
+    assert cfg.turn_radius == pytest.approx(.5)
+    assert cfg.steering_limit == pytest.approx(math.atan(.2/.5))
+    scan = Scan([10.]*361, -math.pi, math.pi/180, .01,12.,(0.,0.,0.))
+    goal = Gap(1.5,-.7,-math.pi/2,.8,0,1)
+    path = plan_path(scan,goal,cfg)
+    assert path
+    for a,b in zip(path,path[1:]):
+        distance=math.hypot(b[0]-a[0],b[1]-a[1])
+        if distance>1e-6:
+            assert abs(wrap(b[2]-a[2]))/distance <= 1/cfg.turn_radius+1e-5
+    follower=Follower(cfg,max_steering_rate=.8)
+    follower.accept(goal,path,True,(0.,0.,0.))
+    previous=0.
+    for i in range(10):
+        _,steering,_=follower.command(scan,(0.,0.,0.),now=i*.05)
+        assert abs(steering)<=cfg.steering_limit+1e-9
+        assert abs(steering-previous)<=.8*.05+1e-9
+        previous=steering
+
+
+def test_position_only_arrival_with_discarded_path_starts_recorded_reverse():
+    cfg=Settings()
+    follower=Follower(cfg,speed=.5,require_parking_heading=False,parking_position_tolerance=.10)
+    scan=Scan([10.]*361,-math.pi,math.pi/180,.01,12.,(0.,0.,0.))
+    trace=entry_turn_trace()
+    pose=trace[-1]
+    # Same failure as the vehicle: ~7 cm from the accepted goal, with a path
+    # already discarded by REPLAN. Heading is deliberately far from the goal.
+    goal=Gap(pose[0]+.07,pose[1],pose[2]+.6,.8,0,1)
+    follower.accept(goal,trace,True,(0.,0.,0.))
+    follower.entry_trace=trace.copy()
+    follower.path=[]
+    for i in range(3):
+        result=follower.command(scan,pose,True,now=i*.1)
+    assert result[2]=='PARKED' and follower.parked
+    assert len(follower.path)>10
+    assert follower.command(scan,pose,True,now=3.19)[2]=='PARKED'
+    speed,_,state=follower.command(scan,pose,True,now=3.21)
+    assert speed<0 and state=='EXITING'
+
+
+def test_position_only_arrival_still_requires_position_and_measured_stop():
+    follower=Follower(Settings(),require_parking_heading=False,parking_position_tolerance=.10)
+    scan=Scan([10.]*361,-math.pi,math.pi/180,.01,12.,(0.,0.,0.))
+    follower.goal=Gap(.2,0.,1.,.8,0,1)
+    follower.final_approach=True
+    for i in range(4):
+        assert follower.command(scan,(0.,0.,0.),True,now=i*.1)[2]=='PLANNING'
+    assert not follower.parked
+    follower.goal=Gap(0.,0.,1.,.8,0,1)
+    follower.measured_speed=.1
+    assert follower.command(scan,(0.,0.,0.),False,now=1.)[2]=='CONFIRMING'
+    assert not follower.parked
+
+
+def test_position_only_planner_does_not_force_an_unnecessary_right_angle():
+    cfg=replace(Settings(),max_steering=.65,min_turn_radius=.5,require_goal_heading=False)
+    scan=Scan([10.]*361,-math.pi,math.pi/180,.01,12.,(0.,0.,0.))
+    goal=Gap(.7,-.35,-math.pi/2,.8,0,1)
+    path=plan_path(scan,goal,cfg)
+    assert path
+    assert path[-1][:2]==pytest.approx((goal.x,goal.y),abs=cfg.goal_tolerance)
+    assert abs(wrap(path[-1][2]-goal.yaw))>.1
+    for a,b in zip(path,path[1:]):
+        length=math.hypot(b[0]-a[0],b[1]-a[1])
+        if length>1e-6:assert abs(wrap(b[2]-a[2]))/length<=2.+1e-5

@@ -1,40 +1,43 @@
 # sensor_ws
 
-카메라와 라이다 드라이버를 담당합니다. 도면에서는 이 워크스페이스 안에 `camera`, `lidar` 박스를 배치하고 각각의 센서 토픽을 연결합니다.
+LIMO 차체, 라이다, 카메라를 실행하고 휠·IMU 데이터를 융합해 위치를 추정합니다. ROS 2 Humble 기준입니다.
 
-| 내부 구성 요소 | 토픽 | 타입 | 연결선 색 |
-| --- | --- | --- | --- |
-| camera | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 파랑 |
-| lidar | `/scan` | `sensor_msgs/msg/LaserScan` | 주황 |
+## 빌드와 실행
 
-카메라 원본 컬러 영상은 `/camera/color/image_raw` (`sensor_msgs/msg/Image`),
-압축 컬러 영상은 `/camera/color/image_raw/compressed` (`sensor_msgs/msg/CompressedImage`)이다.
-깊이 영상은 `/camera/depth/image_raw` (`sensor_msgs/msg/Image`)이다.
-기본 `camera_name:=camera` 기준이며, 통합 실행의 센서 수신 로그는 원본 컬러·깊이 토픽을 감시한다.
-
-두 내부 박스는 별도 워크스페이스가 아닙니다. parking_ws·objavoid_ws는 두 토픽을 각각 구독합니다. 전체 토픽·색상 계약은 [architecture.md](../docs/architecture.md)를 참고합니다.
-
-
-## 센서 통합 실행과 드라이버
-
-`src/autorace_sensor_bringup`과 LIMO·YDLIDAR·Orbbec·EKF 드라이버를 이 워크스페이스에 포함했다.
-기존 `wego_ws`를 source할 필요가 없다. 빌드 및 실행:
+시스템 ROS 환경에서 최초 빌드합니다. 다른 센서 launch가 실행 중이면 먼저 종료하세요.
 
 ```bash
-cd /home/wego/2026-AutoRace/sensor_ws
-./build_standalone.sh
+cd ~/2026-AutoRace/sensor_ws
+source /opt/ros/humble/setup.bash
+/usr/bin/python3 -m colcon build --symlink-install
 source install/setup.bash
+export ROS_DOMAIN_ID=94 ROS_LOCALHOST_ONLY=0
 ros2 launch autorace_sensor_bringup sensors.launch.py
 ```
 
-종료는 Ctrl+C. 시스템 의존성과 기능별 활성화·로그 확인은
-[패키지 README](src/autorace_sensor_bringup/README.md)를 참고한다.
+실차의 다른 노드와 RViz도 같은 ROS_DOMAIN_ID를 사용합니다. 도메인 94는 현재 플랫폼 설정입니다.
+센서 장치를 열어 사용하는 이전 프로세스가 있으면 중복 실행을 차단합니다.
 
-센서 좌표계는 기본 LIMO Pro 장착 기준으로 맞췄다. 토픽별 `frame_id`, 장착 위치,
-공식 출처와 기존 보정 선택 방법은 [FRAMES.md](src/autorace_sensor_bringup/FRAMES.md)를 참고한다.
+## 주요 출력
 
-RViz 설정은 저장소 최상위 `sensors.rviz`에 있다:
+| 토픽 | 내용 |
+| --- | --- |
+| `/scan` | 라이다 거리값 |
+| `/camera/color/image_raw` | 카메라 원본 컬러 영상 |
+| `/camera/color/image_raw/compressed` | 카메라 압축 컬러 영상 |
+| `/camera/depth/image_raw` | 깊이 영상 |
+| `/odom`, `/imu` | 차체 드라이버의 원본 오도메트리·IMU |
+| `/localization/wheel`, `/localization/imu` | 검증·보정한 EKF 입력 |
+| `/odometry/filtered` | EKF 융합 위치, `parking_odom` 기준 |
+| `/localization/health` | 센서 최신성·자이로 보정 준비 상태 |
 
-```bash
-rviz2 -d /home/wego/2026-AutoRace/sensors.rviz
-```
+## 위치 추정과 설정
+
+- 원본 `/odom`의 좌표계는 `odom`이며 그대로 유지합니다.
+- 정지 자이로 보정이 완료되는 초기 위치·방향을 기준으로 `parking_odom`을 잡고, `odom → parking_odom` 고정 TF를 등록합니다. 시작 시 약 2초간 정지하세요.
+- `config/fusion.yaml`에서 휠·IMU 전처리를 설정하고, `config/limo_ekf.yaml`에서 EKF를 설정합니다. 두 파일은 `src/autorace_sensor_bringup/` 아래에 있습니다.
+- EKF는 휠 전후·좌우 속도와 IMU Z축 각속도를 사용하며 목표 갱신 주기는 **30Hz**입니다. 센서 자체 입력 주기를 의미하지는 않습니다.
+- 라이다 설정은 `config/ydlidar.yaml`이며 각도 범위는 **-110°~110°**입니다. 후방까지 모두 관측하지는 않습니다.
+- 드라이버의 조향 명령 보정과 조향각 제한은 기본 OFF입니다. parking이 자신의 출력에만 보정을 적용하므로 센서 launch에서 `steering_command_calibration:=true`를 추가하지 마세요.
+
+상세 장착 좌표와 TF는 [bringup 문서](src/autorace_sensor_bringup/FRAMES.md)를 참고하세요.
