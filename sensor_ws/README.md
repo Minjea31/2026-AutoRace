@@ -17,6 +17,10 @@ ros2 launch autorace_sensor_bringup sensors.launch.py
 
 실차의 다른 노드와 RViz도 같은 ROS_DOMAIN_ID를 사용합니다. 도메인 94는 현재 플랫폼 설정입니다.
 센서 장치를 열어 사용하는 이전 프로세스가 있으면 중복 실행을 차단합니다.
+카메라는 기본 RGB만 실행하며 IR·depth·일반/컬러 포인트클라우드는 끕니다.
+필요할 때 `enable_depth:=true`, `enable_ir:=true`, `enable_point_cloud:=true`,
+`enable_colored_point_cloud:=true`로 선택합니다. 포인트클라우드는 depth가 켜진 경우에만 실행됩니다.
+시작 검사가 끝나면 `[sensor bringup 결과]`에 전체 노드 실행·토픽 수신 결과와 누락 항목을 출력합니다.
 
 ## 주요 출력
 
@@ -25,7 +29,7 @@ ros2 launch autorace_sensor_bringup sensors.launch.py
 | `/scan` | 라이다 거리값 |
 | `/camera/color/image_raw` | 카메라 원본 컬러 영상 |
 | `/camera/color/image_raw/compressed` | 카메라 압축 컬러 영상 |
-| `/camera/depth/image_raw` | 깊이 영상 |
+| `/camera/depth/image_raw` | 깊이 영상 (`enable_depth:=true`일 때만) |
 | `/odom`, `/imu` | 차체 드라이버의 원본 오도메트리·IMU |
 | `/localization/wheel`, `/localization/imu` | 검증·보정한 EKF 입력 |
 | `/odometry/filtered` | EKF 융합 위치, `parking_odom` 기준 |

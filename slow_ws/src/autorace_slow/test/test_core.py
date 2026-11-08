@@ -7,7 +7,7 @@ def activate(state, kind, start=0.):
 
 
 def test_confirmation_false_gap_and_independent_inputs():
-    s = SlowState()
+    s = SlowState(confirm_frames=3, require_white_mark=False)
     s.receive('slow', True, 0.)
     s.receive('bump', True, .1)
     s.receive('slow', True, .2)
@@ -24,7 +24,7 @@ def test_confirmation_false_gap_and_independent_inputs():
 
 
 def test_single_true_after_five_seconds_renews_eight_second_hold():
-    s = SlowState()
+    s = SlowState(confirm_frames=3, require_white_mark=False)
     activate(s, 'slow')
     assert s.missions['slow'].deadline == 8.2
     assert not s.receive('slow', True, 5.2)
@@ -39,7 +39,7 @@ def test_single_true_after_five_seconds_renews_eight_second_hold():
 
 
 def test_bump_priority_independent_deadlines_and_fallback():
-    s = SlowState()
+    s = SlowState(confirm_frames=3, require_white_mark=False)
     activate(s, 'bump')
     activate(s, 'slow', 1.)
     assert s.selected(2.) == 'bump'
@@ -49,7 +49,7 @@ def test_bump_priority_independent_deadlines_and_fallback():
 
 
 def test_false_does_not_extend_and_expiry_in_receive_needs_new_confirmation():
-    s = SlowState()
+    s = SlowState(confirm_frames=3, require_white_mark=False)
     activate(s, 'bump')
     s.receive('bump', False, 5.)
     assert not s.receive('bump', True, 8.2)

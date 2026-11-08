@@ -8,6 +8,9 @@
   <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>autorace_slow</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>ackermann_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>

@@ -8,6 +8,13 @@ if [[ -d "$_parking_dep_prefix/share/ackermann_msgs" ]]; then
   export PYTHONPATH="$_parking_dep_prefix/local/lib/python3.10/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
   export LD_LIBRARY_PATH="$_parking_dep_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
+# Shared lane HSV / white ROI library used by the parking start gate.
+for _parking_support_ws in lane_fusion_ws slow_ws; do
+  if [[ -f "$_parking_env_root/../$_parking_support_ws/install/local_setup.bash" ]]; then
+    source "$_parking_env_root/../$_parking_support_ws/install/local_setup.bash" || { return 1 2>/dev/null || exit 1; }
+  fi
+done
+unset _parking_support_ws
 if [[ -f "$_parking_env_root/install/local_setup.bash" ]]; then
   source "$_parking_env_root/install/local_setup.bash" || { return 1 2>/dev/null || exit 1; }
 fi

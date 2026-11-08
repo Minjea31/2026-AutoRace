@@ -203,7 +203,7 @@ void Controller::measure(const Measurement &m, const Config &c) {
   t_.i = c["ki"] * integral_;
   t_.target_steering = std::clamp(t_.p + t_.i + t_.d + t_.ff, -limit, limit);
 }
-const Terms &Controller::step(double dt, bool fresh, const Config &c) {
+const Terms &Controller::step(double dt, bool fresh, const Config &c, double speed_limit) {
   dt = std::clamp(dt, 0., .1);
   const bool drive = fresh && t_.tracking;
   const double desired = drive ? t_.target_steering : 0.;
@@ -222,6 +222,7 @@ const Terms &Controller::step(double dt, bool fresh, const Config &c) {
       v = std::clamp(v, c["min_speed"], c["speed"]);
   }
   // Braking (and every stop) is immediate; only acceleration is limited.
+  v = std::min(v, std::max(0., speed_limit));
   t_.speed = v < t_.speed ? v : std::min(v, t_.speed + c["acceleration"] * dt);
   return t_;
 }

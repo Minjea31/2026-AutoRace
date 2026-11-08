@@ -65,6 +65,11 @@ class Arbitrator:
     def discard(self, source: str):
         self._candidates.pop(source, None)
 
+    def discard_through(self, source: str, stamp_ns: int):
+        candidate = self._candidates.get(source)
+        if candidate is not None and candidate.stamp_ns <= stamp_ns:
+            self.discard(source)
+
     def _observe_clock(self, ros_now_ns: int):
         # A bag/simulation reset must not resurrect candidates from the old clock.
         if self._last_ros_ns is not None and ros_now_ns < self._last_ros_ns:

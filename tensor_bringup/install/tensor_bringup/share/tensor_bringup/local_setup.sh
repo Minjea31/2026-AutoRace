@@ -1,0 +1,1 @@
+/home/wego/2026-AutoRace/tensor_bringup/build/tensor_bringup/ament_cmake_environment_hooks/local_setup.sh

@@ -1,0 +1,2 @@
+[console_scripts]
+roi_node = cone_lane_follower.node:main

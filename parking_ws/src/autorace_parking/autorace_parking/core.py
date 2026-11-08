@@ -156,7 +156,7 @@ class Settings:
 
 
 class Activation:
-    def __init__(self, required=3, timeout=0.5):
+    def __init__(self, required=2, timeout=0.5):
         self.required, self.timeout = required, timeout
         self.reset()
 

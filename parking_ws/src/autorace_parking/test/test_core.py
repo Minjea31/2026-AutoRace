@@ -10,7 +10,7 @@ from autorace_parking.tracking import ScanTracker, compose, inverse
 
 
 def test_three_true_frames_start_once_until_reset_false_and_timeout_reset_counts():
-    trigger = Activation()
+    trigger = Activation(required=3)
     for value, now in [(True, 0), (True, .1), (False, .2), (True, .3), (True, .4)]:
         assert not trigger.update(value, now)
     assert not trigger.update(True, 1.1)
@@ -441,3 +441,13 @@ def test_position_only_planner_does_not_force_an_unnecessary_right_angle():
     for a,b in zip(path,path[1:]):
         length=math.hypot(b[0]-a[0],b[1]-a[1])
         if length>1e-6:assert abs(wrap(b[2]-a[2]))/length<=2.+1e-5
+
+
+def test_default_two_true_frames_start_parking_with_false_and_gap_resets():
+    trigger = Activation()
+    assert not trigger.update(True, 0.)
+    assert not trigger.update(False, .1)
+    assert not trigger.update(True, .2)
+    assert not trigger.update(True, 1.)
+    assert trigger.update(True, 1.1)
+    assert trigger.active and trigger.generation == 1

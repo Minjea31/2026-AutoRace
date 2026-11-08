@@ -1,4 +1,5 @@
 #include "autorace_lane_fusion_pid/pid.hpp"
+#include "autorace_lane_fusion_pid/parking_approach.hpp"
 #include <cmath>
 #include <cstdio>
 #include <gtest/gtest.h>
@@ -6,6 +7,76 @@
 using lane_pid::Config;
 using lane_pid::Controller;
 using lane_pid::Measurement;
+using lane_pid::ParkingApproach;
+
+TEST(ParkingApproach, DefaultsLimitToPointThreeForTenSecondsThenFiveSecondCooldown) {
+  ParkingApproach gate;
+  EXPECT_FALSE(gate.receive(true, 100.));
+  ASSERT_TRUE(gate.receive(true, 100.1));
+  EXPECT_DOUBLE_EQ(gate.limit(110.099, .8), .3);
+  EXPECT_DOUBLE_EQ(gate.limit(110.1, .8), .8);
+  for (int i = 0; i < 149; ++i)
+    EXPECT_FALSE(gate.receive(true, 100.2 + i * .1));
+  EXPECT_FALSE(gate.receive(true, 115.09));
+  EXPECT_FALSE(gate.receive(true, 115.1));
+  EXPECT_TRUE(gate.receive(true, 115.2));
+  EXPECT_DOUBLE_EQ(gate.limit(115.3, .8), .3);
+  EXPECT_DOUBLE_EQ(gate.limit(115.3, .2), .2);
+}
+
+TEST(ParkingApproach, TwoMessagesStartExactlyThreeSeconds) {
+  ParkingApproach gate(2, .4, 3.);
+  EXPECT_FALSE(gate.receive(true, 10.));
+  EXPECT_DOUBLE_EQ(gate.limit(10., .8), .8);
+  EXPECT_TRUE(gate.receive(true, 10.1));
+  EXPECT_DOUBLE_EQ(gate.limit(13.099, .8), .4);
+  EXPECT_DOUBLE_EQ(gate.limit(13.1, .8), .8);
+}
+
+TEST(ParkingApproach, FalseAndLongGapsResetConfirmation) {
+  ParkingApproach gate(2, .4, 3.);
+  EXPECT_FALSE(gate.receive(true, 1.));
+  EXPECT_FALSE(gate.receive(false, 1.1));
+  EXPECT_FALSE(gate.receive(true, 1.2));
+  EXPECT_FALSE(gate.receive(true, 2.));
+  EXPECT_TRUE(gate.receive(true, 2.1));
+}
+
+TEST(ParkingApproach, CooldownIgnoresOldMessagesAndRequiresTwoNewOnes) {
+  ParkingApproach gate(2, .4, 3.);
+  gate.receive(true, 1.);
+  ASSERT_TRUE(gate.receive(true, 1.1));
+  for (int i = 0; i < 79; ++i)
+    EXPECT_FALSE(gate.receive(true, 1.2 + i * .1));
+  EXPECT_FALSE(gate.active(4.1));
+  EXPECT_FALSE(gate.receive(true, 9.09)); // still inside three-second slowdown plus five-second cooldown
+  EXPECT_FALSE(gate.receive(true, 9.1));  // first NEW confirmation
+  EXPECT_FALSE(gate.active(9.1));
+  EXPECT_TRUE(gate.receive(true, 9.2));
+  EXPECT_TRUE(gate.active(12.19));
+  EXPECT_FALSE(gate.active(12.2));
+}
+
+TEST(ParkingApproach, FalseDoesNotCancelActiveSlowdown) {
+  ParkingApproach gate(2, .4, 3.);
+  gate.receive(true, 1.);
+  gate.receive(true, 1.1);
+  gate.receive(false, 1.2);
+  EXPECT_TRUE(gate.active(4.));
+  EXPECT_DOUBLE_EQ(gate.limit(2., .2), .2); // never accelerate a slower lane
+  EXPECT_DOUBLE_EQ(gate.limit(2., 0.), 0.);
+  EXPECT_FALSE(gate.receive(false, 10.));
+  EXPECT_FALSE(gate.receive(true, 10.1));
+  EXPECT_TRUE(gate.receive(true, 10.2));
+}
+
+TEST(ParkingApproach, InvalidSettingsAreRejected) {
+  EXPECT_THROW(ParkingApproach(0), std::invalid_argument);
+  EXPECT_THROW(ParkingApproach(2, -.1), std::invalid_argument);
+  EXPECT_THROW(ParkingApproach(2, .4, 0.), std::invalid_argument);
+  EXPECT_THROW(ParkingApproach(2, .4, 3., 0.), std::invalid_argument);
+  EXPECT_THROW(ParkingApproach(2, .4, 3., .5, -1.), std::invalid_argument);
+}
 
 namespace {
 Measurement sample(double lateral, double t, double heading = 0, double confidence = 1) {
@@ -29,6 +100,22 @@ Config plain(double kp, double ki = 0, double kd = 0) {
   return c;
 }
 } // namespace
+
+TEST(Pid, ParkingLimitBrakesImmediatelyAndRestoresWithAccelerationLimit) {
+  Controller pid;
+  auto c = plain(0.);
+  c.values["speed"] = .8;
+  c.values["min_speed"] = .5; // temporary cap must also override min_speed
+  pid.measure(sample(0., 0.), c);
+  for (int i = 0; i < 30; ++i)
+    pid.step(.1, true, c);
+  EXPECT_DOUBLE_EQ(pid.terms().speed, .8);
+  EXPECT_DOUBLE_EQ(pid.step(.02, true, c, .4).speed, .4);
+  EXPECT_NEAR(pid.step(.02, true, c).speed, .41, 1e-9);
+  EXPECT_DOUBLE_EQ(pid.step(.02, false, c, .4).speed, 0.);
+  c.values["active"] = 0.;
+  EXPECT_DOUBLE_EQ(pid.step(.02, true, c, .4).speed, 0.);
+}
 
 TEST(Pid, DefaultsAreValidAndEveryParameterHasHelp) {
   EXPECT_NO_THROW(Config().validate());

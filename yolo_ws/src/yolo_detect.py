@@ -50,12 +50,12 @@ CONFIRM_FRAMES = 2  # Require this many consecutive new frames, not timer ticks.
 # Per-class minimum bounding-box area in original-image pixels squared.
 # Image resizing for inference does not change these thresholds.
 CLASS_THRESHOLDS = {
-    'bump': {'confidence': 0.55, 'min_area_pixels': 3800},
+    'bump': {'confidence': 0.55, 'min_area_pixels': 2500},
     'crosswalk': {'confidence': 0.60, 'min_area_pixels': 3200},
     'left': {'confidence': 0.65, 'min_area_pixels': 3400},
-    'parking': {'confidence': 0.60, 'min_area_pixels': 3900},
+    'parking': {'confidence': 0.60, 'min_area_pixels': 1500},
     'right': {'confidence': 0.65, 'min_area_pixels': 3400},
-    'slow': {'confidence': 0.55, 'min_area_pixels': 3600},
+    'slow': {'confidence': 0.55, 'min_area_pixels': 2500},
 }
 
 PRESENCE_TOPICS = {
@@ -65,6 +65,40 @@ PRESENCE_TOPICS = {
     '/yolo/parking_sign': ('parking',),
 }
 LR_TOPIC = '/yolo/LR_sign'  # False=LEFT/A, True=RIGHT/B. No detection: no message.
+
+BBOX_COLOURS = {
+    'bump': (70, 170, 255), 'slow': (90, 220, 150),
+    'parking': (255, 175, 80), 'crosswalk': (80, 220, 255),
+    'left': (240, 140, 180), 'right': (170, 220, 80),
+}
+UNPUBLISHED_COLOUR = (140, 140, 140)
+
+
+def bbox_is_published(box, values):
+    if not box['eligible']:
+        return False
+    name = box['class']
+    if name in ('left', 'right'):
+        return LR_TOPIC in values and values[LR_TOPIC] == (name == 'right')
+    topic = next((topic for topic, classes in PRESENCE_TOPICS.items() if name in classes), None)
+    return bool(topic and values.get(topic, False))
+
+
+def draw_bbox_publications(image, boxes, values):
+    preview = image.copy()
+    height, width = preview.shape[:2]
+    for box in boxes:
+        colour = BBOX_COLOURS.get(box['class'], (100, 220, 150)) if bbox_is_published(box, values) else UNPUBLISHED_COLOUR
+        x0, y0, x1, y1 = box['xyxy']
+        cv2.rectangle(preview, (x0, y0), (max(x0, x1 - 1), max(y0, y1 - 1)), colour, 2)
+        label = f"{box['class']} {box['width']}x{box['height']} {box['area']}px^2"
+        (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, .35, 1)
+        text_x = max(0, min(x0, width - text_width - 5))
+        text_y = min(height - baseline - 3, y1 + text_height + 5)
+        cv2.rectangle(preview, (text_x, text_y - text_height - 3),
+                      (min(width - 1, text_x + text_width + 4), text_y + baseline + 2), (18, 18, 18), -1)
+        cv2.putText(preview, label, (text_x + 2, text_y), cv2.FONT_HERSHEY_SIMPLEX, .35, colour, 1, cv2.LINE_AA)
+    return preview
 
 
 def filter_detections(rows, names, width, height):
@@ -159,6 +193,8 @@ class YoloDetect(Node):
                                 durability=DurabilityPolicy.VOLATILE)
         self.publishers_by_topic = {topic: self.create_publisher(Bool, topic, output_qos)
                                     for topic in (*PRESENCE_TOPICS, LR_TOPIC)}
+        self.bbox_pub = self.create_publisher(CompressedImage, '/yolo/debug/compressed', output_qos)
+        self.box_details = []
         # Keep only the latest frame. Best Effort accepts the real
         # camera's Reliable publisher and SensorDataQoS publishers alike.
         input_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -236,19 +272,25 @@ class YoloDetect(Node):
                 'Check camera publisher, message type, ROS_DOMAIN_ID and QoS.')
             self.last_camera_error = now
 
-    def log_detections(self, detected, values, reason):
+    def log_detections(self, detected, values):
         for name, confidence in sorted(detected.items()):
             topic = next((topic for topic, classes in PRESENCE_TOPICS.items()
                           if name in classes), LR_TOPIC)
-            status = f'published={values[topic]}' if topic in values else f'not published ({reason})'
+            if topic not in values:
+                continue
+            if topic in PRESENCE_TOPICS and not values[topic]:
+                continue
+            if topic == LR_TOPIC and values[topic] != (name == 'right'):
+                continue
             self.get_logger().info(
                 f'Detection: class={name}; output_topic={topic}; '
-                f'confidence={confidence:.3f}; {status}')
+                f'confidence={confidence:.3f}; published={values[topic]}')
 
     def classify_detections(self, rows, image):
         """A/B overrides the YOLO class, while retaining the direction pixel-area gate."""
         height, width = image.shape[:2]
         detected, annotations, rejected = {}, [], []
+        self.box_details = []
         for row in rows:
             if not np.isfinite(row).all():
                 continue
@@ -261,25 +303,23 @@ class YoloDetect(Node):
             y0, y1 = np.clip((int(y0), int(y1)), 0, height)
             bbox_width = max(0, int(x1 - x0))
             bbox_height = max(0, int(y1 - y0))
-            self.get_logger().info(
-                f'BBox: class={yolo_name}; confidence={confidence:.3f}; '
-                f'width={bbox_width}px; height={bbox_height}px; '
-                f'area={bbox_width * bbox_height}px^2')
+            detail = {'class': yolo_name, 'xyxy': (int(x0), int(y0), int(x1), int(y1)),
+                      'width': bbox_width, 'height': bbox_height,
+                      'area': bbox_width * bbox_height, 'eligible': False}
+            self.box_details.append(detail)
             label = f'{name} YOLO:{confidence:.2f}'
             if self.direction_ocr is not None:
                 reading = self.direction_ocr.read(image[y0:y1, x0:x1])
                 if reading.letter:
                     name = {'A': 'left', 'B': 'right'}[reading.letter]
+                    detail['class'] = name
                     label = f'{name} / {reading.letter} YOLO:{confidence:.2f} OCR:{reading.score:.2f}'
-                    self.get_logger().info(
-                        f'Direction OCR: letter={reading.letter}; class={name}; '
-                        f'yolo_candidate={yolo_name}; confidence={confidence:.3f}; '
-                        f'ocr_score={reading.score:.3f}; output_topic={LR_TOPIC}')
                     if bbox_width * bbox_height < CLASS_THRESHOLDS[name]['min_area_pixels']:
                         rejected.append((name, confidence, 'bbox area below direction threshold', reading.score))
                         annotations.append(((int(x0), int(y0), int(x1), int(y1)), label))
                         continue
                     detected[name] = max(detected.get(name, 0.), confidence)
+                    detail['eligible'] = True
                     annotations.append(((int(x0), int(y0), int(x1), int(y1)), label))
                     continue
                 if yolo_name in ('left', 'right'):
@@ -288,10 +328,23 @@ class YoloDetect(Node):
             # No A/B: retain ordinary YOLO handling for non-direction classes.
             if candidates:
                 detected[name] = max(detected.get(name, 0.), confidence)
+                detail['eligible'] = True
             elif yolo_name in ('left', 'right'):
                 continue
             annotations.append(((int(x0), int(y0), int(x1), int(y1)), label))
         return detected, annotations, rejected
+
+    def publish_bbox_view(self, image, header, values):
+        if not self.bbox_pub.get_subscription_count():
+            return
+        try:
+            preview = draw_bbox_publications(image, self.box_details, values)
+            ok, encoded = cv2.imencode('.jpg', preview, [cv2.IMWRITE_JPEG_QUALITY, 82])
+            if ok:
+                self.bbox_pub.publish(CompressedImage(
+                    header=header, format='bgr8; jpeg compressed bgr8', data=encoded.tobytes()))
+        except (cv2.error, ValueError) as error:
+            self.get_logger().error(f'YOLO debug image failed: {error}', throttle_duration_sec=5.)
 
     def render_preview(self, image, annotations, rejected):
         preview = image.copy()
@@ -345,10 +398,6 @@ class YoloDetect(Node):
                                         device=self.device, verbose=False, save=False)[0]
             rows = result.boxes.data.cpu().numpy() if result.boxes is not None else []
             detected, annotations, rejected = self.classify_detections(rows, image)
-            for name, confidence, reason, score in rejected:
-                self.get_logger().info(
-                    f'Direction OCR: yolo_candidate={name}; confidence={confidence:.3f}; '
-                    f'ocr_score={score:.3f}; no direction assigned ({reason}); not published')
             if self.show_image:
                 self.render_preview(image, annotations, rejected)
         except (CvBridgeError, cv2.error, ValueError, RuntimeError) as exc:
@@ -357,7 +406,7 @@ class YoloDetect(Node):
             return
         # An expired acquisition clears presence and never emits a direction.
         if not self.fresh(stamp_ns, received):
-            self.log_detections(detected, {}, 'image expired after inference')
+            self.publish_bbox_view(image, message.header, {})
             self.publish_presence(clear=True)
             return
         self.last_processed_time = time.monotonic()
@@ -365,7 +414,8 @@ class YoloDetect(Node):
         self.presence_values = {topic: values[topic] for topic in PRESENCE_TOPICS}
         for topic, value in values.items():
             self.publishers_by_topic[topic].publish(Bool(data=value))
-        self.log_detections(detected, values, 'awaiting consecutive frames or ambiguous direction')
+        self.publish_bbox_view(image, message.header, values)
+        self.log_detections(detected, values)
         elapsed = time.monotonic()-started
         if elapsed > 1./PUBLISH_HZ:
             self.get_logger().warning(

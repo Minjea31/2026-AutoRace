@@ -4,6 +4,7 @@ import re
 
 STATES = {
     'WAITING_STEERING':'주차 전용 조향 보정 준비 대기',
+    'WAITING_WHITE_LINE': '주차 바닥 흰선 감지 대기',
     'WAITING_SIGN': '주차 시작 신호 대기', 'WAITING_SCAN': '라이다 수신 대기',
     'WAITING_LOCALIZATION': '위치 추정 준비 대기', 'TRACKING_LOST': '위치 추정 실패',
     'ROUTE_BLOCKED': '추종 경로 장애물로 정지·재계획 중',
@@ -168,6 +169,8 @@ def planning_text(details):
 
 
 def operator_reason(state, reason='', planning=None, detections=0, required=3):
+    if state == 'WAITING_WHITE_LINE':
+        return '주차 표지를 확인했습니다. 차량 앞 바닥 흰선이 새 영상에서 감지되기를 기다립니다.'
     if state=='EXIT_PATH_ERROR':
         code=(planning or {}).get('exit_route_reason','')
         detail={

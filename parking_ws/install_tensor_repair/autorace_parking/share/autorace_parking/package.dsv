@@ -1,0 +1,6 @@
+source;share/autorace_parking/hook/pythonpath.ps1
+source;share/autorace_parking/hook/pythonpath.dsv
+source;share/autorace_parking/hook/pythonpath.sh
+source;share/autorace_parking/hook/ament_prefix_path.ps1
+source;share/autorace_parking/hook/ament_prefix_path.dsv
+source;share/autorace_parking/hook/ament_prefix_path.sh

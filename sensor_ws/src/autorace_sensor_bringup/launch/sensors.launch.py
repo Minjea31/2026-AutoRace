@@ -69,7 +69,8 @@ def _setup(context):
         'enable_base', 'enable_lidar', 'enable_camera', 'enable_description',
         'enable_camera_tf', 'enable_ekf', 'port_name', 'lidar_params', 'ekf_params', 'fusion_params',
         'camera_name', 'camera_launch', 'degree', 'startup_timeout', 'stale_timeout', 'tf_profile',
-        'camera_tf_publish_rate',
+        'camera_tf_publish_rate', 'enable_depth', 'enable_ir',
+        'enable_point_cloud', 'enable_colored_point_cloud',
     )}
     (log_dir / 'session.json').write_text(json.dumps({
         'started_at': datetime.now(timezone.utc).isoformat(), 'options': options,
@@ -117,12 +118,14 @@ def _setup(context):
         LogInfo(msg=f'Sensor session logs: {log_dir}'),
     ]
     topics, types = [], []
+    expected_nodes = ['/sensor_monitor']
 
     def watch(topic, msg_type):
         topics.append(topic)
         types.append(msg_type)
 
     if enabled('enable_base'):
+        expected_nodes.append('/limo/limo_base')
         actions.append(Node(
             package='limo_base', executable='limo_base', namespace='limo',
             output='both', parameters=[{
@@ -141,6 +144,7 @@ def _setup(context):
         watch('/odom', 'nav_msgs/msg/Odometry')
         watch('/limo_status', 'limo_msgs/msg/LimoStatus')
     if enabled('enable_lidar'):
+        expected_nodes.append('/ydlidar_ros2_driver_node')
         actions.append(LifecycleNode(
             package='ydlidar_ros2_driver', executable='ydlidar_ros2_driver_node',
             name='ydlidar_ros2_driver_node', namespace='/',
@@ -151,22 +155,35 @@ def _setup(context):
     if enabled('enable_camera'):
         actions.append(include('orbbec_camera', value('camera_launch'), {
             'camera_name': value('camera_name'),
+            'enable_color': 'true',
+            'enable_depth': value('enable_depth'),
+            'enable_ir': value('enable_ir'),
+            'enable_point_cloud': 'true' if enabled('enable_depth') and enabled('enable_point_cloud') else 'false',
+            'enable_colored_point_cloud': 'true' if enabled('enable_depth') and enabled('enable_colored_point_cloud') else 'false',
+            'depth_registration': 'false', 'enable_d2c_viewer': 'false',
             # Rigid camera internal geometry belongs on /tf_static.
             'tf_publish_rate': value('camera_tf_publish_rate'),
         }))
         camera = '/' + value('camera_name').strip('/')
         watch(camera + '/color/image_raw', 'sensor_msgs/msg/Image')
-        watch(camera + '/depth/image_raw', 'sensor_msgs/msg/Image')
+        expected_nodes.extend([camera + '/camera_container', camera + '/' + value('camera_name').strip('/')])
+        if enabled('enable_depth'):
+            watch(camera + '/depth/image_raw', 'sensor_msgs/msg/Image')
+        if enabled('enable_ir'):
+            watch(camera + '/ir/image_raw', 'sensor_msgs/msg/Image')
     if enabled('enable_description'):
+        expected_nodes.extend(['/robot_state_publisher', '/joint_state_publisher'])
         actions.append(include('limo_description', 'load_urdf_ackerman.launch.py', {
             'tf_profile': value('tf_profile'),
         }))
     if enabled('enable_camera_tf'):
+        expected_nodes.extend(['/base_link_to_camera_mount', '/camera_mount_to_rotate', '/rotate_to_camera_link'])
         actions.append(include('autorace_sensor_bringup', 'camera_tf.launch.py', {
             'degree': value('degree'), 'camera_name': value('camera_name'),
             'tf_profile': value('tf_profile'),
         }))
     if enabled('enable_ekf'):
+        expected_nodes.extend(['/sensor_fusion', '/ekf_filter_node_odom'])
         actions.append(Node(
             package='autorace_sensor_bringup', executable='sensor_fusion.py',
             name='sensor_fusion', output='both',
@@ -183,6 +200,7 @@ def _setup(context):
             package='autorace_sensor_bringup', executable='sensor_monitor.py',
             name='sensor_monitor', output='both', parameters=[{
                 'topics': topics, 'types': types, 'log_dir': str(log_dir),
+                'expected_nodes': expected_nodes,
                 'startup_timeout': float(value('startup_timeout')),
                 'stale_timeout': float(value('stale_timeout')),
             }],
@@ -203,6 +221,9 @@ def generate_launch_description():
         'degree': '0.0', 'startup_timeout': '15.0', 'stale_timeout': '5.0',
         'tf_profile': 'wego_limo_pro',
         'camera_tf_publish_rate': '0.0',
+        # The driving stack consumes RGB only; do not start unused streams/processors.
+        'enable_depth': 'false', 'enable_ir': 'false',
+        'enable_point_cloud': 'false', 'enable_colored_point_cloud': 'false',
         'steering_limit_enabled': 'false', 'max_inner_angle': '0.80',
         'steering_command_calibration': 'false', 'steering_command_gain': '1.92',
         'steering_command_deadband': '0.23', 'steering_command_limit': '0.35',

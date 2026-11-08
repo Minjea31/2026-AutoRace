@@ -64,11 +64,22 @@ e = lateral_weight·가까운 점 횡오차 + heading_weight·가까운 점 헤�
 | 방향 | 토픽 | 내용 |
 | --- | --- | --- |
 | 구독 | `/lane_fusion/target` | `Float32MultiArray`, `autorace_lane_fusion` README 참고 |
+| 구독 | `/yolo/parking_sign` | `Bool`, True 2회 확인 후 lane 최대 0.3 m/s로 10초간 제한 |
 | 발행 | `/lane_fusion_pid/command` | `AckermannDriveStamped` 미리보기, 50 Hz |
 | 발행 | `/mission/lane` | 같은 명령. 기본 발행(`enable_vehicle_output:=false`면 안 함) |
 | 발행 | `/lane_fusion_pid/state` | `[tracking, e, P, I, D, FF, 목표 조향, 출력 조향, 속도, 가까운 횡오차, 가까운 헤딩, 곡률, 신뢰도, 데이터 나이, active, 목표점 횡오차]` |
 
 CLI로도 바꿀 수 있습니다: `ros2 param set /lane_fusion_pid_controller kp 0.5` (모두 double).
+
+주차 표지는 수신 간격 0.5초 이내의 True 2회로 확인합니다. 10초 감속이 끝난 뒤 5초간은
+재발동을 막으며, 그 이후 새로 수신한 True 2회로 다시 감속할 수 있습니다.
+대기 시간 중 들어온 신호는 다음 확인 횟수에 포함하지 않습니다.
+10초 제한 종료 후 기존 설정 속도로 가속 제한에 따라
+복귀하며, 차선 소실·timeout·정지 조건은 그대로 적용됩니다.
+주차 미션은 YOLO 2회와 새 바닥 흰선 감지로 시작합니다. 이 감속 기능은 lane 명령에 적용됩니다.
+노드 시작 파라미터: `parking_sign_topic`, `parking_slowdown_confirmations`(2),
+`parking_slowdown_speed`(0.3), `parking_slowdown_duration`(10.0), `parking_slowdown_max_gap`(0.5),
+`parking_slowdown_cooldown`(5.0, 감속 종료 기준).
 
 ## 검증 (2026-11-05, 이 PC, headless 시뮬·별도 DDS 도메인)
 

@@ -113,18 +113,14 @@ python yolo_ws/train/train_baseline_model.py
 ros2 run yolo_detect yolo_detect --ros-args -p image_transport:=compressed -p image_topic:=/camera/color/image_raw/compressed
 ```
 
-모든 유효한 YOLO bbox에 대해 매 추론마다 원본 영상 좌표를 영상 경계로 제한한
-정수 픽셀 기준 가로(`width`), 세로(`height`), 면적(`area`)을 터미널에 출력합니다.
-같은 클래스의 bbox가 여러 개면 각각 출력하며 confidence·면적 조건 탈락 및 OCR 거부 bbox도 포함합니다.
-`class`는 OCR 변경 전 YOLO 클래스입니다. 예:
+검출 로그는 confidence·면적·연속 검출 조건을 통과해 검출 신호를 실제 발행한 경우에만 출력합니다.
+`class`, `output_topic`, `confidence`(동일 클래스의 최고값), `published` 값을 표시합니다.
+일반 표지판의 미검출 `False` 상태와 미발행 BBox·OCR 결과는 출력하지 않습니다.
+좌회전은 `/yolo/LR_sign=False`가 유효한 발행이므로 로그를 출력합니다. 예:
 
 ```text
-BBox: class=bump; confidence=0.850; width=80px; height=60px; area=4800px^2
+Detection: class=parking; output_topic=/yolo/parking_sign; confidence=0.950; published=True
 ```
-
-confidence·면적 기준을 통과한 클래스마다 매 추론에서 `class`, `output_topic`,
-`confidence`(동일 클래스의 최고값), 실제 발행 여부를 출력합니다.
-연속 프레임 확인 전, 좌우 동시 확인, 추론 중 영상 만료 시 미발행 이유를 표시합니다.
 시작 후 또는 마지막 영상 수신 후 `camera_timeout_sec`(기본 2초)가 지나면 ERROR를
 출력하고, 미수신이 계속되면 5초 간격으로 반복합니다. 수신 재개 시 INFO를 출력합니다.
 오류는 ROS 로그로 보고하며 노드를 종료하지 않습니다. 감시는 시뮬레이션 시간이 정지해도 동작합니다.
@@ -165,3 +161,14 @@ OCR은 제공된 파란 표지판의 흰 A/B 글자와 OpenCV 글꼴을 기준�
 조정합니다. `OCR` 점수는 글자 모양 유사도이며 확률이 아닙니다.
 화면에는 `left / A YOLO:0.90 OCR:0.93` 형태로 표시합니다.
 실제 주행의 기울기·흐림·조명에 맞게 기준을 조정할 수 있습니다.
+
+
+## 웹 YOLO 검출 화면
+
+`/yolo/debug/compressed`는 원본 카메라와 별도로 bbox를 그린 JPEG입니다.
+bbox 아래 작은 글씨로 최종 클래스, bbox 가로×세로, 면적(px²)을 표시합니다.
+해당 bbox가 개별 confidence·면적/OCR 조건을 통과하고 실제 클래스 검출 신호가 발행된 프레임은 클래스별 색상,
+조건 탈락·연속 검출 대기·방향 모호성 등 미발행 bbox는 회색입니다.
+LEFT의 `/yolo/LR_sign=False`는 정상 방향 발행으로 취급합니다.
+구독자가 있을 때만 그리기·JPEG 인코딩을 수행합니다. Bool 검출 신호와 터미널 로그 정책은 유지합니다.
+웹 뷰어는 '카메라' 원본과 'YOLO 검출'을 별도 패널로 표시합니다.

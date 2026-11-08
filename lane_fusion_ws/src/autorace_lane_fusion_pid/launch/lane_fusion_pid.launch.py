@@ -25,8 +25,10 @@ Two separate windows (both optional):
 (real) or simul/adapter.sh (sim) forwards it to the vehicle. Pass
 enable_vehicle_output:=false to only publish the /lane_fusion_pid/command preview.
 """
+import math
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -42,9 +44,26 @@ def generate_launch_description():
     arg = LaunchConfiguration
     profile = arg('profile')
     sim_time = ParameterValue(arg('use_sim_time'), value_type=bool)
+
+    def controller(context):
+        parameters = [arg('pid_config'), {
+            'use_sim_time': sim_time,
+            'enable_vehicle_output': ParameterValue(arg('enable_vehicle_output'), value_type=bool),
+        }]
+        requested_speed = arg('lane_speed').perform(context).strip()
+        if requested_speed:
+            speed = float(requested_speed)
+            if not math.isfinite(speed) or not 0.0 <= speed <= 1.0:
+                raise ValueError('lane_speed must be a finite speed between 0 and 1 m/s')
+            parameters.append({'speed': speed})
+        return [Node(package='autorace_lane_fusion_pid', executable='lane_fusion_pid_controller',
+                     output='screen', parameters=parameters)]
+
     return LaunchDescription([
         DeclareLaunchArgument('profile', default_value='sim', choices=['sim', 'real'],
                               description='sim | real: picks config/<profile>/ of both packages'),
+        DeclareLaunchArgument('lane_speed', default_value='',
+                              description='base speed in m/s; empty keeps the PID YAML speed'),
         DeclareLaunchArgument('pid_config',
                               default_value=PathJoinSubstitution([share, 'config', profile, 'pid.yaml'])),
         DeclareLaunchArgument('lane', default_value='true', description='also start lane_fusion_node'),
@@ -80,10 +99,7 @@ def generate_launch_description():
                               'image_topic': arg('image_topic'),
                               'use_sim_time': arg('use_sim_time'), 'gui': arg('lane_gui'),
                               'debug': arg('debug')}.items()),
-        Node(package='autorace_lane_fusion_pid', executable='lane_fusion_pid_controller', output='screen',
-             parameters=[arg('pid_config'), {
-                 'use_sim_time': sim_time,
-                 'enable_vehicle_output': ParameterValue(arg('enable_vehicle_output'), value_type=bool)}]),
+        OpaqueFunction(function=controller),
         Node(package='autorace_lane_fusion_pid', executable='lane_fusion_pid_tuner', output='screen',
              condition=IfCondition(arg('gui')), arguments=['--config', arg('pid_config')]),
     ])

@@ -30,12 +30,15 @@ class OdomSample:
 
 
 class PoseHistory:
-    def __init__(self, timeout=.3, max_speed=1.5, max_yaw_rate=3., max_std=.5):
-        if not all(math.isfinite(v) and v > 0 for v in (timeout, max_speed, max_yaw_rate, max_std)):
+    def __init__(self, timeout=.3, max_speed=1.5, max_yaw_rate=3., max_std=.5, max_yaw_std=None):
+        if max_yaw_std is None:
+            max_yaw_std = max_std
+        if not all(math.isfinite(v) and v > 0 for v in (timeout, max_speed, max_yaw_rate, max_std, max_yaw_std)):
             raise ValueError('Localization time, velocity and covariance bounds must be positive')
         self.samples = deque(maxlen=400)
         self.timeout, self.max_speed = timeout, max_speed
         self.max_yaw_rate, self.max_std = max_yaw_rate, max_std
+        self.max_yaw_std = max_yaw_std
         self.reason = ''
         self.discontinuity = False
 
@@ -44,7 +47,8 @@ class PoseHistory:
         if not all(math.isfinite(v) for v in values) or min(sample.variance) <= 0:
             self.reason = 'Invalid localization values/covariance'
             return False
-        if max(sample.variance) > self.max_std ** 2:
+        if (max(sample.variance[:2]) > self.max_std ** 2
+                or sample.variance[2] > self.max_yaw_std ** 2):
             self.reason = 'Localization covariance exceeds configured limit'
             return False
         if abs(sample.speed) > self.max_speed or abs(sample.yaw_rate) > self.max_yaw_rate:

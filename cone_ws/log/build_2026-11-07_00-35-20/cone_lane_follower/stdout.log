@@ -1,0 +1,28 @@
+running develop
+running egg_info
+creating cone_lane_follower.egg-info
+writing cone_lane_follower.egg-info/PKG-INFO
+writing dependency_links to cone_lane_follower.egg-info/dependency_links.txt
+writing entry points to cone_lane_follower.egg-info/entry_points.txt
+writing requirements to cone_lane_follower.egg-info/requires.txt
+writing top-level names to cone_lane_follower.egg-info/top_level.txt
+writing manifest file 'cone_lane_follower.egg-info/SOURCES.txt'
+reading manifest file 'cone_lane_follower.egg-info/SOURCES.txt'
+writing manifest file 'cone_lane_follower.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/lib/python3.10/site-packages/cone-lane-follower.egg-link (link to .)
+Installing roi_node script to /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/lib/cone_lane_follower
+
+Installed /home/wego/2026-AutoRace/cone_ws/build/cone_lane_follower
+running symlink_data
+creating /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/ament_index
+creating /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/ament_index/resource_index
+creating /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/ament_index/resource_index/packages
+symbolically linking /home/wego/2026-AutoRace/cone_ws/build/cone_lane_follower/resource/cone_lane_follower -> /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/ament_index/resource_index/packages
+symbolically linking /home/wego/2026-AutoRace/cone_ws/build/cone_lane_follower/package.xml -> /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/cone_lane_follower
+creating /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/cone_lane_follower/launch
+symbolically linking /home/wego/2026-AutoRace/cone_ws/build/cone_lane_follower/launch/roi.launch.py -> /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/cone_lane_follower/launch
+creating /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/cone_lane_follower/rviz
+symbolically linking /home/wego/2026-AutoRace/cone_ws/build/cone_lane_follower/rviz/roi.rviz -> /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/cone_lane_follower/rviz
+creating /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/cone_lane_follower/config
+symbolically linking /home/wego/2026-AutoRace/cone_ws/build/cone_lane_follower/config/clustering.yaml -> /home/wego/2026-AutoRace/cone_ws/install/cone_lane_follower/share/cone_lane_follower/config

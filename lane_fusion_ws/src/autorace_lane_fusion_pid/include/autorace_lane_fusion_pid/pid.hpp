@@ -10,6 +10,7 @@
 // shared by the ROS node and the separate PID tuner window, so names, ranges
 // and Korean descriptions never drift apart.
 #include <map>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -55,7 +56,8 @@ public:
   // never from the output timer, so the D and I terms see real sampling.
   void measure(const Measurement &m, const Config &c);
   // Output stage at a fixed rate. fresh=false (timeout) stops immediately.
-  const Terms &step(double dt, bool fresh, const Config &c);
+  const Terms &step(double dt, bool fresh, const Config &c,
+                    double speed_limit = std::numeric_limits<double>::infinity());
   const Terms &terms() const { return t_; }
 
 private:

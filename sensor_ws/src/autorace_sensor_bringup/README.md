@@ -23,7 +23,11 @@ ros2 launch autorace_sensor_bringup sensors.launch.py
 |---|---|---|
 | enable_base | true | limo_base: IMU, Odometry, 상태 |
 | enable_lidar | true | YDLIDAR |
-| enable_camera | true | Orbbec Astra |
+| enable_camera | true | Orbbec Astra RGB |
+| enable_depth | false | 깊이 스트림 |
+| enable_ir | false | 적외선 스트림 |
+| enable_point_cloud | false | 일반 포인트클라우드 (depth 활성 시에만) |
+| enable_colored_point_cloud | false | 컬러 포인트클라우드 (depth 활성 시에만) |
 | enable_description | true | Ackermann 모델·레이저·IMU TF |
 | enable_camera_tf | true | 카메라 장착 TF, 카메라 드라이버와 독립 제어 |
 | enable_ekf | true | robot_localization EKF |
@@ -79,10 +83,14 @@ ROS_LOG_DIR을 실행 전에 지정하면 그 루트 아래 생성한다.
 
 PROCESS_START는 센서 데이터 수신 성공이 아니다. READY를 별도로 확인한다.
 활성 기능에 따라 /imu, /odom, /limo_status, /scan, /camera/color/image_raw,
-/camera/depth/image_raw, /odometry/filtered를 best-effort/volatile QoS로 구독한다.
+/odometry/filtered를 best-effort/volatile QoS로 구독한다.
+깊이·IR 스트림은 기본 OFF이며 켠 경우에만 해당 image_raw 토픽을 감시한다.
+RGB만 사용할 때는 depth·IR 획득과 일반/컬러 포인트클라우드 생성을 실행하지 않는다.
 압축 컬러 영상 토픽은 `/camera/color/image_raw/compressed` (`sensor_msgs/msg/CompressedImage`)이며,
 image_transport의 compressed 플러그인이 필요하다. 현재 PC에는 설치되어 있다.
-센서 모니터는 압축 영상이 아니라 원본 컬러·깊이 영상의 수신을 확인한다.
+센서 모니터는 압축 영상이 아니라 활성화된 원본 영상의 수신을 확인한다.
+시작 시 `[sensor bringup 결과]`로 활성 기능의 예상 노드 수와 센서 토픽 수신 결과를 요약한다.
+`startup_timeout`까지 준비되지 않으면 미실행 노드·미수신 토픽을 나열하고, 나중에 준비되면 정상 결과를 출력한다.
 카메라 component들은 container PID와 출력 파일을 공유한다.
 다른 camera_launch를 선택하면 영상 토픽 계약을 확인해야 한다.
 LAUNCH_SHUTDOWN은 종료 요청 시각이며 그 이후 PROCESS_EXIT가 기록될 수 있다.

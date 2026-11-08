@@ -136,3 +136,14 @@ def test_imu_mounting_rotation_handles_an_upside_down_sensor():
     assert rotate_vector((0.,0.,1.), (1.,0.,0.,0.)) == pytest.approx((0.,0.,-1.))
     assert rotate_vector((0.,0.,1.), (0.,math.sqrt(.5),0.,math.sqrt(.5))) == pytest.approx((1.,0.,0.))
     with pytest.raises(ValueError): rotate_vector((0.,0.,1.), (0.,0.,0.,0.))
+
+
+@pytest.mark.parametrize('variance,accepted', [
+    ((1.0, 1.0, .25), True),
+    ((1.0001, .2, .1), False),
+    ((.2, 1.0001, .1), False),
+    ((.2, .2, .2501), False),
+])
+def test_one_metre_xy_limit_keeps_original_half_radian_yaw_limit(variance, accepted):
+    history = PoseHistory(max_std=1., max_yaw_std=.5)
+    assert history.add(replace(sample(1.), variance=variance)) is accepted
