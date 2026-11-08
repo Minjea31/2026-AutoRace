@@ -3,6 +3,7 @@ from dataclasses import dataclass, replace
 import colorsys
 import math
 import time
+from .tracking import AvoidanceTarget
 
 DISTANCE_EPS = 1e-6  # LaserScan float32 rounding at inclusive distance thresholds.
 
@@ -460,12 +461,16 @@ class AvoidanceMemory:
     side: int = 0
     clear_since: float | None = None
     turning: bool = False
+    target: AvoidanceTarget | None = None
 
     def reset(self):
         self.side, self.clear_since = 0, None
         self.turning = False
+        self.target = None
 
-    def select(self, side):
+    def select(self, side, pose, c, road=None):
+        if self.target is None or side != self.side or not self.turning:
+            self.target = AvoidanceTarget.start(pose, side, c, road)
         self.side, self.clear_since = side, None
         self.turning = side in (1, -1)
 
@@ -479,9 +484,7 @@ class AvoidanceMemory:
                         and -c.direction_offset - width <= self.side * y <= width
                         for x, y in scan.objects)
         forward_clear = avoidance_front_clear(scan, c) and path_clear(scan, 0., c)
-        if forward_clear:
-            self.turning = False
-        passed = forward_clear and opposite.known(c) and not alongside
+        passed = not self.turning and forward_clear and opposite.known(c) and not alongside
         if not passed:
             self.clear_since = None
         elif self.clear_since is None:
@@ -586,40 +589,29 @@ def passing_command(s, c, side, heading_steering=0.):
     return 'STOP_PATH_BLOCKED', 0., 0., side
 
 
-def decide(s, c, previous=0, lane_steering=0., direction_scores=None, turning=False,
+def decide(s, c, previous=0, lane_steering=0., direction_scores=None,
            pass_steering=0.):
     """Prefer straight initially; finish an active avoidance before straightening."""
     state, speed, steering, side = propose(s, c, previous, lane_steering)
     if state in ('STOP_FRONT_UNKNOWN', 'STOP_TOO_CLOSE'):
         return state, speed, steering, side
     geometry = bool(s.points or s.boxes or s.road)
-    committed_turn = turning and previous in (1, -1)
-    if committed_turn and avoidance_front_clear(s, c) and (not geometry or path_clear(s, 0., c)):
-        committed_turn = False
-    if committed_turn:
-        # Do not cancel the manoeuvre when only the short straight preview opens.
-        near = s.front.distance <= c.near_distance + DISTANCE_EPS
-        speed = c.near_speed if near else c.avoid_speed
-        steering = previous * (c.near_steering if near else c.far_steering)
-        side = previous
-        state = 'HOLD_LEFT' if previous > 0 else 'HOLD_RIGHT'
-    else:
-        if state == 'CLEAR' and previous in (1, -1):
+    if state == 'CLEAR' and previous in (1, -1):
+        result = passing_command(s, c, previous, pass_steering)
+        if result[1] > 0:
+            return result
+        state, speed, steering, side = 'PASS_PATH_BLOCKED', c.avoid_speed, 0., previous
+    if state == 'CLEAR':
+        if not geometry or path_clear(s, steering, c):
+            return state, speed, steering, side
+        state, speed, steering, side = 'LANE_PATH_BLOCKED', c.avoid_speed, 0., 0
+    # Before avoidance starts, a clear straight corridor remains the priority.
+    if geometry and path_clear(s, 0., c):
+        if previous in (1, -1):
             result = passing_command(s, c, previous, pass_steering)
             if result[1] > 0:
                 return result
-            state, speed, steering, side = 'PASS_PATH_BLOCKED', c.avoid_speed, 0., previous
-        if state == 'CLEAR':
-            if not geometry or path_clear(s, steering, c):
-                return state, speed, steering, side
-            state, speed, steering, side = 'LANE_PATH_BLOCKED', c.avoid_speed, 0., 0
-        # Before avoidance starts, a clear straight corridor remains the priority.
-        if geometry and path_clear(s, 0., c):
-            if previous in (1, -1):
-                result = passing_command(s, c, previous, pass_steering)
-                if result[1] > 0:
-                    return result
-            return 'PATH_FORWARD', c.cruise_speed, 0., 0
+        return 'PATH_FORWARD', c.cruise_speed, 0., 0
     if speed <= 0:
         return state, speed, steering, side
     if geometry:
@@ -656,7 +648,7 @@ def decide(s, c, previous=0, lane_steering=0., direction_scores=None, turning=Fa
         tolerance = min(c.switch_margin, best_gap * .25)
         comparable = [p for p in pool if p[0] >= best_gap - tolerance]
         gap, candidate, direction = max(comparable, key=lambda p: (
-            p[2] == preferred, abs(p[1]) if committed_turn else -abs(p[1]), p[0]))
+            p[2] == preferred, abs(p[1]), p[0]))
         if direction == previous:
             return ('HOLD_LEFT' if direction > 0 else 'HOLD_RIGHT', speed, candidate, direction)
         if candidate == steering:
@@ -681,15 +673,33 @@ def decide(s, c, previous=0, lane_steering=0., direction_scores=None, turning=Fa
     return 'STOP_NO_SIDE_SPACE', 0., 0., 0
 
 
-def choose_path(s, c, previous=0, lane_steering=0., direction_scores=None, turning=False,
+def target_path(s, c, memory, pose):
+    """Follow one fixed lateral goal; blocked alignment must not restart a turn."""
+    if not s.front.known(c):
+        return ('STOP_FRONT_UNKNOWN', 0., 0., memory.side), c
+    if s.front.distance <= c.stop_distance + DISTANCE_EPS:
+        return ('STOP_TOO_CLOSE', 0., 0., memory.side), c
+    angle = memory.target.command(pose, c)
+    speed = c.near_speed if s.front.distance <= c.near_distance else c.avoid_speed
+    for distance in dict.fromkeys((c.preview_distance, min(c.preview_distance, c.creep_preview_distance))):
+        checked = replace(c, preview_distance=distance)
+        for steering in dict.fromkeys((angle, angle / 2)):
+            if path_clear(s, steering, checked):
+                state = 'TARGET_ALIGN' if steering * memory.side <= 0 else 'TARGET_SHIFT'
+                return (state, min(speed, c.near_speed) if distance < c.preview_distance else speed,
+                        steering, memory.side), checked
+    return ('STOP_TARGET_BLOCKED', 0., 0., memory.side), c
+
+
+def choose_path(s, c, previous=0, lane_steering=0., direction_scores=None,
                 pass_steering=0.):
     """Try the full arc first, then a slower checked prefix without relaxing bounds."""
-    result = decide(s, c, previous, lane_steering, direction_scores, turning, pass_steering)
+    result = decide(s, c, previous, lane_steering, direction_scores, pass_steering)
     if (result[0] != 'STOP_PATH_BLOCKED'
             or c.creep_preview_distance >= c.preview_distance):
         return result, c
     short = replace(c, preview_distance=c.creep_preview_distance)
-    candidate = decide(s, short, previous, lane_steering, direction_scores, turning, pass_steering)
+    candidate = decide(s, short, previous, lane_steering, direction_scores, pass_steering)
     if candidate[1] > 0:
         state, speed, steering, side = candidate
         return (state, min(speed, c.near_speed), steering, side), short
@@ -1083,9 +1093,20 @@ def main(args=None):
                 control_scan = replace(control_scan, road=self.current_road)
                 self.direction_scores = direction_free_space(control_scan, self.c)
                 self.memory.observe(control_scan, self.c, now)
-                result, self.path_config = choose_path(
-                    control_scan, self.c, self.memory.side, hint, self.direction_scores,
-                    turning=self.memory.turning, pass_steering=pass_hint)
+                tracking = self.memory.turning and self.memory.target is not None
+                if tracking and (not odom_fresh(self.odom, self.c, ros_now, now)
+                                 or self.odom.frame != self.memory.target.frame):
+                    result = ('STOP_TARGET_ODOM', 0., 0., self.memory.side)
+                else:
+                    if tracking and self.memory.target.reached(self.odom, self.c):
+                        self.memory.turning = False
+                        tracking = False
+                    if tracking:
+                        result, self.path_config = target_path(control_scan, self.c, self.memory, self.odom)
+                    else:
+                        result, self.path_config = choose_path(
+                            control_scan, self.c, self.memory.side, hint, self.direction_scores,
+                            pass_steering=pass_hint)
                 base_state, speed, steering, selected = result
                 state = ('CREEP/' + base_state if speed > 0
                          and self.path_config.preview_distance < self.c.preview_distance else base_state)
@@ -1099,8 +1120,13 @@ def main(args=None):
                     state, speed, steering = 'STOP_ROAD_BOUNDARY', 0., 0.
                 if state in ('STOP_SURROUNDED', 'STOP_FRONT_UNKNOWN'):
                     self.memory.reset()
-                elif speed > 0 and steering != 0 and base_state not in ('CLEAR', 'PASS_ALIGN'):
-                    self.memory.select(selected)
+                elif (speed > 0 and steering != 0
+                      and base_state not in ('CLEAR', 'PASS_ALIGN', 'TARGET_SHIFT', 'TARGET_ALIGN')):
+                    pose = self.odom if odom_fresh(self.odom, self.c, ros_now, now) else None
+                    if pose is None:
+                        state, speed, steering = 'STOP_TARGET_ODOM', 0., 0.
+                    else:
+                        self.memory.select(selected, pose, self.c, self.current_road)
             current_lane = self.current_road.lane if self.current_road is not None else None
             if state != self.last_state or current_lane != self.last_lane or now - self.last_log >= 2.:
                 distances = ''
@@ -1118,6 +1144,9 @@ def main(args=None):
                     if self.current_road is not None:
                         distances += f' lane={self.current_road.lane} road_offset={self.current_road.offset:+.2f}m'
                     distances += f' path={self.path_config.preview_distance:.2f}m'
+                    if self.memory.target is not None and self.odom is not None:
+                        error, heading = self.memory.target.errors(self.odom)
+                        distances += f' target_error={error:+.2f}m heading={math.degrees(heading):+.1f}deg'
                     if state == 'STOP_PATH_BLOCKED' or state.startswith('CREEP/'):
                         obstacles, road, total = path_rejections(control_scan, self.c)
                         distances += f' long_rejected_obstacles={obstacles}/{total} long_rejected_road={road}/{total}'

@@ -1,9 +1,122 @@
 # objavoid_ws
 
 정적 장애물을 LiDAR로 감지하고 좌·정면·우를 비교해 회피하는 ROS 2 Humble 노드다.
-실행 노드와 동작 코드는 `objavoid_node` / `autorace_objavoid/node.py` 하나다.
+실행 노드는 `objavoid_node` 하나다. ROS·감지·충돌 검사·RViz 발행은 `node.py`,
+고정 목표 횡위치와 조향 계산은 `tracking.py`에서 수행한다. 별도 런치는 사용하지 않는다.
 전역 지도는 사용하지 않는다. 기본 3차로 보호 기능은 `/odom`과 시작 시 유효한 차선 중심 정보를
 사용하며, 초기화 후에는 차선이 일시적으로 가려져도 odom 기준 도로 범위를 유지한다.
+
+## 빠른 실행: 시뮬레이션
+
+현재 버전은 **objavoid 노드 한 개 + 별도 RViz2** 구성이다.
+objavoid용 launch 파일은 없다. 아래 명령은 `~/2026-AutoRace` 설치 경로 기준이다.
+시뮬레이터를 먼저 켜고 차량을 **중앙 2차선**에 둔다.
+기본 도로 보호를 사용하므로 `/scan`, `/odom`, 유효한 `/lane_lite/target` 입력이 필요하다.
+
+### 1. 빌드: 최초 실행 또는 코드 변경 후
+
+기존 objavoid 노드를 종료한 뒤 실행한다. RViz2도 아래 별도 터미널에서 실행한다.
+
+```bash
+cd ~/2026-AutoRace/objavoid_ws
+source /opt/ros/humble/setup.bash
+PYTHONNOUSERSITE=1 /usr/bin/python3 /usr/bin/colcon build \
+  --symlink-install --packages-select autorace_objavoid
+```
+
+빌드가 성공한 뒤 다음 단계로 진행한다.
+
+### 2. 터미널 A: lane 실행
+
+lane_ws가 이미 빌드되어 있어야 한다. lane이 실행 중이면 중복 실행하지 않는다.
+
+```bash
+source ~/2026-AutoRace/simul/ros_env.sh
+source ~/2026-AutoRace/lane_ws/install/setup.bash
+ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim
+```
+
+### 3. 터미널 B: objavoid 실행
+
+```bash
+source ~/2026-AutoRace/simul/ros_env.sh
+source ~/2026-AutoRace/objavoid_ws/install/setup.bash
+ros2 run autorace_objavoid objavoid_node --ros-args \
+  --params-file ~/2026-AutoRace/objavoid_ws/src/autorace_objavoid/config/objavoid.yaml \
+  -p use_sim_time:=true
+```
+
+`manual_active=true`가 기본이다. 시작 위치가 1/3차선이면 마지막에
+`-p initial_lane:=1` 또는 `-p initial_lane:=3`을 추가한다.
+
+### 4. 터미널 C: 시뮬 차량에 명령 전달
+
+mux 없이 시험할 때만 실행한다. 기존 mux/어댑터가 이미 명령을 전달하고 있으면
+중복 실행하지 않는다. objavoid는 `/cmd_vel`을 직접 발행하지 않는다.
+
+```bash
+cd ~/2026-AutoRace
+./simul/adapter.sh --no-gui --topic /mission/objavoid/command_05
+```
+
+### 5. 터미널 D: RViz2 실행 (선택)
+
+objavoid 노드가 시각화 토픽을 발행한다. RViz 창은 별도로 실행한다.
+
+```bash
+source ~/2026-AutoRace/simul/ros_env.sh
+source ~/2026-AutoRace/objavoid_ws/install/setup.bash
+rviz2 -d ~/2026-AutoRace/objavoid_ws/src/autorace_objavoid/config/objavoid.rviz \
+  --ros-args -p use_sim_time:=true
+```
+
+### 실차 실행
+
+실차 센서·위치 추정·lane·기존 mux를 먼저 실행한다. 시뮬레이터 환경 파일 대신
+실차 ROS 환경을 사용하고, 시뮬용 어댑터는 실행하지 않는다.
+차량 치수·LiDAR 장착 위치·차선 폭·실제 시작 차선을 확인한다.
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/2026-AutoRace/objavoid_ws/install/setup.bash
+ros2 run autorace_objavoid objavoid_node --ros-args \
+  --params-file ~/2026-AutoRace/objavoid_ws/src/autorace_objavoid/config/objavoid.yaml \
+  -p use_sim_time:=false
+```
+
+### 정지 상태 확인과 재시작
+
+| 로그 | 의미 |
+| --- | --- |
+| `WAIT_SCAN` / `STOP_SCAN_EXPIRED` | 스캔 대기 / 만료 |
+| `WAIT_ODOM` / `WAIT_ROAD_REFERENCE` | 위치 또는 초기 차선 기준 대기 |
+| `STOP_TARGET_ODOM` | 회피 목표 추종에 필요한 odom 만료·없음·프레임 불일치 |
+| `STOP_TARGET_BLOCKED` | 목표 조향과 절반 조향의 긴·짧은 패스가 모두 막힘 |
+| `STOP_PATH_BLOCKED` | 진입/일반 주행 후보가 장애물 또는 추정 도로 외곽에 막힘 |
+| `STOP_ROAD_BOUNDARY` | 현재 차체가 추정 도로 외곽을 벗어남 |
+| `TARGET_SHIFT` / `TARGET_ALIGN` | 고정 목표로 횡이동 / 방향 정렬 |
+
+F5 초기화 감지는 구현하지 않았다. 반복 시험은 objavoid를 Ctrl+C로 종료하고,
+시뮬레이터를 초기화한 뒤 lane 입력이 정상인 상태에서 objavoid를 다시 실행한다.
+도로 외곽은 초기 차선 기준의 추정값이며 현재 차선 경계로 지속 갱신하지 않는다.
+
+실행 중 비활성화는 아래 명령을 사용한다. 비활성화하면 제어 발행을 멈추며
+연결된 mux/어댑터의 입력 만료 처리를 따른다.
+
+```bash
+ros2 param set /objavoid_node manual_active false
+```
+
+## 이번 변경의 기능 키워드
+
+- 회피 목표 횡위치 고정 및 odom 기반 추종 (`tracking.py`).
+- 횡오차·헤딩 기반 조향 감소와 반대 조향 정렬, 목표 도달 후 통과 단계 전환.
+- 단거리 패스에서도 목표/조향 기준 유지, 회피 진입 시 큰 조향 우선.
+- 목표 패스 차단·odom 이상 정지 및 목표 오차/헤딩 진단 로그.
+- 목표 추종 회귀 테스트와 실행 문서 추가.
+
+속도/거리 기본값과 RViz 설정은 기존과 동일하다. 현재 구성은 노드 내 RViz 발행을
+유지하며 별도 시각화 모듈·런치·추가 대체 조향은 포함하지 않는다.
 
 ## 입출력
 
@@ -28,20 +141,19 @@
 
 1. 정면이 1.0m 이상이고 회피 방향 기억이 없으면 `CLEAR`:
    현재 추정 차선 중심을 참고한 조향 또는 직진, 0.25m/s.
-   회피 중이면 정면이 1.15m(`far_distance + switch_margin`) 이상 열리고 직진 패스도
-   비었을 때 `PASS` 단계로 전환한다. 차선 방향 정보가 있으면 `PASS_ALIGN`으로
+   회피 중이면 목표 횡위치와 차체 방향에 도달한 뒤 `PASS` 단계로 전환한다. 차선 방향 정보가 있으면 `PASS_ALIGN`으로
    차체를 차선과 평행하게 맞추고, 방향 보정이 없으면 `PASS_FORWARD`로 직진한다.
    이 단계에서는 차선 중심으로 당기는 횡오차 보정은 적용하지 않는다.
 2. **회피를 시작하기 전에는 직진 차체 패스를 먼저 검사**한다.
    0.8m 직진 패스가 비어 있으면 `PATH_FORWARD`, 조향 0, 0.25m/s로 진행한다.
    양옆 차량이 가까워도 직진할 공간이 있으면 새 회피 조향을 만들지 않는다.
    회피를 시작한 뒤에는 이 짧은 패스가 잠깐 비어도 조향을 바로 0으로 바꾸지 않는다.
-3. 직진 패스가 막히면 좌우 회피를 선택하고, 회피 중에는 전방 해제 조건이 충족될
-   때까지 선택한 방향의 조향을 이어간다. 왼쪽·오른쪽의 큰 조향과
+3. 직진 패스가 막히면 좌우 회피 방향을 선택하고 옆 차선 중심을 고정 목표로 저장한다.
+   이후 목표 횡오차와 헤딩으로 조향을 계산한다. 진입 방향을 고를 때는 왼쪽·오른쪽의 큰 조향과
    작은 조향(0.12rad) 및 중간 조향을 모두 계산해 0.8m 근거리 패스가 충돌하는 후보를 제외한다.
    남은 방향 중 1.5~2.0m 앞 좌우 통로의 관측된 빈 공간이 더 많은 쪽을 선택한다.
    먼 거리 점수가 비슷하거나 관측이 부족하면 근거리 차체 여유로 결정한다.
-   큰 조향은 정면 0.5~1.0m에서 0.38rad(약 21.8도) / 0.20m/s,
+   진입 후보의 큰 조향은 정면 0.5~1.0m에서 0.38rad(약 21.8도) / 0.20m/s,
    정면 0.5m 이내에서 0.40rad(약 22.9도) / 0.08m/s다.
 4. 정면 0.05m 이내, 정면 미관측, 입력 만료 시 정지한다.
    옆 장애물이 0.5m 이내라는 이유만으로 그쪽 전체를 회피 후보에서 제외하지 않는다.
@@ -67,27 +179,19 @@
 벽을 포함한 **모든 유효 스캔 점은 패스 겹침 검사에 유지**한다.
 크기 기준은 차량 분류기가 아니며 짧게 관측된 벽은 작은 군집으로 남을 수 있다.
 
-처음 결정한 회피 방향은 기억한다. 먼 거리 점수가 반대로 바뀌더라도 기존 방향에
-충돌 없는 근거리 후보가 남아 있으면 유지한다. 기존 방향이 막히면 다른 방향을 다시
-평가하고, 양쪽 모두 막히면 정지한다. `phase=TURN`에서는 전방 장애물이 남아 있는 동안
-조향을 이어가며, 0.8m 직진 패스가 비었다는 이유로 직진을 우선하지 않는다.
-전방 해제 거리 1.15m와 직진 패스 조건을 충족하면 `phase=PASS`로 바뀌어 통과한다.
-이때 도로 보호가 켜져 있으면 진입 도로 방향, 꺼져 있으면 차선의 가까운 헤딩만 사용해
-방향을 맞춘다. 통과 중에는 횡오차로 차선 중앙을 향해 당기지 않는다.
-방향 보정도 차체 패스로 검사하며, 큰 보정이 막히면 절반 보정 또는 직진을 선택한다.
-방향 보정 중 속도는 0.20m/s이며 이 조향 때문에 회피 방향 기억이나 `TURN` 단계를 다시 켜지 않는다.
-통과 단계에서는 전방 거리가 1.0~1.15m 사이로 조금 변해도 즉시 재조향하지 않는다.
-다시 실제 직진 패스가 막혀 회피를 선택하면 `TURN` 단계로 돌아간다.
-기억이 유지되는 동안에는 원래 차선 중심으로 곧바로 복귀하지 않는다.
-유효한 스캔에서 패스가 막혀 정지해도 기억은 유지하며, 반대쪽 패스가 가능해지면 다시 선택한다.
-전방이 1.15m 이상 열리고, 회피 중 지나치는 반대쪽 옆 차량이 가까운 구역에서 사라지고,
-직진 패스가 1.5초 연속 비어 있으면 통과한 것으로 판단해 기억을 해제하고
-차선 추종 보정을 다시 적용한다. `direction_release_time`은 이 통과 확인 시간이다.
-이는 스캔 기반 통과 판단이며 개별 차량을 지속 추적하는 ID나 지도는 사용하지 않는다.
-입력 만료·잘못된 스캔·시계 초기화·비활성화 시에도 방향 기억을 해제한다.
+회피 진입 때 방향과 옆 차선 중심의 목표 횡위치를 저장한다. 이후 횡오차와 도로 대비
+헤딩으로 조향을 줄이고 반대 조향으로 정렬한다. 횡오차 약 3cm 이내, 헤딩 5도
+이내면 통과 단계로 전환한다. 전방에 다른 장애물이 남아 있어도 같은 방향 회전을
+계속하라는 조건으로 사용하지 않는다.
+
+목표 조향과 절반 조향을 0.8m, 0.25m 패스로 검사한다. 짧은 패스로 바뀌어도 목표와
+조향 계산 기준은 유지한다. 모두 막히면 `STOP_TARGET_BLOCKED`로 정지한다.
+고정 목표 후보가 막힌 상태에서 임의의 대체 방향으로 전환하지 않는다.
+회피 진입과 목표 추종에는 신선한 odom이
+필요하며 없거나 만료되면 `STOP_TARGET_ODOM`으로 정지한다.
 
 선택한 방향 안에서는 차체 최소 여유가 최댓값의 25% 이내
-(최대 `switch_margin=0.15m`)인 후보 중 회피 진행 중에는 큰 조향을 우선한다.
+(최대 `switch_margin=0.15m`)인 후보 중 회피 진입부터 큰 조향을 우선한다.
 큰 조향의 여유가 부족하면 작은 조향을 사용하고, 충돌하는 후보는 선택하지 않는다.
 좌우 유효 빔이 3개 미만이고 장애물 점으로도 확인하지 못한 방향은 unknown으로 제외한다.
 0/NaN/범위 밖 값은 빈 공간이 아니다. 양의 Inf를 무반사로 해석할 수 있는 센서에서만
@@ -189,62 +293,25 @@ LiDAR 단독 검출 테스트에서 `road_guard_enabled=false`로 시작하면 �
 
 로그의 `far_left`, `far_right`가 먼 거리 빈 공간 점수이며, `hold=LEFT/RIGHT/NONE`은
 기억 중인 방향이다. `phase=TURN/PASS/NONE`은 회피 진행/통과 직진/일반 주행 단계다.
-`HOLD_LEFT`, `HOLD_RIGHT`는 그 방향의 근거리 회피 후보를 유지 중임을 뜻한다.
+`TARGET_SHIFT`, `TARGET_ALIGN`은 목표 횡이동/정렬 상태다.
+`target_error`는 목표 횡오차, `heading`은 기준 방향 대비 차체 각도다.
 
-## 빌드
+## 클러스터 설정
 
-```bash
-cd ~/2026-AutoRace/objavoid_ws
-source /opt/ros/humble/setup.bash
-PYTHONNOUSERSITE=1 /usr/bin/python3 /usr/bin/colcon build --symlink-install --packages-select autorace_objavoid
-```
+| 파라미터 | 기본값 | 의미 |
+| --- | --- | --- |
+| `cluster_jump_distance` | 0.12m | 연속 점 사이 간격이 이를 넘으면 분리 |
+| `cluster_min_points` | 3 | 이보다 작은 군집 제외 |
+| `cluster_max_distance` | 3.0m | 군집 생성의 최대 반환 거리 |
+| `object_max_extent` | 1.0m | 표시·좌우 선택에 사용할 군집 외곽 대각 길이 상한 |
 
-## 시뮬 실행
+0/NaN/Inf/범위 밖 값은 군집 연결을 끊는다. 360도 스캔만 시작/끝 인접 군집을 합친다.
+박스는 실제로 관측한 표면의 외곽이며 차량 전체 크기 추정값이 아니다.
+라벨 번호는 스캔별 번호로 지속 추적 ID가 아니다. 가림 때문에 차량이 분리될 수 있다.
+만료되거나 사라진 군집은 화면에서 제거한다. `manual_active=false`여도 최신 장애물은 표시한다.
+고정 목표 추종 검증은 `src/autorace_objavoid/test/test_tracking.py`에 있다.
 
-시뮬레이터에서 차량을 중앙 2차선에 두고 lane 노드를 켠 뒤 실행한다.
-시뮬레이터가 이미 `/odom`을 발행하므로 새 위치 추정 노드는 필요 없다.
-명령은 현재 폴더와 무관하게 동작한다.
-`manual_active=true`가 기본이므로 추가 활성화 설정이 필요 없다.
-
-```bash
-source ~/2026-AutoRace/simul/ros_env.sh
-source ~/2026-AutoRace/objavoid_ws/install/setup.bash
-ros2 run autorace_objavoid objavoid_node --ros-args \
-  --params-file "$HOME/2026-AutoRace/objavoid_ws/src/autorace_objavoid/config/objavoid.yaml" \
-  -p use_sim_time:=true
-```
-
-차선 참고를 사용할 때는 별도 터미널에서:
-
-```bash
-source ~/2026-AutoRace/simul/ros_env.sh
-source ~/2026-AutoRace/lane_ws/install/setup.bash
-ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim
-```
-
-mux 없이 시뮬 차량으로 전달할 때는 별도 터미널에서:
-
-```bash
-cd ~/2026-AutoRace
-./simul/adapter.sh --no-gui --topic /mission/objavoid/command_05
-```
-
-실차에서는 `/opt/ros/humble/setup.bash`와 objavoid install만 source하고
-`use_sim_time:=false`로 실행한다. 차량 제어 전달은 기존 mux가 담당한다.
-로그에는 상태와 좌/정면/우 거리·속도·조향을 표시한다.
-입력 만료는 ROS 시각과 수신 경과 시간을 모두 검사한다.
-실행 중 비활성화는 `ros2 param set /objavoid_node manual_active false`다.
-비활성화하면 제어 발행을 멈추므로 연결된 mux/어댑터의 timeout 처리를 따른다.
-
-## RViz2
-
-objavoid를 재시작하고 기존 RViz 창을 닫은 뒤 새 설정으로 실행한다.
-
-```bash
-source ~/2026-AutoRace/simul/ros_env.sh
-rviz2 -d "$HOME/2026-AutoRace/objavoid_ws/src/autorace_objavoid/config/objavoid.rviz" \
-  --ros-args -p use_sim_time:=true
-```
+## RViz 표시 설명
 
 중앙 화면에는 다음 정보를 표시한다. 전방은 위, 차량 왼쪽은 화면 왼쪽이다.
 
@@ -279,17 +346,14 @@ Path 메시지를 다른 도구에서 쓸 때는 `/objavoid/path`(nav_msgs/Path)
 마커의 수명을 짧게 두지 않고 동일 ID를 갱신해 발행 사이 화면 깜빡임을 줄였다.
 마우스로 회전했다면 RViz를 위 설정으로 다시 열어 기본 시점을 복원한다.
 
-## 클러스터 설정
 
-| 파라미터 | 기본값 | 의미 |
-| --- | --- | --- |
-| `cluster_jump_distance` | 0.12m | 연속 점 사이 간격이 이를 넘으면 분리 |
-| `cluster_min_points` | 3 | 이보다 작은 군집 제외 |
-| `cluster_max_distance` | 3.0m | 군집 생성의 최대 반환 거리 |
-| `object_max_extent` | 1.0m | 표시·좌우 선택에 사용할 군집 외곽 대각 길이 상한 |
+## 검증
 
-0/NaN/Inf/범위 밖 값은 군집 연결을 끊는다. 360도 스캔만 시작/끝 인접 군집을 합친다.
-박스는 실제로 관측한 표면의 외곽이며 차량 전체 크기 추정값이 아니다.
-라벨 번호는 스캔별 번호로 지속 추적 ID가 아니다. 가림 때문에 차량이 분리될 수 있다.
-만료되거나 사라진 군집은 화면에서 제거한다. `manual_active=false`여도 최신 장애물은 표시한다.
-검증 파일과 새 외부 라이브러리는 추가하지 않았다.
+```bash
+cd ~/2026-AutoRace
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=objavoid_ws/src/autorace_objavoid \
+  python3 -m unittest discover -s objavoid_ws/src/autorace_objavoid/test -v
+```
+
+목표 고정·반대 조향 정렬, 좌우 bicycle 운동 모델 수렴, 후보 차단 시 정지를 검사한다.
+전체 GUI 주행 검증을 대신하지 않는다. [코드 구성 설명](docs/code_review.md)도 참고한다.
