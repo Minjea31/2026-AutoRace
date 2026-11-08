@@ -1,6 +1,5 @@
 """Reactive LiDAR avoidance with an entry-anchored three-lane road guard."""
 from dataclasses import dataclass, replace
-import colorsys
 import math
 import time
 import numpy as np
@@ -112,10 +111,6 @@ class RoadBand:
         return (self.ny * distance + self.nx * (lateral - self.offset),
                 -self.nx * distance + self.ny * (lateral - self.offset))
 
-    def heading_steering(self, c):
-        angle = c.lane_gain * math.atan2(-self.nx, self.ny)
-        return max(-c.max_lane_steering, min(c.max_lane_steering, angle))
-
     def lane_steering(self, c):
         target = (2 - self.lane) * c.lane_width
         angle = c.lane_gain * (math.atan2(target - self.offset, c.preview_distance)
@@ -208,8 +203,6 @@ class Sectors:
     received: float
     frame_id: str = 'laser_link'
     points: tuple = ()
-    rays: tuple = ()
-    objects: tuple = ()
     boxes: tuple = ()  # (centre x/y, half length/width, yaw), matching displayed boxes.
     road: RoadBand | None = None
 
@@ -223,16 +216,12 @@ def read_scan(msg, received, c):
         raise ValueError('invalid LaserScan geometry')
     values = {'left': [], 'front': [], 'right': []}
     points = []
-    rays = []
     for i, value in enumerate(msg.ranges):
         angle = math.degrees(msg.angle_min + i * msg.angle_increment) + c.lidar_yaw_deg
         angle = (angle + 180) % 360 - 180
         a = math.radians(angle)
         co, si = math.cos(a), math.sin(a)
         valid = math.isfinite(value) and max(msg.range_min, 1e-6) <= value <= msg.range_max
-        observed_range = (float(value) if valid else float(msg.range_max)
-                          if c.inf_is_clear and value == math.inf else math.nan)
-        rays.append((co, si, observed_range))
         if valid:
             points.append((c.lidar_x + value * co, c.lidar_y + value * si))
         if abs(angle) <= c.front_half_angle_deg:
@@ -253,7 +242,7 @@ def read_scan(msg, received, c):
     if not math.isfinite(stamp) or not math.isfinite(received):
         raise ValueError('invalid scan time')
     return Sectors(sectors['left'], sectors['front'], sectors['right'], stamp, received,
-                   getattr(msg.header, 'frame_id', '') or 'laser_link', tuple(points), tuple(rays))
+                   getattr(msg.header, 'frame_id', '') or 'laser_link', tuple(points))
 
 
 def cluster_scan(msg, c):
@@ -313,7 +302,6 @@ def object_sectors(scan, groups, c):
     counts = {1: scan.left.valid_beams, -1: scan.right.valid_beams}
     a = math.radians(c.lidar_yaw_deg)
     co, si = math.cos(a), math.sin(a)
-    objects = []
     boxes = []
     for group in compact_clusters(groups, c):
         xmin, xmax, ymin, ymax = cluster_bounds(group)
@@ -322,7 +310,6 @@ def object_sectors(scan, groups, c):
                       (xmax - xmin) / 2, (ymax - ymin) / 2, a))
         for x, y in group:
             bx, by = c.lidar_x + co * x - si * y, c.lidar_y + si * x + co * y
-            objects.append((bx, by))
             # Include adjacent/rear corners outside the old +/-90 degree sectors.
             if (-c.vehicle_length / 2 - .1 <= bx <= c.far_distance + c.vehicle_length / 2
                     and abs(by) > c.vehicle_width / 2 + c.clearance_margin):
@@ -331,7 +318,7 @@ def object_sectors(scan, groups, c):
                 counts[side] += 1
     return Sectors(Sector(distances[1], counts[1]), scan.front,
                    Sector(distances[-1], counts[-1]), scan.stamp, scan.received,
-                   scan.frame_id, scan.points, scan.rays, tuple(objects), tuple(boxes), scan.road)
+                   scan.frame_id, scan.points, tuple(boxes), scan.road)
 
 
 def path_clearance(scan, steering, c):
@@ -447,55 +434,10 @@ class AvoidanceMemory:
     frame: str = ''
     obstacle: tuple | None = None  # world x/y, half length/width, yaw
 
-    @property
-    def turning(self):
-        return self.phase == 'TURN'
-
     def reset(self):
         self.side, self.phase = 0, 'STRAIGHT'
         self.entry_yaw, self.frame = None, ''
         self.obstacle = None
-
-
-def cluster_markers(groups, frame, previous_count=0):
-    from geometry_msgs.msg import Point
-    from visualization_msgs.msg import Marker, MarkerArray
-
-    result = MarkerArray()
-    for index, points in enumerate(groups):
-        color = colorsys.hsv_to_rgb((.53 + index * .61803398875) % 1., .65, 1.)
-        def marker(namespace, kind):
-            m = Marker()
-            m.header.frame_id = frame
-            m.ns, m.id, m.type = namespace, index, kind
-            m.pose.orientation.w = 1.
-            m.color.r, m.color.g, m.color.b = color
-            m.color.a = 1.
-            result.markers.append(m)
-            return m
-        def point(x, y, z=.06):
-            return Point(x=float(x), y=float(y), z=float(z))
-        cloud = marker('cluster_points', Marker.POINTS)
-        cloud.scale.x = cloud.scale.y = .025
-        cloud.points = [point(x, y) for x, y in points]
-        xmin, xmax, ymin, ymax = cluster_bounds(points)
-        box = marker('cluster_boxes', Marker.LINE_STRIP)
-        box.scale.x = .012
-        box.points = [point(x, y, .07) for x, y in (
-            (xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax), (xmin, ymin))]
-        label = marker('cluster_labels', Marker.TEXT_VIEW_FACING)
-        label.scale.z = .065
-        label.pose.position = point(xmax + .09, (ymin + ymax) / 2, .18)
-        nearest = min(math.hypot(x, y) for x, y in points)
-        label.text = f'C{index + 1:02d}\n{nearest:.2f}m'
-    # Remove disappeared clusters without clearing and redrawing every frame.
-    for index in range(len(groups), previous_count):
-        for namespace in ('cluster_points', 'cluster_boxes', 'cluster_labels'):
-            m = Marker()
-            m.header.frame_id = frame
-            m.ns, m.id, m.action = namespace, index, Marker.DELETE
-            result.markers.append(m)
-    return result
 
 
 def forward_entry_clear(scan, c):
@@ -689,21 +631,13 @@ def lane_hint(data, c):
     return max(-c.max_lane_steering, min(c.max_lane_steering, angle))
 
 
-def lane_pass_hint(data, c):
-    """Heading only: lateral error must not trigger early return to lane centre."""
-    if len(data) != 11 or data[0] != 1 or not all(math.isfinite(v) for v in data):
-        return 0.
-    heading = data[9] if data[10] > 0 else data[2]
-    return max(-c.max_lane_steering, min(c.max_lane_steering, c.lane_gain * heading))
-
-
 def lane_guidance(lane, road, c, now):
     """Prefer fresh camera measurements; odometry bridges missing lane input."""
     if lane is not None and 0 <= now - lane[1] < c.lane_timeout:
-        return lane[0], lane_pass_hint(lane[2], c)
+        return lane[0]
     if road is not None:
-        return road.lane_steering(c), road.heading_steering(c)
-    return None, 0.
+        return road.lane_steering(c)
+    return None
 
 
 def lane_reference(data):
@@ -729,152 +663,17 @@ def preview_points(steering, c):
     return points
 
 
-def command_path(steering, c, active=True):
-    from geometry_msgs.msg import PoseStamped
-    from nav_msgs.msg import Path
-
-    path = Path()
-    path.header.frame_id = 'base_link'
-    if not active:
-        return path
-    # Visualization uses latest TF (stamp=0), independently of command stamps.
-    curvature = math.tan(steering) / c.wheelbase
-    for index, (x, y) in enumerate(preview_points(steering, c)):
-        pose = PoseStamped()
-        pose.header = path.header
-        pose.pose.position.x, pose.pose.position.y = x, y
-        pose.pose.position.z = .04
-        yaw = curvature * c.preview_distance * index / 24
-        pose.pose.orientation.z = math.sin(yaw / 2)
-        pose.pose.orientation.w = math.cos(yaw / 2)
-        path.poses.append(pose)
-    return path
-
-
-def command_markers(scan, c, state, speed, steering, preview_steering=None, lane_points=(), road=None):
-    from geometry_msgs.msg import Point
-    from visualization_msgs.msg import Marker, MarkerArray
-
-    result = MarkerArray()
-
-    def marker(index, kind, color, frame='base_link', namespace='objavoid'):
-        m = Marker()
-        m.header.frame_id = frame
-        # No short lifetime: updates replace the same IDs without expiring.
-        m.frame_locked = kind != Marker.TEXT_VIEW_FACING
-        m.ns, m.id, m.type = namespace, index, kind
-        m.pose.orientation.w = 1.
-        m.color.r, m.color.g, m.color.b, m.color.a = color
-        result.markers.append(m)
-        return m
-
-    def point(x, y, z=.04):
-        return Point(x=float(x), y=float(y), z=float(z))
-
-    display_steering = steering if speed > 0 or preview_steering is None else preview_steering
-    arrow = marker(0, Marker.ARROW, (.15, 1., .2, 1.) if speed > 0 else (.5, .5, .5, .8),
-                   namespace='direction')
-    arrow.scale.x, arrow.scale.y, arrow.scale.z = .04, .09, .12
-    arrow.points = [point(0., 0., .12),
-                    point(.65 * math.cos(display_steering), .65 * math.sin(display_steering), .12)]
-    path = marker(1, Marker.LINE_STRIP, (0., .85, 1., 1.) if speed > 0 else (.45, .45, .45, .8),
-                  namespace='command_path')
-    path.scale.x = .025
-    if speed > 0:
-        path.points = [point(x, y) for x, y in preview_points(display_steering, c)]
-    else:
-        path.action = Marker.DELETE
-    lane = marker(11, Marker.LINE_STRIP, (1., .85, .15, 1.), namespace='lane_center')
-    lane.scale.x = .025
-    lane.points = [point(x, y, .05) for x, y in lane_points]
-    if not lane_points:
-        lane.action = Marker.DELETE
-
-    road = road if road is not None else scan.road if scan is not None else None
-    limits = marker(12, Marker.LINE_LIST, (.9, .9, 1., .75), namespace='road_limits')
-    limits.scale.x = .015
-    lane_id = marker(13, Marker.TEXT_VIEW_FACING, (.9, .9, 1., 1.), namespace='lane_id')
-    lane_id.pose.position = point(-.25, 0., .12)
-    lane_id.scale.z = .065
-    if road is None:
-        limits.action = lane_id.action = Marker.DELETE
-    else:
-        for lateral in (-road.half_width, road.half_width):
-            distance = -.4
-            while distance < c.visual_road_distance:
-                limits.points += [point(*road.point(distance, lateral), z=.03),
-                                  point(*road.point(min(distance + .15, c.visual_road_distance), lateral), z=.03)]
-                distance += .25
-        lane_id.text = f'LANE{road.lane}\nEST'
-
-    text = marker(2, Marker.TEXT_VIEW_FACING,
-                  (.85, .9, .95, 1.) if speed > 0 else (1., .45, .3, 1.), namespace='status')
-    text.pose.position = point(-.58, 0., .18)
-    text.scale.z = .065
-    def distance(sector):
-        return ('clear' if math.isinf(sector.distance) else f'{sector.distance:.2f}m') if sector and sector.known(c) else '?'
-    title = ('WAIT SCAN' if state.startswith('WAIT_') else 'STOP' if state.startswith('STOP_') else
-             {'CLEAR': 'LANE', 'APPROACH_FORWARD': 'FORWARD', 'PASS_FORWARD': 'PASSING',
-              'PASS_ALIGN': 'PASS ALIGN',
-              'FAR_LEFT': 'AVOID LEFT', 'FAR_RIGHT': 'AVOID RIGHT',
-              'NEAR_LEFT': 'NEAR LEFT', 'NEAR_RIGHT': 'NEAR RIGHT'}.get(state, state))
-    text.text = f'{title}\n{speed:.2f}m/s  {math.degrees(steering):+.1f}deg'
-    if speed <= 0:
-        text.text += '\nNO MOTION PATH'
-    details = marker(10, Marker.TEXT_VIEW_FACING, (.65, .7, .75, 1.), namespace='details')
-    details.pose.position = point(-1.05, 0., .18)
-    details.scale.z = .06
-    details.text = (f'{state}\nlimits far={c.far_distance:.2f} '
-                    f'near={c.near_distance:.2f} stop={c.stop_distance:.2f}m')
-
-    car = marker(3, Marker.LINE_STRIP, (.9, .95, 1., 1.), namespace='vehicle')
-    car.scale.x = .015
-    car.points = [point(x, y) for x, y in (
-        (-.161, -.11), (.161, -.11), (.161, .11), (-.161, .11), (-.161, -.11))]
-    sectors = ((c.front_half_angle_deg, c.side_limit_angle_deg, scan.left if scan else None),
-               (-c.front_half_angle_deg, c.front_half_angle_deg, scan.front if scan else None),
-               (-c.side_limit_angle_deg, -c.front_half_angle_deg, scan.right if scan else None))
-    for index, (start, end, sector) in enumerate(sectors, 4):
-        known = sector is not None and sector.known(c)
-        color = (.5, .5, .5, .6)
-        radius = c.far_distance
-        if known:
-            radius = min(c.far_distance, sector.distance)
-            color = ((1., .2, .1, .85) if sector.distance <= c.near_distance else
-                     (1., .8, .1, .85) if sector.distance < c.far_distance else
-                     (.2, .8, .3, .65))
-        sector_marker = marker(index, Marker.LINE_STRIP, color,
-                               scan.frame_id if scan else 'laser_link', namespace='sectors')
-        sector_marker.scale.x = .012
-        sector_marker.points = [point(0., 0.)]
-        for i in range(21):
-            angle = math.radians(start + (end - start) * i / 20 - c.lidar_yaw_deg)
-            sector_marker.points.append(point(radius * math.cos(angle), radius * math.sin(angle)))
-        sector_marker.points.append(point(0., 0.))
-    labels = ((f'FRONT\n{distance(scan.front if scan else None)}', .38, 0.),
-              (f'LEFT\n{distance(scan.left if scan else None)}', 0., .46),
-              (f'RIGHT\n{distance(scan.right if scan else None)}', 0., -.46))
-    for index, (label, x, y) in enumerate(labels, 7):
-        axis_label = marker(index, Marker.TEXT_VIEW_FACING, (.55, .65, .75, 1.),
-                            namespace='orientation')
-        axis_label.pose.position = point(x, y, .2)
-        axis_label.scale.z = .055
-        axis_label.text = label
-    return result
-
-
 def main(args=None):
     import rclpy
     from rclpy.clock import Clock, ClockType
     from rclpy.executors import ExternalShutdownException
     from rclpy.node import Node
-    from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
+    from rclpy.qos import QoSProfile, qos_profile_sensor_data
     from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
     from sensor_msgs.msg import LaserScan
     from std_msgs.msg import Float32MultiArray
     from ackermann_msgs.msg import AckermannDriveStamped
-    from visualization_msgs.msg import MarkerArray
-    from nav_msgs.msg import Path, Odometry
+    from nav_msgs.msg import Odometry
 
     class ObjavoidNode(Node):
         def __init__(self):
@@ -893,8 +692,6 @@ def main(args=None):
             self.scan_error = 'not received'
             self.clusters = ()
             self.cluster_frame = 'laser_link'
-            self.previous_cluster_count = 0
-            self.reset_clusters = True
             self.lane = None
             self.odom = None
             self.odom_error = 'not received'
@@ -906,16 +703,10 @@ def main(args=None):
             self.last_state = None
             self.last_lane = None
             self.last_log = -math.inf
-            self.last_visual = -math.inf
-            self.last_visual_state = None
-            self.preview_steering = 0.
             self.path_config = self.c
-            self.reset_visual = True
             self.pub = self.create_publisher(AckermannDriveStamped, command_topic, QoSProfile(depth=1))
-            visual_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-            self.visual_pub = self.create_publisher(MarkerArray, '/objavoid/markers', visual_qos)
-            self.path_pub = self.create_publisher(Path, '/objavoid/path', visual_qos)
-            self.cluster_pub = self.create_publisher(MarkerArray, '/objavoid/clusters', visual_qos)
+            from .visualization import Visualizer
+            self.visualizer = Visualizer(self, preview_points, cluster_bounds)
             self.scan_sub = self.create_subscription(LaserScan, scan_topic, self.on_scan,
                                                      QoSProfile(depth=1, reliability=qos_profile_sensor_data.reliability))
             self.lane_sub = self.create_subscription(Float32MultiArray, lane_topic,
@@ -936,39 +727,15 @@ def main(args=None):
                                    f'initial lane={self.c.initial_lane}, lane width={self.c.lane_width:.2f}m, '
                                    f'odometry={odom_topic}; waiting for entry lane reference')
 
-        def publish_visual(self, state, speed, steering, now, scan):
-            if state != self.last_visual_state or now - self.last_visual >= .1:
-                if speed > 0:
-                    self.preview_steering = steering
-                lane_points = (lane_reference(self.lane[2]) if self.lane and
-                               0 <= now - self.lane[1] < self.c.lane_timeout else ())
-                markers = command_markers(scan, self.path_config, state, speed, steering,
-                                          self.preview_steering, lane_points, self.current_road)
-                if self.reset_visual:
-                    from visualization_msgs.msg import Marker
-                    reset = Marker()
-                    reset.header.frame_id = 'base_link'
-                    reset.pose.orientation.w = 1.
-                    reset.action = Marker.DELETEALL
-                    markers.markers.insert(0, reset)
-                    self.reset_visual = False
-                self.visual_pub.publish(markers)
-                self.path_pub.publish(command_path(steering, self.path_config, active=speed > 0))
-                fresh = scan_fresh(self.scan, self.c,
-                                   self.get_clock().now().nanoseconds * 1e-9, now)
-                groups = compact_clusters(self.clusters, self.c) if fresh else ()
-                clusters = cluster_markers(groups, self.cluster_frame, self.previous_cluster_count)
-                if self.reset_clusters:
-                    from visualization_msgs.msg import Marker
-                    reset = Marker()
-                    reset.header.frame_id = self.cluster_frame
-                    reset.pose.orientation.w = 1.
-                    reset.action = Marker.DELETEALL
-                    clusters.markers.insert(0, reset)
-                    self.reset_clusters = False
-                self.cluster_pub.publish(clusters)
-                self.previous_cluster_count = len(groups)
-                self.last_visual, self.last_visual_state = now, state
+        def publish_visual(self, state, speed, steering, now):
+            if not self.visualizer.due(state, now):
+                return
+            lane_points = (lane_reference(self.lane[2]) if self.lane and
+                           0 <= now - self.lane[1] < self.c.lane_timeout else ())
+            fresh = scan_fresh(self.scan, self.c, self.get_clock().now().nanoseconds * 1e-9, now)
+            groups = compact_clusters(self.clusters, self.c) if fresh else ()
+            self.visualizer.publish(state, speed, steering, now, self.path_config,
+                                    lane_points, self.current_road, groups, self.cluster_frame)
 
         def on_parameters(self, parameters):
             for p in parameters:
@@ -1032,7 +799,6 @@ def main(args=None):
                 self.scan_error = 'clock reset; waiting for new scan'
                 self.memory.reset()
                 self.direction_scores = {1: None, -1: None}
-                self.preview_steering = 0.
             self.last_ros = ros_now
             self.current_road, road_error = self.road_context(ros_now, now)
             speed = steering = 0.
@@ -1041,7 +807,7 @@ def main(args=None):
             if not self.get_parameter('manual_active').value:
                 self.memory.reset()
                 self.last_state = 'IDLE'
-                self.publish_visual('IDLE', 0., 0., now, None)
+                self.publish_visual('IDLE', 0., 0., now)
                 return
             if self.scan is None:
                 self.memory.reset()
@@ -1053,7 +819,7 @@ def main(args=None):
                 self.memory.reset()
                 state = road_error
             else:
-                hint, _ = lane_guidance(self.lane, self.current_road, self.c, now)
+                hint = lane_guidance(self.lane, self.current_road, self.c, now)
                 control_scan = object_sectors(self.scan, self.clusters, self.c)
                 control_scan = replace(control_scan, road=self.current_road)
                 self.direction_scores = cluster_direction_scores(control_scan, self.c)
@@ -1071,7 +837,7 @@ def main(args=None):
                     heading_error = data[9] if data[10] > 0 else data[2]
                 result, self.path_config = control_command(
                     control_scan, self.c, self.memory, hint, heading_error, self.direction_scores, pose)
-                base_state, speed, steering, selected = result
+                base_state, speed, steering, _ = result
                 state = ('CREEP/' + base_state if speed > 0
                          and self.path_config.preview_distance < self.c.preview_distance else base_state)
                 # Final gate: the published command and the blue RViz arc use
@@ -1122,8 +888,7 @@ def main(args=None):
             msg.header.frame_id = 'base_link'
             msg.drive.speed, msg.drive.steering_angle = float(speed), float(steering)
             self.pub.publish(msg)
-            visual_scan = control_scan if not state.startswith(('WAIT_', 'STOP_SCAN_')) else None
-            self.publish_visual(state, speed, steering, now, visual_scan)
+            self.publish_visual(state, speed, steering, now)
 
     rclpy.init(args=args)
     node = None
