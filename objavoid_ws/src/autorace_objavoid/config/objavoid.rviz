@@ -11,13 +11,6 @@ Visualization Manager:
         road_limits: true
         lane_id: true
         command_path: false
-        vehicle: false
-        status: false
-        orientation: false
-        sectors: false
-        direction: false
-        details: false
-        objavoid: false
       Topic:
         Value: /objavoid/markers
         Reliability Policy: Reliable
@@ -48,13 +41,6 @@ Visualization Manager:
         lane_center: false
         road_limits: false
         lane_id: false
-        vehicle: false
-        status: false
-        orientation: false
-        sectors: false
-        direction: false
-        details: false
-        objavoid: false
       Topic:
         Value: /objavoid/markers
         Reliability Policy: Reliable
@@ -67,9 +53,7 @@ Visualization Manager:
       Enabled: true
       Value: true
       Namespaces:
-        cluster_points: false
         cluster_boxes: true
-        cluster_labels: false
       Topic:
         Value: /objavoid/clusters
         Reliability Policy: Reliable
