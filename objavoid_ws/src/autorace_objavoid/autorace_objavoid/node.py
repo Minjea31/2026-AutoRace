@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 import colorsys
 import math
 import time
-from .tracking import AvoidanceTarget
+import numpy as np
 
 DISTANCE_EPS = 1e-6  # LaserScan float32 rounding at inclusive distance thresholds.
 
@@ -15,11 +15,11 @@ class Config:
     far_distance: float = 1.0
     near_distance: float = 0.5
     stop_distance: float = 0.05
-    cruise_speed: float = 0.25
-    avoid_speed: float = 0.20
-    near_speed: float = 0.08
-    far_steering: float = 0.38
-    near_steering: float = 0.40
+    cruise_speed: float = 0.4
+    avoid_speed: float = 0.25
+    near_speed: float = 0.2
+    far_steering: float = 0.30
+    near_steering: float = 0.32
     side_steering: float = 0.12
     switch_margin: float = 0.15
     lane_gain: float = 0.8
@@ -32,8 +32,8 @@ class Config:
     lidar_yaw_deg: float = 0.0
     inf_is_clear: bool = False
     wheelbase: float = 0.2
-    preview_distance: float = 0.8
-    creep_preview_distance: float = 0.25
+    preview_distance: float = 0.7
+    min_preview_distance: float = 0.15
     cluster_jump_distance: float = 0.12
     cluster_min_points: int = 3
     cluster_max_distance: float = 3.0
@@ -43,11 +43,7 @@ class Config:
     lidar_x: float = 0.103
     lidar_y: float = 0.0
     clearance_margin: float = 0.02
-    direction_near_distance: float = 1.5
-    direction_far_distance: float = 2.0
-    direction_offset: float = 0.5
-    direction_score_margin: float = 0.10
-    direction_release_time: float = 1.5
+    visual_road_distance: float = 2.0
     road_guard_enabled: bool = True
     lane_width: float = 0.52
     initial_lane: int = 2
@@ -67,12 +63,10 @@ class Config:
             raise ValueError('invalid steering limits')
         if not 0 < self.side_steering <= self.far_steering:
             raise ValueError('side_steering must be positive and <= far_steering')
-        if (not 0 < self.direction_near_distance < self.direction_far_distance
-                or self.direction_near_distance <= self.lidar_x + self.vehicle_length / 2 + self.clearance_margin
-                or self.direction_offset <= self.vehicle_width / 2 + self.clearance_margin
-                or not 0 <= self.direction_score_margin <= 1
-                or self.direction_release_time <= 0):
-            raise ValueError('invalid long-range direction settings')
+        if not 0 < self.min_preview_distance <= self.preview_distance:
+            raise ValueError('require 0 < min_preview_distance <= preview_distance')
+        if self.visual_road_distance <= 0:
+            raise ValueError('visual_road_distance must be positive')
         if (type(self.road_guard_enabled) is not bool or type(self.initial_lane) is not int
                 or self.initial_lane not in (1, 2, 3)
                 or self.lane_width <= self.vehicle_width + 2 * self.clearance_margin
@@ -80,7 +74,7 @@ class Config:
                 or self.odom_timeout <= 0):
             raise ValueError('invalid road guard settings')
         if (min(self.scan_timeout, self.lane_timeout, self.publish_rate,
-                self.wheelbase, self.preview_distance, self.creep_preview_distance, self.cluster_jump_distance,
+                self.wheelbase, self.preview_distance, self.cluster_jump_distance,
                 self.cluster_max_distance, self.object_max_extent,
                 self.vehicle_length, self.vehicle_width) <= 0
                 or min(self.switch_margin, self.future_tolerance, self.lane_gain,
@@ -358,7 +352,24 @@ def path_clearance(scan, steering, c):
     boxes = tuple((x, y, hx, hy, math.cos(a), math.sin(a))
                   for x, y, hx, hy, a in scan.boxes
                   if math.hypot(x, y) <= limit + math.hypot(hx, hy))
-    for index, (x, y) in enumerate(preview_points(steering, c)):
+    path = preview_points(steering, c)
+    if len(points) > 32:
+        # Evaluate the exact same rectangles/points in bulk, without dropping
+        # returns or changing the swept-body padding and clearance thresholds.
+        positions = np.asarray(path, dtype=float)
+        cloud = np.asarray(points, dtype=float)
+        yaw = np.arange(25) * curvature * c.preview_distance / 24
+        co, si = np.cos(yaw)[:, None], np.sin(yaw)[:, None]
+        dx = cloud[None, :, 0] - positions[:, None, 0]
+        dy = cloud[None, :, 1] - positions[:, None, 1]
+        gap_x = np.abs(co*dx + si*dy) - half_length
+        gap_y = np.abs(-si*dx + co*dy) - half_width
+        if np.any((gap_x <= 0.) & (gap_y <= 0.)):
+            return 0.
+        clearance = min(clearance, float(np.min(np.hypot(np.maximum(0., gap_x),
+                                                        np.maximum(0., gap_y)))))
+        points = ()
+    for index, (x, y) in enumerate(path):
         yaw = curvature * c.preview_distance * index / 24
         co, si = math.cos(yaw), math.sin(yaw)
         if scan.road is not None:
@@ -391,106 +402,59 @@ def path_clear(scan, steering, c):
     return path_clearance(scan, steering, c) > 0.
 
 
-def direction_free_space(scan, c):
-    """Observed free-ray fraction through distant left/right rectangular corridors."""
-    scores = {1: None, -1: None}
-    if len(scan.rays) < 2:
-        return scores
-    ax, ay, _ = scan.rays[0]
-    bx, by, _ = scan.rays[1]
-    step = abs(math.atan2(ax * by - ay * bx, ax * bx + ay * by))
-    if step < 1e-9:
-        return scores
-    half_length = c.vehicle_length / 2 + c.clearance_margin
-    half_width = c.vehicle_width / 2 + c.clearance_margin
-    xmin = c.direction_near_distance - half_length
-    xmax = c.direction_far_distance + half_length
-    origin_x, origin_y = c.lidar_x, c.lidar_y
-    rays = scan.rays
-    lane_centre = 0.
-    if scan.road is not None:
-        road = scan.road
-        origin_x = road.ny * c.lidar_x - road.nx * c.lidar_y
-        origin_y = road.nx * c.lidar_x + road.ny * c.lidar_y + road.offset
-        rays = tuple((road.ny * dx - road.nx * dy, road.nx * dx + road.ny * dy, r)
-                     for dx, dy, r in rays)
-        lane_centre = (2 - road.lane) * c.lane_width
-    for side in (1, -1):
-        centre = lane_centre + side * c.direction_offset
-        ymin, ymax = centre - half_width, centre + half_width
-        if scan.road is not None and (ymin < -scan.road.half_width or ymax > scan.road.half_width):
-            scores[side] = 0.
+def cluster_direction_scores(scan, c):
+    """Avoid the nearest observed cluster behind the immediate front obstacle."""
+    width = c.vehicle_width / 2 + c.clearance_margin
+    front = c.vehicle_length / 2
+    primary = []
+    for index, (x, y, hx, hy, yaw) in enumerate(scan.boxes):
+        ex = abs(math.cos(yaw))*hx + abs(math.sin(yaw))*hy
+        ey = abs(math.sin(yaw))*hx + abs(math.cos(yaw))*hy
+        if x + ex > front and abs(y) <= width + ey:
+            primary.append((x-ex, index, x))
+    if primary:
+        _, first_index, first_x = min(primary)
+    else:
+        points = [x for x, y in scan.points if x > front and abs(y) <= width]
+        if not points:
+            return {1: None, -1: None}
+        first_index, first_x = -1, min(points)
+    behind = []
+    for index, (x, y, hx, hy, yaw) in enumerate(scan.boxes):
+        if index == first_index or x <= first_x + DISTANCE_EPS:
             continue
-        angles = [math.atan2(y - origin_y, x - origin_x)
-                  for x in (xmin, xmax) for y in (ymin, ymax)]
-        expected = max(1, math.ceil((max(angles) - min(angles)) / step))
-        total = valid = 0
-        free = 0.
-        for dx, dy, distance in rays:
-            enter, leave = 0., math.inf
-            for origin, unit, low, high in (
-                    (origin_x, dx, xmin, xmax), (origin_y, dy, ymin, ymax)):
-                if abs(unit) < 1e-9:
-                    if not low <= origin <= high:
-                        leave = -1.
-                        break
-                else:
-                    a, b = (low - origin) / unit, (high - origin) / unit
-                    enter, leave = max(enter, min(a, b)), min(leave, max(a, b))
-            if leave <= enter:
-                continue
-            total += 1
-            if math.isfinite(distance):
-                valid += 1
-                # Require visibility through the corridor: a hit inside it blocks
-                # that ray, and a hit before it cannot clear the occluded space.
-                free += float(distance >= leave)
-        if valid >= c.min_valid_beams:
-            scores[side] = free / max(expected, total)
-    return scores
-
-
-def avoidance_front_clear(scan, c):
-    """Leave the turning phase beyond the entry distance, with distance hysteresis."""
-    return (scan.front.known(c)
-            and scan.front.distance >= c.far_distance + c.switch_margin - DISTANCE_EPS)
+        ex = abs(math.cos(yaw))*hx + abs(math.sin(yaw))*hy
+        ey = abs(math.sin(yaw))*hx + abs(math.cos(yaw))*hy
+        distance = math.hypot(max(0., abs(x)-ex), max(0., abs(y)-ey))
+        behind.append((distance, y))
+    if not behind:
+        return {1: None, -1: None}
+    distance, lateral = min(behind)
+    if abs(lateral) <= c.clearance_margin:
+        return {1: None, -1: None}  # A centred car provides no left/right preference.
+    if any(abs(other_distance-distance) <= DISTANCE_EPS and other_y*lateral < 0
+           for other_distance, other_y in behind):
+        return {1: None, -1: None}
+    preferred = -1 if lateral > 0 else 1
+    return {preferred: 1., -preferred: 0.}
 
 
 @dataclass
 class AvoidanceMemory:
     side: int = 0
-    clear_since: float | None = None
-    turning: bool = False
-    target: AvoidanceTarget | None = None
+    phase: str = 'STRAIGHT'
+    entry_yaw: float | None = None
+    frame: str = ''
+    obstacle: tuple | None = None  # world x/y, half length/width, yaw
+
+    @property
+    def turning(self):
+        return self.phase == 'TURN'
 
     def reset(self):
-        self.side, self.clear_since = 0, None
-        self.turning = False
-        self.target = None
-
-    def select(self, side, pose, c, road=None):
-        if self.target is None or side != self.side or not self.turning:
-            self.target = AvoidanceTarget.start(pose, side, c, road)
-        self.side, self.clear_since = side, None
-        self.turning = side in (1, -1)
-
-    def observe(self, scan, c, now):
-        if not self.side:
-            return
-        opposite = scan.right if self.side > 0 else scan.left
-        rear = -c.vehicle_length / 2 - c.clearance_margin
-        width = c.vehicle_width / 2 + c.clearance_margin
-        alongside = any(rear <= x <= c.far_distance
-                        and -c.direction_offset - width <= self.side * y <= width
-                        for x, y in scan.objects)
-        forward_clear = avoidance_front_clear(scan, c) and path_clear(scan, 0., c)
-        passed = not self.turning and forward_clear and opposite.known(c) and not alongside
-        if not passed:
-            self.clear_since = None
-        elif self.clear_since is None:
-            self.clear_since = now
-        elif now - self.clear_since >= c.direction_release_time:
-            self.reset()
+        self.side, self.phase = 0, 'STRAIGHT'
+        self.entry_yaw, self.frame = None, ''
+        self.obstacle = None
 
 
 def cluster_markers(groups, frame, previous_count=0):
@@ -534,176 +498,176 @@ def cluster_markers(groups, frame, previous_count=0):
     return result
 
 
-def pick_side(s, c, previous):
-    """Rank measured sides; with actual points the swept body decides clearance."""
-    choices = {side: sector.distance for side, sector in ((1, s.left), (-1, s.right))
-               if sector.known(c) and (s.points or s.boxes or s.road or sector.distance > c.near_distance + DISTANCE_EPS)}
-    if not choices:
-        return 0
-    best = max(choices, key=choices.get)
-    if previous in choices and choices[best] <= choices[previous] + c.switch_margin:
-        return previous
-    return best
+def forward_entry_clear(scan, c):
+    """The longer straight corridor triggers avoidance before the command arc."""
+    return path_clear(scan, 0., replace(c, preview_distance=max(c.preview_distance, c.far_distance)))
 
 
-def propose(s, c, previous=0, lane_steering=0.):
-    """Positive steering is left. Invalid/unseen sectors are not empty space."""
-    front, left, right = s.front, s.left, s.right
-    if not front.known(c):
-        return 'STOP_FRONT_UNKNOWN', 0., 0., 0
-    if front.distance <= c.stop_distance + DISTANCE_EPS:
-        return 'STOP_TOO_CLOSE', 0., 0., previous
-    # A car alongside must not trigger a turn while the forward sector is clear.
-    if front.distance >= c.far_distance - DISTANCE_EPS:
-        steering = max(-c.max_lane_steering, min(c.max_lane_steering, lane_steering))
-        return 'CLEAR', c.cruise_speed, steering, 0
-    if front.distance <= c.near_distance + DISTANCE_EPS:
-        side = pick_side(s, c, previous)
-        if not side:
-            return 'STOP_SURROUNDED', 0., 0., previous
-        return ('NEAR_LEFT' if side > 0 else 'NEAR_RIGHT',
-                c.near_speed, side * c.near_steering, side)
-    if front.distance < c.far_distance:
-        side = pick_side(s, c, previous)
-        # A nearby car alongside can be behind the turning path. Its radial
-        # distance must not be compared with the forward obstacle's distance.
-        # Rank the available sides here; decide() checks the swept body next.
-        if side:
-            return ('FAR_LEFT' if side > 0 else 'FAR_RIGHT',
-                    c.avoid_speed, side * c.far_steering, side)
-        return 'APPROACH_FORWARD', c.avoid_speed, 0., previous
-    steering = max(-c.max_lane_steering, min(c.max_lane_steering, lane_steering))
-    return 'CLEAR', c.cruise_speed, steering, 0
-
-
-def passing_command(s, c, side, heading_steering=0.):
-    """Pass parallel to the lane without pulling back toward its centre."""
-    heading_steering = max(-c.max_lane_steering, min(c.max_lane_steering, heading_steering))
-    for angle in dict.fromkeys((heading_steering, heading_steering / 2, 0.)):
-        if angle and not (s.left if angle > 0 else s.right).known(c):
-            continue
-        if not (s.points or s.boxes or s.road) or path_clear(s, angle, c):
-            if angle != 0:
-                return 'PASS_ALIGN', c.avoid_speed, angle, side
-            return 'PASS_FORWARD', c.cruise_speed, 0., side
-    return 'STOP_PATH_BLOCKED', 0., 0., side
-
-
-def decide(s, c, previous=0, lane_steering=0., direction_scores=None,
-           pass_steering=0.):
-    """Prefer straight initially; finish an active avoidance before straightening."""
-    state, speed, steering, side = propose(s, c, previous, lane_steering)
-    if state in ('STOP_FRONT_UNKNOWN', 'STOP_TOO_CLOSE'):
-        return state, speed, steering, side
-    geometry = bool(s.points or s.boxes or s.road)
-    if state == 'CLEAR' and previous in (1, -1):
-        result = passing_command(s, c, previous, pass_steering)
+def adaptive_prefix(evaluate, c):
+    """Find the longest checked prefix; never command a token sliver of space."""
+    # Cover one input-timeout window plus one control period at crawl speed.
+    minimum = max(c.min_preview_distance,
+                  c.near_speed * (c.scan_timeout + 1 / c.publish_rate))
+    if minimum >= c.preview_distance:
+        return None
+    low, high = minimum, c.preview_distance
+    checked = replace(c, preview_distance=low)
+    result = evaluate(checked)
+    if result[1] <= 0:
+        return None
+    best = result, checked
+    for _ in range(8):
+        distance = (low + high) / 2
+        checked = replace(c, preview_distance=distance)
+        result = evaluate(checked)
         if result[1] > 0:
-            return result
-        state, speed, steering, side = 'PASS_PATH_BLOCKED', c.avoid_speed, 0., previous
-    if state == 'CLEAR':
-        if not geometry or path_clear(s, steering, c):
-            return state, speed, steering, side
-        state, speed, steering, side = 'LANE_PATH_BLOCKED', c.avoid_speed, 0., 0
-    # Before avoidance starts, a clear straight corridor remains the priority.
-    if geometry and path_clear(s, 0., c):
-        if previous in (1, -1):
-            result = passing_command(s, c, previous, pass_steering)
-            if result[1] > 0:
-                return result
-        return 'PATH_FORWARD', c.cruise_speed, 0., 0
-    if speed <= 0:
-        return state, speed, steering, side
-    if geometry:
-        # Evaluate both sides against the front, adjacent cars and walls before
-        # choosing. A side's radial minimum alone cannot describe turning room.
+            low, best = distance, (result, checked)
+        else:
+            high = distance
+    result, checked = best
+    state, speed, steering, side = result
+    return (state, min(speed, c.near_speed), steering, side), checked
+
+
+def checked_command(scan, c, angles, state, speed, side=0):
+    """Prefer long safe paths, using the same candidate order at every length."""
+    def evaluate(checked):
+        for angle in dict.fromkeys(angles):
+            if path_clear(scan, angle, checked):
+                return state, speed, angle, side
+        return 'STOP_PATH_BLOCKED', 0., 0., side
+    result = evaluate(c)
+    return (result, c) if result[1] > 0 else adaptive_prefix(evaluate, c) or (result, c)
+
+
+def turn_path(scan, c, side=0, scores=None):
+    """Avoid the front car; use the nearest following cluster for side preference."""
+    scores = cluster_direction_scores(scan, c) if scores is None else scores
+    limit = c.near_steering if scan.front.distance <= c.near_distance else c.far_steering
+    speed = c.near_speed if scan.front.distance <= c.near_distance else c.avoid_speed
+
+    def evaluate(checked):
         candidates = []
         for direction in (1, -1):
-            sector = s.left if direction > 0 else s.right
-            if sector.known(c):
-                limit = (c.near_steering if s.front.distance <= c.near_distance + DISTANCE_EPS
-                         else c.far_steering)
-                for magnitude in dict.fromkeys((limit, (limit + c.side_steering) / 2, c.side_steering)):
-                    candidate = direction * magnitude
-                    clearance = path_clearance(s, candidate, c)
-                    if clearance > 0:
-                        candidates.append((clearance, candidate, direction))
+            sector = scan.left if direction > 0 else scan.right
+            if not sector.known(c):
+                continue
+            for magnitude in dict.fromkeys((c.side_steering, (limit + c.side_steering) / 2, limit)):
+                angle = direction * magnitude
+                gap = path_clearance(scan, angle, checked)
+                if gap > 0:
+                    candidates.append((gap, angle, direction))
         if not candidates:
-            return 'STOP_PATH_BLOCKED', 0., 0., previous
-        # Keep the committed direction while at least one of its near paths is clear.
-        pool = [p for p in candidates if p[2] == previous]
-        preferred = pick_side(s, c, 0)
-        if not pool:
-            pool = candidates
-            scores = direction_free_space(s, c) if direction_scores is None else direction_scores
-            left = scores[1] if scores[1] is not None else 0.
-            right = scores[-1] if scores[-1] is not None else 0.
-            if abs(left - right) > c.direction_score_margin:
-                distant_side = 1 if left > right else -1
-                distant_pool = [p for p in candidates if p[2] == distant_side]
-                if distant_pool:
-                    pool = distant_pool
-        best_gap = max(gap for gap, angle, direction in pool)
-        # Among comparable gaps, keep a decisive turn during the active manoeuvre.
-        tolerance = min(c.switch_margin, best_gap * .25)
-        comparable = [p for p in pool if p[0] >= best_gap - tolerance]
-        gap, candidate, direction = max(comparable, key=lambda p: (
-            p[2] == preferred, abs(p[1]), p[0]))
-        if direction == previous:
-            return ('HOLD_LEFT' if direction > 0 else 'HOLD_RIGHT', speed, candidate, direction)
-        if candidate == steering:
-            return state, speed, steering, side
-        return ('PATH_LEFT' if direction > 0 else 'PATH_RIGHT', speed, candidate, direction)
-    if steering == 0:
-        return state, speed, steering, side
-    target, opposite = (s.left, s.right) if steering > 0 else (s.right, s.left)
-    target_free = target.known(c) and target.distance > c.near_distance + DISTANCE_EPS
-    if target_free:
-        return state, speed, steering, side
-    opposite_free = opposite.known(c) and opposite.distance > c.near_distance + DISTANCE_EPS
-    if opposite_free:
-        side = -1 if steering > 0 else 1
-        # Correct an unsafe direction gently; do not restart a full-lock turn
-        # simply because a neighbouring vehicle remains alongside.
-        steering = side * min(abs(steering), c.side_steering)
-        suffix = 'SIDE_LEFT' if side > 0 else 'SIDE_RIGHT'
-        return f'{state}/{suffix}', min(speed, c.avoid_speed), steering, side
-    if s.front.known(c) and s.front.distance > c.near_distance + DISTANCE_EPS:
-        return f'{state}/SIDES_BLOCKED_FORWARD', min(speed, c.avoid_speed), 0., 0
-    return 'STOP_NO_SIDE_SPACE', 0., 0., 0
+            return 'STOP_PATH_BLOCKED', 0., 0., side
+        preferred = 0
+        left, right = scores.get(1), scores.get(-1)
+        if left is not None or right is not None:
+            if left != right:
+                preferred = 1 if (left or 0.) > (right or 0.) else -1
+        pool = ([p for p in candidates if p[2] == side]
+                or [p for p in candidates if p[2] == preferred] or candidates)
+        best = max(p[0] for p in pool)
+        tolerance = min(c.switch_margin, best * .25)
+        comparable = [p for p in pool if p[0] >= best - tolerance]
+        gap, angle, direction = min(comparable, key=lambda p: (abs(p[1]), -p[0]))
+        return ('AVOID_LEFT' if direction > 0 else 'AVOID_RIGHT'), speed, angle, direction
+
+    result = evaluate(c)
+    return (result, c) if result[1] > 0 else adaptive_prefix(evaluate, c) or (result, c)
 
 
-def target_path(s, c, memory, pose):
-    """Follow one fixed lateral goal; blocked alignment must not restart a turn."""
-    if not s.front.known(c):
+def remember_obstacle(scan, c, memory, pose):
+    """Remember the triggering observed footprint in odom, not a sector minimum."""
+    memory.obstacle = None
+    if pose is None:
+        return
+    candidates = list(scan.boxes) or [(x, y, .02, .02, 0.) for x, y in scan.points]
+    front = c.vehicle_length / 2
+    width = c.vehicle_width / 2 + c.clearance_margin
+    ahead = []
+    for x, y, hx, hy, yaw in candidates:
+        ex = abs(math.cos(yaw)) * hx + abs(math.sin(yaw)) * hy
+        ey = abs(math.sin(yaw)) * hx + abs(math.cos(yaw)) * hy
+        if x + ex > front and abs(y) <= width + ey:
+            ahead.append((x - ex, x, y, hx, hy, yaw))
+    if not ahead:
+        return
+    _, x, y, hx, hy, yaw = min(ahead)
+    co, si = math.cos(pose.yaw), math.sin(pose.yaw)
+    memory.obstacle = (pose.x + co*x - si*y, pose.y + si*x + co*y,
+                       hx, hy, pose.yaw + yaw)
+    memory.frame = pose.frame
+
+
+def obstacle_passed(scan, c, memory, pose):
+    if memory.obstacle is None:
+        # Without an entry reference, require observed side passage rather
+        # than assuming a briefly clear forward preview means the car passed.
+        front = c.vehicle_length / 2 + c.clearance_margin
+        width = c.vehicle_width / 2 + c.clearance_margin
+        for x, y, hx, hy, yaw in scan.boxes:
+            ex = abs(math.cos(yaw))*hx + abs(math.sin(yaw))*hy
+            ey = abs(math.sin(yaw))*hx + abs(math.cos(yaw))*hy
+            if x - ex <= front and -memory.side*y - ey > width:
+                return True
+        return not (scan.points or scan.boxes) and scan.front.distance >= c.far_distance
+    if pose is None or pose.frame != memory.frame:
+        return False
+    ox, oy, hx, hy, yaw = memory.obstacle
+    co, si = math.cos(pose.yaw), math.sin(pose.yaw)
+    dx, dy = ox - pose.x, oy - pose.y
+    x, y = co*dx + si*dy, -si*dx + co*dy
+    relative = yaw - pose.yaw
+    ex = abs(math.cos(relative))*hx + abs(math.sin(relative))*hy
+    ey = abs(math.sin(relative))*hx + abs(math.cos(relative))*hy
+    return (x - ex <= c.vehicle_length / 2 + c.clearance_margin
+            and -memory.side*y - ey > c.vehicle_width / 2 + c.clearance_margin)
+
+
+def control_command(scan, c, memory, lane_steering=None, heading_error=None, scores=None, pose=None):
+    """Straight -> fixed-side avoidance -> heading alignment -> lane following."""
+    if not scan.front.known(c):
         return ('STOP_FRONT_UNKNOWN', 0., 0., memory.side), c
-    if s.front.distance <= c.stop_distance + DISTANCE_EPS:
+    if scan.front.distance <= c.stop_distance + DISTANCE_EPS:
         return ('STOP_TOO_CLOSE', 0., 0., memory.side), c
-    angle = memory.target.command(pose, c)
-    speed = c.near_speed if s.front.distance <= c.near_distance else c.avoid_speed
-    for distance in dict.fromkeys((c.preview_distance, min(c.preview_distance, c.creep_preview_distance))):
-        checked = replace(c, preview_distance=distance)
-        for steering in dict.fromkeys((angle, angle / 2)):
-            if path_clear(s, steering, checked):
-                state = 'TARGET_ALIGN' if steering * memory.side <= 0 else 'TARGET_SHIFT'
-                return (state, min(speed, c.near_speed) if distance < c.preview_distance else speed,
-                        steering, memory.side), checked
-    return ('STOP_TARGET_BLOCKED', 0., 0., memory.side), c
-
-
-def choose_path(s, c, previous=0, lane_steering=0., direction_scores=None,
-                pass_steering=0.):
-    """Try the full arc first, then a slower checked prefix without relaxing bounds."""
-    result = decide(s, c, previous, lane_steering, direction_scores, pass_steering)
-    if (result[0] != 'STOP_PATH_BLOCKED'
-            or c.creep_preview_distance >= c.preview_distance):
-        return result, c
-    short = replace(c, preview_distance=c.creep_preview_distance)
-    candidate = decide(s, short, previous, lane_steering, direction_scores, pass_steering)
-    if candidate[1] > 0:
-        state, speed, steering, side = candidate
-        return (state, min(speed, c.near_speed), steering, side), short
-    return result, c
+    forward = forward_entry_clear(scan, c)
+    obstacle_forward = forward_entry_clear(replace(scan, road=None), c)
+    if memory.phase == 'TURN':
+        if obstacle_passed(scan, c, memory, pose):
+            memory.phase = 'ALIGN'
+            memory.side, memory.obstacle = 0, None
+        else:
+            result, checked = turn_path(scan, c, memory.side, scores)
+            if result[1] > 0 and result[3] != memory.side:
+                memory.side = result[3]
+                remember_obstacle(scan, c, memory, pose)
+            return result, checked
+    if memory.phase == 'ALIGN':
+        if not obstacle_forward:
+            result, checked = turn_path(scan, c, 0, scores)
+            if result[1] > 0:
+                memory.side, memory.phase = result[3], 'TURN'
+                remember_obstacle(scan, c, memory, pose)
+            return result, checked
+        if heading_error is None:
+            return ('STOP_ALIGNMENT_REFERENCE', 0., 0., memory.side), c
+        if abs(heading_error) > math.radians(5):
+            angle = max(-c.max_lane_steering, min(c.max_lane_steering, c.lane_gain * heading_error))
+            if abs(angle) < 1e-6:
+                return ('STOP_ALIGNMENT_REFERENCE', 0., 0., memory.side), c
+            return checked_command(scan, c, (angle, angle / 2), 'ALIGN', c.avoid_speed, memory.side)
+        memory.phase, memory.side = 'LANE', 0
+    if not forward:
+        result, checked = turn_path(scan, c, memory.side, scores)
+        if result[1] > 0:
+            memory.side, memory.phase = result[3], 'TURN'
+            remember_obstacle(scan, c, memory, pose)
+        return result, checked
+    if memory.phase == 'LANE' and lane_steering is not None:
+        angle = max(-c.max_lane_steering, min(c.max_lane_steering, lane_steering))
+        speed = c.avoid_speed if abs(angle) > 1e-6 else c.cruise_speed
+        return checked_command(scan, c, (angle, angle / 2, 0.), 'LANE_FOLLOW', speed)
+    return ('PATH_FORWARD', c.cruise_speed, 0., 0), c
 
 
 def path_rejections(s, c):
@@ -731,6 +695,15 @@ def lane_pass_hint(data, c):
         return 0.
     heading = data[9] if data[10] > 0 else data[2]
     return max(-c.max_lane_steering, min(c.max_lane_steering, c.lane_gain * heading))
+
+
+def lane_guidance(lane, road, c, now):
+    """Prefer fresh camera measurements; odometry bridges missing lane input."""
+    if lane is not None and 0 <= now - lane[1] < c.lane_timeout:
+        return lane[0], lane_pass_hint(lane[2], c)
+    if road is not None:
+        return road.lane_steering(c), road.heading_steering(c)
+    return None, 0.
 
 
 def lane_reference(data):
@@ -828,9 +801,9 @@ def command_markers(scan, c, state, speed, steering, preview_steering=None, lane
     else:
         for lateral in (-road.half_width, road.half_width):
             distance = -.4
-            while distance < c.direction_far_distance:
+            while distance < c.visual_road_distance:
                 limits.points += [point(*road.point(distance, lateral), z=.03),
-                                  point(*road.point(min(distance + .15, c.direction_far_distance), lateral), z=.03)]
+                                  point(*road.point(min(distance + .15, c.visual_road_distance), lateral), z=.03)]
                 distance += .25
         lane_id.text = f'LANE{road.lane}\nEST'
 
@@ -944,7 +917,7 @@ def main(args=None):
             self.path_pub = self.create_publisher(Path, '/objavoid/path', visual_qos)
             self.cluster_pub = self.create_publisher(MarkerArray, '/objavoid/clusters', visual_qos)
             self.scan_sub = self.create_subscription(LaserScan, scan_topic, self.on_scan,
-                                                     qos_profile_sensor_data)
+                                                     QoSProfile(depth=1, reliability=qos_profile_sensor_data.reliability))
             self.lane_sub = self.create_subscription(Float32MultiArray, lane_topic,
                                                      self.on_lane, QoSProfile(depth=1))
             self.odom_sub = self.create_subscription(Odometry, odom_topic, self.on_odom,
@@ -958,9 +931,7 @@ def main(args=None):
             self.get_logger().info('Compact obstacle clusters: side selection + /objavoid/clusters')
             self.get_logger().info(f'Applied distances: far={self.c.far_distance:.2f} '
                                    f'near={self.c.near_distance:.2f} stop={self.c.stop_distance:.2f}m')
-            self.get_logger().info(f'Direction lookahead: {self.c.direction_near_distance:.2f}'
-                                   f'~{self.c.direction_far_distance:.2f}m, '
-                                   f'offset={self.c.direction_offset:.2f}m')
+            self.get_logger().info('Direction choice: opposite the nearest cluster behind the front obstacle')
             self.get_logger().info(f'Road guard={self.c.road_guard_enabled}: '
                                    f'initial lane={self.c.initial_lane}, lane width={self.c.lane_width:.2f}m, '
                                    f'odometry={odom_topic}; waiting for entry lane reference')
@@ -1082,31 +1053,24 @@ def main(args=None):
                 self.memory.reset()
                 state = road_error
             else:
-                hint = (self.lane[0] if self.lane and
-                        0 <= now - self.lane[1] < self.c.lane_timeout else 0.)
-                pass_hint = (lane_pass_hint(self.lane[2], self.c) if self.lane and
-                             0 <= now - self.lane[1] < self.c.lane_timeout else 0.)
-                if self.current_road is not None:
-                    hint = self.current_road.lane_steering(self.c)
-                    pass_hint = self.current_road.heading_steering(self.c)
+                hint, _ = lane_guidance(self.lane, self.current_road, self.c, now)
                 control_scan = object_sectors(self.scan, self.clusters, self.c)
                 control_scan = replace(control_scan, road=self.current_road)
-                self.direction_scores = direction_free_space(control_scan, self.c)
-                self.memory.observe(control_scan, self.c, now)
-                tracking = self.memory.turning and self.memory.target is not None
-                if tracking and (not odom_fresh(self.odom, self.c, ros_now, now)
-                                 or self.odom.frame != self.memory.target.frame):
-                    result = ('STOP_TARGET_ODOM', 0., 0., self.memory.side)
-                else:
-                    if tracking and self.memory.target.reached(self.odom, self.c):
-                        self.memory.turning = False
-                        tracking = False
-                    if tracking:
-                        result, self.path_config = target_path(control_scan, self.c, self.memory, self.odom)
-                    else:
-                        result, self.path_config = choose_path(
-                            control_scan, self.c, self.memory.side, hint, self.direction_scores,
-                            pass_steering=pass_hint)
+                self.direction_scores = cluster_direction_scores(control_scan, self.c)
+                pose = self.odom if odom_fresh(self.odom, self.c, ros_now, now) else None
+                if self.memory.side == 0 and pose is not None:
+                    self.memory.entry_yaw, self.memory.frame = pose.yaw, pose.frame
+                heading_error = None
+                if self.current_road is not None:
+                    heading_error = math.atan2(-self.current_road.nx, self.current_road.ny)
+                elif pose is not None and self.memory.entry_yaw is not None and pose.frame == self.memory.frame:
+                    delta = self.memory.entry_yaw - pose.yaw
+                    heading_error = math.atan2(math.sin(delta), math.cos(delta))
+                elif self.lane is not None and 0 <= now - self.lane[1] < self.c.lane_timeout:
+                    data = self.lane[2]
+                    heading_error = data[9] if data[10] > 0 else data[2]
+                result, self.path_config = control_command(
+                    control_scan, self.c, self.memory, hint, heading_error, self.direction_scores, pose)
                 base_state, speed, steering, selected = result
                 state = ('CREEP/' + base_state if speed > 0
                          and self.path_config.preview_distance < self.c.preview_distance else base_state)
@@ -1118,15 +1082,15 @@ def main(args=None):
                         0., 0., 0., self.c.vehicle_length / 2 + self.c.clearance_margin,
                         self.c.vehicle_width / 2 + self.c.clearance_margin) <= 0:
                     state, speed, steering = 'STOP_ROAD_BOUNDARY', 0., 0.
-                if state in ('STOP_SURROUNDED', 'STOP_FRONT_UNKNOWN'):
+                if state == 'STOP_FRONT_UNKNOWN':
                     self.memory.reset()
-                elif (speed > 0 and steering != 0
-                      and base_state not in ('CLEAR', 'PASS_ALIGN', 'TARGET_SHIFT', 'TARGET_ALIGN')):
-                    pose = self.odom if odom_fresh(self.odom, self.c, ros_now, now) else None
-                    if pose is None:
-                        state, speed, steering = 'STOP_TARGET_ODOM', 0., 0.
-                    else:
-                        self.memory.select(selected, pose, self.c, self.current_road)
+                # A scan can expire during an expensive search, too. Never
+                # publish motion based only on the freshness check at entry.
+                finished = time.monotonic()
+                if not scan_fresh(self.scan, self.c,
+                                  self.get_clock().now().nanoseconds * 1e-9, finished):
+                    state, speed, steering = 'STOP_SCAN_EXPIRED', 0., 0.
+                    self.memory.reset()
             current_lane = self.current_road.lane if self.current_road is not None else None
             if state != self.last_state or current_lane != self.last_lane or now - self.last_log >= 2.:
                 distances = ''
@@ -1139,14 +1103,14 @@ def main(args=None):
                         v = self.direction_scores[side]
                         return 'unknown' if v is None or state.startswith(('WAIT_', 'STOP_SCAN_')) else f'{v:.2f}'
                     hold = {1: 'LEFT', -1: 'RIGHT', 0: 'NONE'}[self.memory.side]
-                    phase = 'TURN' if self.memory.turning else 'PASS' if self.memory.side else 'NONE'
-                    distances += f' far_left={score(1)} far_right={score(-1)} hold={hold} phase={phase}'
+                    phase = self.memory.phase
+                    distances += f' prefer_left={score(1)} prefer_right={score(-1)} hold={hold} phase={phase}'
                     if self.current_road is not None:
                         distances += f' lane={self.current_road.lane} road_offset={self.current_road.offset:+.2f}m'
                     distances += f' path={self.path_config.preview_distance:.2f}m'
-                    if self.memory.target is not None and self.odom is not None:
-                        error, heading = self.memory.target.errors(self.odom)
-                        distances += f' target_error={error:+.2f}m heading={math.degrees(heading):+.1f}deg'
+                    if state == 'STOP_SCAN_EXPIRED':
+                        distances += (f' scan_age={ros_now-self.scan.stamp:.3f}s'
+                                      f' receive_age={time.monotonic()-self.scan.received:.3f}s')
                     if state == 'STOP_PATH_BLOCKED' or state.startswith('CREEP/'):
                         obstacles, road, total = path_rejections(control_scan, self.c)
                         distances += f' long_rejected_obstacles={obstacles}/{total} long_rejected_road={road}/{total}'
