@@ -81,6 +81,12 @@ CLI로도 바꿀 수 있습니다: `ros2 param set /lane_fusion_pid_controller k
 `parking_slowdown_speed`(0.3), `parking_slowdown_duration`(10.0), `parking_slowdown_max_gap`(0.5),
 `parking_slowdown_cooldown`(5.0, 감속 종료 기준).
 
+감속이 시작되는 순간 `/parking/approach_start` (`std_msgs/Header`)를 한 번 발행합니다.
+`stamp`는 감속 시작 ROS 시각이며 실제 속도가 내려갈 때까지 기다리지 않습니다.
+False·확인 간격 초과·감속 및 cooldown 중 수신은 기존 확인 규칙을 따릅니다.
+parking 노드는 이 신호 시각의 EKF 위치를 기준으로 `/parking/approach_odometry`를 발행합니다.
+EKF 자체는 계속 실행하며 기존 지도나 주행 명령의 좌표계를 초기화하지 않습니다.
+
 ## 검증 (2026-11-05, 이 PC, headless 시뮬·별도 DDS 도메인)
 
 - 단위 테스트 12개 통과(`./build/autorace_lane_fusion_pid/test_pid`): 부호, 결합 오차, 측정 시간 기반 D, 적분 제한·포화 시 미적분, 소실·timeout 정지, 조향 변화율·가속 제한, 측정 튐 제한, YAML 왕복.

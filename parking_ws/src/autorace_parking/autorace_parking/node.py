@@ -1,6 +1,7 @@
 """Parking ROS adapter. Motion is emitted only through the documented mux input."""
 from concurrent.futures import ProcessPoolExecutor
 from collections import deque
+from copy import deepcopy
 from dataclasses import fields, replace
 import json
 import math
@@ -33,6 +34,7 @@ from .control import Follower, build_plan_report, local_goal,needs_reverse_for_g
 from .regions import with_occupied_slots,first_occupied_path_collision,first_path_collision
 from .tracking import ScanTracker, compose, inverse
 from .localization import FusedTracker, PoseHistory, OdomSample
+from .approach_reference import ApproachReference, relative_covariance
 from .obstacle_memory import ObstacleMemory,MemoryScan
 from .diagnostics import operator_reason, reason_text, state_text
 from .roi import candidate_view
@@ -167,6 +169,7 @@ class ParkingNode(Node):
                                    max_std=parameter('localization_max_stddev', .5),
                                    max_yaw_std=parameter('localization_max_yaw_stddev', .5))
         self.odometry.samples=deque(maxlen=16)  # Small interpolation window; never a processing backlog.
+        self.approach_reference = ApproachReference(self.localization_timeout)
         self.fusion_health = None
         self.fusion_health_received = None
         self.localization_not_before = None
@@ -250,6 +253,7 @@ class ParkingNode(Node):
         self.command_pub = self.create_publisher(AckermannDriveStamped,
                                                '/mission/parking/command_03', QoSProfile(depth=1))
         self.localization_pub = self.create_publisher(Odometry, '/parking/localization/odometry', 10)
+        self.approach_pub = self.create_publisher(Odometry, '/parking/approach_odometry', 10)
         self.lane_handoff_pub = self.create_publisher(Header, '/parking/lane_handoff', 1)
         if self.exit_on_lane:
             self.create_subscription(Float32MultiArray, '/lane_fusion/target', self.on_exit_lane_target, 1)
@@ -257,6 +261,7 @@ class ParkingNode(Node):
         self.ldf_pub = self.create_publisher(Float32, '/parking/ldf', 1)
         self.lookahead_pub = self.create_publisher(MarkerArray, '/parking/lookahead', 1)
         if self.localization_source == 'fused':
+            self.create_subscription(Header, '/parking/approach_start', self.on_approach_start, 10)
             self.create_subscription(Odometry, parameter('localization_topic', '/odometry/filtered'),
                                      self.on_localization, QoSProfile(depth=1,reliability=ReliabilityPolicy.BEST_EFFORT))
             self.create_subscription(String, '/localization/health', self.on_fusion_health, QoSProfile(depth=1))
@@ -402,6 +407,21 @@ class ParkingNode(Node):
         except (ValueError, TypeError, KeyError, AttributeError):
             return
 
+    def on_approach_start(self, msg):
+        stamp = msg.stamp.sec + msg.stamp.nanosec * 1e-9
+        if self.approach_reference.request(stamp, self.now_seconds()):
+            self.get_logger().info('주차 접근 기준점 요청: 감속 시작 시각의 EKF 위치를 기다립니다.')
+            self.resolve_approach_reference()
+        elif self.approach_reference.reason:
+            self.get_logger().warning(self.approach_reference.reason)
+
+    def resolve_approach_reference(self):
+        previous = self.approach_reference.reason
+        if self.approach_reference.resolve(self.odometry, self.now_seconds()):
+            self.get_logger().info('주차 접근 기준점 설정: 상대 위치·방향 계산을 시작합니다.')
+        elif self.approach_reference.reason != previous and self.approach_reference.reason:
+            self.get_logger().warning(self.approach_reference.reason)
+
     def on_localization(self, msg):
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         if self.localization_not_before is not None and stamp<self.localization_not_before:return
@@ -420,6 +440,18 @@ class ParkingNode(Node):
                                                tuple(msg.pose.covariance[i] for i in (0, 7, 35))))
         if accepted:
             self.last_localization_rejection=None
+            self.resolve_approach_reference()
+            relative = self.approach_reference.relative(self.odometry.samples[-1])
+            if relative is not None and not self.odometry.discontinuity:
+                output = deepcopy(msg)
+                output.header.frame_id = 'parking_approach'
+                output.pose.pose.position.x, output.pose.pose.position.y = relative[:2]
+                output.pose.pose.position.z = 0.
+                output.pose.pose.orientation.x = output.pose.pose.orientation.y = 0.
+                output.pose.pose.orientation.z = math.sin(relative[2]/2)
+                output.pose.pose.orientation.w = math.cos(relative[2]/2)
+                output.pose.covariance = relative_covariance(msg.pose.covariance, self.approach_reference.origin[2])
+                self.approach_pub.publish(output)
             self.drain_pending_scans()
 
     def drain_pending_scans(self):
@@ -566,6 +598,7 @@ class ParkingNode(Node):
         self.roi_pub.publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))
 
     def reset_state(self):
+        self.approach_reference.reset(self.now_seconds())
         self.reset_motion()
         self.activation.reset()
         if self.floor_gate is not None:
@@ -1257,6 +1290,7 @@ class ParkingNode(Node):
         self.reason=''
 
     def tick(self):
+        self.resolve_approach_reference()
         tick_started=time.monotonic()
         now = self.now_seconds()
         self.poll_steering_model()

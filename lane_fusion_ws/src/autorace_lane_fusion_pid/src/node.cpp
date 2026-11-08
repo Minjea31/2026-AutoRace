@@ -7,6 +7,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/header.hpp>
 
 namespace {
 double steady() {
@@ -66,6 +67,7 @@ public:
       vehicle_ = create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/mission/lane",
                                                                               rclcpp::QoS(1));
     state_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_fusion_pid/state", rclcpp::QoS(1));
+    approach_start_ = create_publisher<std_msgs::msg::Header>("/parking/approach_start", rclcpp::QoS(10));
     target_ = create_subscription<std_msgs::msg::Float32MultiArray>(
         input, rclcpp::QoS(1), [this](std_msgs::msg::Float32MultiArray::ConstSharedPtr msg) {
           if (msg->data.size() < 6)
@@ -95,9 +97,13 @@ public:
     parking_sign_ = create_subscription<std_msgs::msg::Bool>(
         parking_topic, rclcpp::QoS(10),
         [this, parking_speed, parking_duration](std_msgs::msg::Bool::ConstSharedPtr msg) {
-          if (parking_.receive(msg->data, steady()))
+          if (parking_.receive(msg->data, steady())) {
+            std_msgs::msg::Header event;
+            event.stamp = now();
+            approach_start_->publish(event);
             RCLCPP_INFO(get_logger(), "주차 표지 확인: lane 속도 최대 %.2f m/s, %.1f초간 감속",
                         parking_speed, parking_duration);
+          }
         });
     timer_ = create_wall_timer(std::chrono::milliseconds(20), [this] { tick(); });
     RCLCPP_INFO(get_logger(), "lane_fusion_pid_controller: %s -> /lane_fusion_pid/command%s", input.c_str(),
@@ -137,6 +143,7 @@ private:
   double received_ = 0, last_tick_ = -1, last_measure_ = -1e18;
   rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr command_, vehicle_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr state_;
+  rclcpp::Publisher<std_msgs::msg::Header>::SharedPtr approach_start_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr target_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr parking_sign_;
   rclcpp::TimerBase::SharedPtr timer_;

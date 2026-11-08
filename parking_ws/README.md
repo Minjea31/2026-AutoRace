@@ -3,6 +3,26 @@
 차량 오른쪽의 장애물과 빈 주차칸을 찾고, 경로 생성·추종·주차·출차를 수행합니다.
 위치는 sensor_ws의 휠·IMU 융합 결과를 사용하고, 라이다 관측을 기억 지도에 누적합니다.
 
+## 감속 시작 기준 상대 위치
+
+lane이 주차 표지를 연속 2회 확인해 감속을 시작하면 `/parking/approach_start`
+(`std_msgs/Header`, 시작 시각)를 발행합니다. fused 모드의 parking 노드는 그 시각에 맞춘
+EKF 위치·방향을 기준점으로 저장합니다. EKF는 계속 실행하며 기존 주차 지도·경로·TF는 유지합니다.
+
+`/parking/approach_odometry` (`nav_msgs/Odometry`)는 기준점에 대한 상대 x/y/yaw를
+`parking_approach` 좌표계로 출력합니다. 기준점의 위치·방향은 0이며 twist는 기존
+base_link 기준을 유지합니다. pose covariance는 고정 기준점 좌표계로 회전합니다.
+이 토픽은 별도 관측 출력으로, 기존 경로 제어의 입력 토픽을 대체하지 않습니다. TF는 추가하지 않습니다.
+
+시작 시각을 사이에 둔 EKF 샘플로 위치를 보간하고, 최대 `localization_timeout`(기본 0.3초)까지만 기다립니다.
+오래된·미래·초기화 이전 신호는 거부하며, 데이터 누락 시 기준점을 만들지 않고 로그를 남깁니다.
+중복 시작 신호는 현재 기준점을 바꾸지 않습니다. `/parking/reset` 또는 기존 시계 역행 초기화 때
+기준점을 해제합니다. 신호는 volatile QoS로 발행되므로 수신 노드는 감속 시작 전에 실행해야 합니다.
+
+```bash
+ros2 topic echo /parking/approach_odometry
+```
+
 ## 빌드와 실차 실행
 
 센서와 mux를 먼저 실행합니다. ROS 2 Humble 시스템 환경에서 빌드하세요.
