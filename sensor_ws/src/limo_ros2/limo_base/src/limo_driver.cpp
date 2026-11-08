@@ -55,10 +55,12 @@ LimoDriver::LimoDriver(std::string node_name):rclcpp::Node(node_name),keep_runni
     steering_command_model_.gain = this->declare_parameter<double>("steering_command_gain", 1.92, fixed_model);
     steering_command_model_.deadband = this->declare_parameter<double>("steering_command_deadband", 0.23, fixed_model);
     steering_command_model_.wire_limit = this->declare_parameter<double>("steering_command_limit", 0.35, fixed_model);
+    steering_command_model_.wire_offset = this->declare_parameter<double>("steering_command_offset", 0.0, fixed_model);
     steering_command_model_.validate();
-    RCLCPP_INFO(get_logger(), "Ackermann command calibration=%s gain=%.2f deadband=%.2f cap=%.2f",
+    RCLCPP_INFO(get_logger(), "Ackermann command calibration=%s gain=%.2f deadband=%.2f cap=%.2f offset=%+.3f",
                 steering_command_model_.enabled ? "true" : "false", steering_command_model_.gain,
-                steering_command_model_.deadband, steering_command_model_.wire_limit);
+                steering_command_model_.deadband, steering_command_model_.wire_limit,
+                steering_command_model_.wire_offset);
 
     std::cout << "Loading parameters: " << std::endl;
     std::cout << "- port name: " << port_name << std::endl;

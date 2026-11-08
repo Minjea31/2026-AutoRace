@@ -75,4 +75,10 @@ ament_export_include_directories(
   include
 )
 
+if(BUILD_TESTING)
+  enable_testing()
+  add_executable(steering_command_model_test test/steering_command_model_test.cpp)
+  add_test(NAME steering_command_model COMMAND steering_command_model_test)
+endif()
+
 ament_package()

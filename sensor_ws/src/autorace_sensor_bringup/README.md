@@ -10,6 +10,10 @@ cd /home/wego/2026-AutoRace/sensor_ws
 ./build_standalone.sh
 source install/setup.bash
 ros2 launch autorace_sensor_bringup sensors.launch.py
+# 04번 차량: 조향 중립 보정 사용
+ros2 launch autorace_sensor_bringup sensors.launch.py vehicle:=04
+# 06번 차량: 보정 없음 (인자를 생략한 기본 실행과 동일)
+ros2 launch autorace_sensor_bringup sensors.launch.py vehicle:=06
 ```
 
 종료는 실행 터미널에서 Ctrl+C. 다른 터미널도 같은 순서로 source한다.
@@ -21,6 +25,7 @@ ros2 launch autorace_sensor_bringup sensors.launch.py
 
 | 인자 | 기본값 | 의미 |
 |---|---|---|
+| vehicle | 06 | 실제 차량 번호. 04: 조향 중립 보정 +0.04 rad, 06: 보정 없음 |
 | enable_base | true | limo_base: IMU, Odometry, 상태 |
 | enable_lidar | true | YDLIDAR |
 | enable_camera | true | Orbbec Astra RGB |
@@ -41,6 +46,24 @@ ros2 launch autorace_sensor_bringup sensors.launch.py
 | tf_profile | wego_limo_pro | 공식 기본 장착 위치. existing은 이전 로컬 보정 |
 | startup_timeout | 15.0 | 첫 메시지 제한 시간(초) |
 | stale_timeout | 5.0 | 수신 중단 제한 시간(초), 확인 간격 1초 |
+
+차량 번호는 IP 주소와 독립적이다. `vehicle:=04`는 limo_base의
+`steering_command_offset`을 +0.04 rad로 설정하고, 기본 `06`은 0으로 설정한다.
+04의 값은 리모컨으로 실제 직진을 맞춘 구간에서 얻은 초기 시험값이며 실제 바퀴 각도가 아닌
+차량 내부 명령 단위이다. ROS 주행 명령의 아커만 조향에만 적용되고 정지 명령은 그대로 정지한다.
+중립 보정은 기존 `steering_command_calibration`의 gain/deadband 보정과 별개이다.
+04의 보정 후 명령은 `steering_command_limit`(기본 ±0.35 rad) 이내로 제한한다.
+06은 기존 명령 변환과 제한 동작을 그대로 사용한다. 조향 피드백 및 오도메트리 계산은 변경하지 않는다.
+외부 `autorace_calibration` 실행 파일은 사용하지 않는다. 기존 센서를 종료한 뒤 이 패키지의
+launch 하나만 실행한다. 빌드가 필요한 변경이므로 두 차량에서 다음 명령을 먼저 실행한다.
+
+```bash
+cd ~/2026-AutoRace/sensor_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+colcon build --packages-select limo_base autorace_sensor_bringup --symlink-install
+source install/setup.bash
+```
 
 ```bash
 # 하드웨어 접근 없이 모델/TF/EKF만 실행

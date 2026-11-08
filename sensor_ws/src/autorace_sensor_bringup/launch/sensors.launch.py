@@ -50,6 +50,12 @@ def _setup(context):
     if value('tf_profile') not in ('existing', 'wego_limo_pro'):
         raise ValueError('tf_profile must be existing or wego_limo_pro')
 
+    vehicle = value('vehicle')
+    offsets = {'04': 0.04, '06': 0.0}
+    if vehicle not in offsets:
+        raise ValueError('vehicle must be 04 or 06')
+    steering_offset = offsets[vehicle]
+
     ports = []
     if enabled('enable_lidar'):
         config = yaml.safe_load(Path(value('lidar_params')).read_text())
@@ -66,7 +72,7 @@ def _setup(context):
     raw_dir = log_dir / 'process_output'
     raw_dir.mkdir(exist_ok=True)
     options = {key: value(key) for key in (
-        'enable_base', 'enable_lidar', 'enable_camera', 'enable_description',
+        'vehicle', 'enable_base', 'enable_lidar', 'enable_camera', 'enable_description',
         'enable_camera_tf', 'enable_ekf', 'port_name', 'lidar_params', 'ekf_params', 'fusion_params',
         'camera_name', 'camera_launch', 'degree', 'startup_timeout', 'stale_timeout', 'tf_profile',
         'camera_tf_publish_rate', 'enable_depth', 'enable_ir',
@@ -76,6 +82,7 @@ def _setup(context):
         'started_at': datetime.now(timezone.utc).isoformat(), 'options': options,
         'base_executable': 'limo_base', 'use_mcnamu': False,
         'base_pub_odom_tf': True,
+        'steering_command_offset': steering_offset,
     }, indent=2) + '\n')
 
     def record(kind, event=None):
@@ -116,6 +123,7 @@ def _setup(context):
         )),
         RegisterEventHandler(OnShutdown(on_shutdown=lambda e, c: record('LAUNCH_SHUTDOWN'))),
         LogInfo(msg=f'Sensor session logs: {log_dir}'),
+        LogInfo(msg=f'Vehicle {vehicle}: Ackermann steering offset {steering_offset:+.3f} rad (wire units)'),
     ]
     topics, types = [], []
     expected_nodes = ['/sensor_monitor']
@@ -138,6 +146,7 @@ def _setup(context):
                 'steering_command_gain': float(value('steering_command_gain')),
                 'steering_command_deadband': float(value('steering_command_deadband')),
                 'steering_command_limit': float(value('steering_command_limit')),
+                'steering_command_offset': steering_offset,
             }],
         ))
         watch('/imu', 'sensor_msgs/msg/Imu')
@@ -211,6 +220,7 @@ def _setup(context):
 def generate_launch_description():
     share = Path(get_package_share_directory('autorace_sensor_bringup'))
     defaults = {
+        'vehicle': '06',
         'enable_base': 'true', 'enable_lidar': 'true', 'enable_camera': 'true',
         'enable_description': 'true', 'enable_camera_tf': 'true', 'enable_ekf': 'true',
         'port_name': 'ttylimo',
