@@ -315,7 +315,11 @@ class ParkingNode(Node):
                  'control_hz':'control_hz','require_parking_heading':'require_parking_heading',
                  'require_path_heading':'require_path_heading','parking_position_tolerance':'parking_position_tolerance',
                  'max_steering_rate':'max_steering_rate','min_turn_speed':'min_turn_speed'}
-        unsupported = set(updates)-config_names-set(attrs)
+        localization_attrs = {'localization_max_stddev':'max_std',
+                              'localization_max_yaw_stddev':'max_yaw_std'}
+        localization_values = {name:updates.get(name,getattr(self.odometry,attr))
+                               for name,attr in localization_attrs.items()}
+        unsupported = set(updates)-config_names-set(attrs)-set(localization_attrs)
         if unsupported:
             return SetParametersResult(successful=False,reason='재시작이 필요한 설정: '+', '.join(sorted(unsupported)))
         try:
@@ -326,6 +330,9 @@ class ParkingNode(Node):
             elif 'require_goal_heading' in updates:
                 values['require_path_heading'] = cfg.require_goal_heading
             validate_settings(cfg)
+            if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v < 0
+                   for v in localization_values.values()):
+                raise ValueError('위치·방향 표준편차 한계는 0 이상의 유한한 숫자여야 합니다. 0은 상한 해제입니다.')
             for name,value in updates.items():
                 if isinstance(value,(int,float)) and not isinstance(value,bool) and not math.isfinite(value):
                     raise ValueError(name+' must be finite')
@@ -348,6 +355,8 @@ class ParkingNode(Node):
                 self.follower.awaiting_target_path=True
         old_cfg,old_hz = self.cfg,self.control_hz
         self.cfg = cfg
+        for name,attr in localization_attrs.items():
+            setattr(self.odometry,attr,localization_values[name])
         for name,attr in attrs.items():
             setattr(self,attr,values[name])
         self.activation.required,self.activation.timeout = self.required_detections,self.sign_timeout
@@ -408,6 +417,9 @@ class ParkingNode(Node):
             if not -.05 <= self.now_seconds()-health['stamp'] <= self.localization_timeout:
                 self.restart_localization(self.now_seconds(), 'Fusion health is stale or future-dated')
                 return
+            if not health['ready']:
+                reason='Fusion inputs not ready: '+str(health.get('reason') or 'Wheel/IMU inputs unavailable or gyro calibration not complete')
+                self.restart_localization(self.now_seconds(),reason)
             self.fusion_health = health
             self.fusion_health_received = time.monotonic()
         except (ValueError, TypeError, KeyError, AttributeError):
@@ -446,12 +458,27 @@ class ParkingNode(Node):
                 or not all(math.isfinite(v) for v in values)
                 or abs(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w-1.) > .01):
             self.last_localization_rejection={'stamp':stamp,'age_s':self.now_seconds()-stamp,'frame':msg.header.frame_id,'child_frame':msg.child_frame_id}
-            self.odometry.reason = 'Invalid EKF frame, timestamp, quaternion or covariance'
+            rejection=self.last_localization_rejection
+            reason='Invalid EKF frame, timestamp, quaternion or covariance'
+            self.restart_localization(now,reason)
+            self.odometry.reason=reason
+            self.last_localization_rejection=dict(rejection,reason=reason)
             return
         yaw = math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z))
         accepted = self.odometry.add(OdomSample(stamp, (p.x, p.y, yaw), msg.twist.twist.linear.x,
                                                msg.twist.twist.angular.z,
                                                tuple(msg.pose.covariance[i] for i in (0, 7, 35))))
+        if not accepted:
+            self.last_localization_rejection={
+                'stamp':stamp,'age_s':self.now_seconds()-stamp,'reason':self.odometry.reason,
+                'variance':[msg.pose.covariance[i] for i in (0,7,35)],
+                'xy_variance_limit':self.odometry.max_std**2 if self.odometry.max_std > 0 else None,
+                'yaw_variance_limit':self.odometry.max_yaw_std**2 if self.odometry.max_yaw_std > 0 else None}
+            rejection=self.last_localization_rejection
+            self.restart_localization(now,rejection['reason'])
+            self.odometry.reason=rejection['reason']
+            self.last_localization_rejection=rejection
+            return
         if accepted:
             self.last_localization_rejection=None
             self.resolve_approach_reference()
@@ -503,33 +530,40 @@ class ParkingNode(Node):
             'last_odom_rejection':self.last_localization_rejection}
 
     def restart_localization(self, now, reason):
-        # Reset once per outage. Moving this cutoff on every tick would prevent
-        # any subsequently delivered scan/EKF pair from ever being accepted.
-        if self.localization_recovering or self.follower.exited:
+        # Every fault discards ALL partial recovery data too. Keep the first
+        # cutoff fixed during an outage so callback latency cannot starve recovery.
+        if self.follower.exited:
             return
-        before = self.synchronization_status(now)
-        self.last_localization_restart = dict(stamp=now, reason=reason,
-            **{key:before[key] for key in ('scan_age_s','odom_age_s','health_age_s')})
+        first_fault = not self.localization_recovering
+        rejection = None if first_fault else self.last_localization_rejection
+        cutoff = now if self.localization_not_before is None else self.localization_not_before
+        if first_fault:
+            before = self.synchronization_status(now)
+            self.last_localization_restart = dict(stamp=now, reason=reason,
+                **{key:before[key] for key in ('scan_age_s','odom_age_s','health_age_s')})
+            cutoff = now
         if self.activation.active:
             self.publish_command(0., 0.)
         budgets = (self.recovery_attempts, self.recovery_remaining, self.blind_reverse_remaining)
         parked = self.follower.parked
-        self.reset_motion()  # Cancels planners and clears all data in the old matching frame.
+        self.reset_motion()
         self.recovery_attempts, self.recovery_remaining, self.blind_reverse_remaining = budgets
         self.follower.parked = parked
         self.odometry.samples.clear()
         self.odometry.discontinuity = False
-        self.odometry.reason = ''
+        self.odometry.reason = rejection.get('reason','') if rejection else ''
+        self.approach_reference.reset(cutoff)
         self.fusion_health = self.fusion_health_received = None
-        self.last_localization_rejection = None
-        self.scan_not_before = self.localization_not_before = now
+        self.last_localization_rejection = rejection  # Diagnostic metadata only; no pose is retained.
+        self.scan_not_before = self.localization_not_before = cutoff
         self.planning_cache_key = self.planning_cache = None
         self.visual_path_cache_key = None
         self.visual_path_cache_blocked = False
         self.localization_recovering = True
-        self.localization_restart_count += 1
+        if first_fault:
+            self.localization_restart_count += 1
+            self.get_logger().warning('EKF 입력 오류: 이전 위치·스캔·매칭 기준·지도·경로·접근 기준점을 모두 폐기했습니다. 최신 정상 데이터로 다시 매칭합니다.')
         self.state, self.reason = 'WAITING_LOCALIZATION', reason
-        self.get_logger().warning('융합 위치 시각 오류: 이전 위치·스캔·매칭 기준·지도·경로를 폐기했습니다. 최신 데이터로 다시 매칭합니다.')
 
     def localization_ready(self, now):
         if self.localization_source == 'scan':
@@ -537,6 +571,7 @@ class ParkingNode(Node):
         health = self.fusion_health
         if health is None or self.fusion_health_received is None:
             self.reason = 'Fusion health unavailable'
+            self.restart_localization(now,self.reason)
             return False
         if (time.monotonic()-self.fusion_health_received > self.localization_timeout
                 or not -.05 <= now-health['stamp'] <= self.localization_timeout):
@@ -546,6 +581,7 @@ class ParkingNode(Node):
         if not health['ready']:
             self.reason = 'Fusion inputs not ready: '+str(health.get('reason') or
                            'Wheel/IMU inputs unavailable or gyro calibration not complete')
+            self.restart_localization(now,self.reason)
             return False
         if not self.tracker.healthy(now):
             self.reason = self.tracker.reason
@@ -1502,6 +1538,15 @@ class ParkingNode(Node):
                 sync=self.synchronization_status(now)
                 ages=', '.join(f'{key}='+('--' if sync[key] is None else f'{sync[key]:.2f}s') for key in ('scan_age_s','odom_age_s','health_age_s'))
                 log_explanation+=f' [{ages}; 정렬 대기 {sync["pending_scans"]}개]'
+                rejection=self.last_localization_rejection
+                if rejection and 'variance' in rejection:
+                    vx,vy,vyaw=rejection['variance']
+                    xy_limit=rejection['xy_variance_limit']
+                    yaw_limit=rejection['yaw_variance_limit']
+                    xy_text='해제' if xy_limit is None else f'{xy_limit:.3f}m²'
+                    yaw_text='해제' if yaw_limit is None else f'{yaw_limit:.3f}rad²'
+                    log_explanation+=(f' [EKF 거부 분산: x={vx:.3f}, y={vy:.3f}m² / '
+                                      f'한계 {xy_text}; yaw={vyaw:.3f}rad² / 한계 {yaw_text}]')
                 if self.localization_recovering and self.last_localization_restart:
                     discarded = self.last_localization_restart
                     prior = ', '.join(f'{key}='+('--' if discarded[key] is None else f'{discarded[key]:.2f}s')

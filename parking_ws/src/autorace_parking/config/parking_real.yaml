@@ -87,8 +87,8 @@ parking_node:
     localization_source: fused
     localization_topic: /odometry/filtered
     localization_timeout: 0.3
-    localization_max_stddev: 1.0
-    localization_max_yaw_stddev: 0.5
+    localization_max_stddev: 0.0  # 0 disables the covariance magnitude ceiling
+    localization_max_yaw_stddev: 0.0  # 0 disables the yaw covariance magnitude ceiling
     goal_tolerance: 0.035
     goal_yaw_tolerance: 0.12
     odom_frame: parking_odom

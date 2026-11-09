@@ -33,8 +33,10 @@ class PoseHistory:
     def __init__(self, timeout=.3, max_speed=1.5, max_yaw_rate=3., max_std=.5, max_yaw_std=None):
         if max_yaw_std is None:
             max_yaw_std = max_std
-        if not all(math.isfinite(v) and v > 0 for v in (timeout, max_speed, max_yaw_rate, max_std, max_yaw_std)):
-            raise ValueError('Localization time, velocity and covariance bounds must be positive')
+        if not all(math.isfinite(v) and v > 0 for v in (timeout, max_speed, max_yaw_rate)):
+            raise ValueError('Localization time and velocity bounds must be positive')
+        if not all(math.isfinite(v) and v >= 0 for v in (max_std, max_yaw_std)):
+            raise ValueError('Covariance bounds must be nonnegative; zero disables the ceiling')
         self.samples = deque(maxlen=400)
         self.timeout, self.max_speed = timeout, max_speed
         self.max_yaw_rate, self.max_std = max_yaw_rate, max_std
@@ -47,8 +49,8 @@ class PoseHistory:
         if not all(math.isfinite(v) for v in values) or min(sample.variance) <= 0:
             self.reason = 'Invalid localization values/covariance'
             return False
-        if (max(sample.variance[:2]) > self.max_std ** 2
-                or sample.variance[2] > self.max_yaw_std ** 2):
+        if ((self.max_std > 0 and max(sample.variance[:2]) > self.max_std ** 2)
+                or (self.max_yaw_std > 0 and sample.variance[2] > self.max_yaw_std ** 2)):
             self.reason = 'Localization covariance exceeds configured limit'
             return False
         if abs(sample.speed) > self.max_speed or abs(sample.yaw_rate) > self.max_yaw_rate:
@@ -92,7 +94,11 @@ class PoseHistory:
         if self.discontinuity:
             return False
         if not self.samples:
-            self.reason = 'Waiting for calibrated wheel/IMU EKF odometry'
+            self.reason = self.reason or 'Waiting for calibrated wheel/IMU EKF odometry'
+            return False
+        # Keep the reason a newer EKF sample was rejected. The age of the last
+        # accepted sample must not hide a covariance/frame/velocity failure.
+        if self.reason:
             return False
         if not -.05 <= now-self.samples[-1].stamp <= self.timeout:
             self.reason = 'EKF odometry is stale or future-dated'

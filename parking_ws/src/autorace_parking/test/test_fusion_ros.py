@@ -49,8 +49,12 @@ def test_fused_parking_waits_for_sensor_health_and_stops_on_raw_input_loss():
         node.on_localization(odometry(20.1))
         node.on_scan(clear_scan(20.1))
         node.tick()
-        assert node.state == 'WAITING_LOCALIZATION' and not commands
+        assert node.state == 'WAITING_LOCALIZATION' and commands[-1] == (0.,0.)
+        assert not node.odometry.samples and not node.tracker.valid
         node.on_fusion_health(String(data=json.dumps({'stamp':20.2,'ready':True})))
+        # Health recovery cannot reuse poses/scans acquired before the fault.
+        node.on_localization(odometry(20.2))
+        node.on_scan(clear_scan(20.2))
         node.follower.accept(Gap(.8,0.,0.,.8,0,1), [(0.,0.,0.),(.8,0.,0.)], True, (0.,0.,0.))
         node.tick()
         assert node.state == 'PARKING' and commands[-1][0] > 0.
