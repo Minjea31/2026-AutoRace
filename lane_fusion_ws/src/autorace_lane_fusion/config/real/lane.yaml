@@ -10,6 +10,8 @@
 # Copied from lane_ws commit 0867daa.
 # 2026-11-07: single deep-first fusion pipeline (deep_mode / sliding-window keys removed).
 # Candidates: cell centroid chains (cell/max_gap/min_length); HSV only when deep is missing or weak.
+# 2026-11-09: hsv_min_quality 0.6 -> 0.2, hsv_penalty 0.35 -> 0.8 (short deep pieces in curves no longer
+#   switch HSV on; HSV wins only where deep has nothing). lane_fusion_node now pairs each frame with its own mask.
 lane_lite:
   width: 640
   height: 480
@@ -48,8 +50,8 @@ lane_lite:
   max_misses: 3
   min_windows: 3
   deep_max_age: 0.12
-  hsv_min_quality: 0.6
-  hsv_penalty: 0.35
+  hsv_min_quality: 0.2
+  hsv_penalty: 0.8
   merge_px: 24
   lane_width_px: 277
   width_tolerance: 0.35

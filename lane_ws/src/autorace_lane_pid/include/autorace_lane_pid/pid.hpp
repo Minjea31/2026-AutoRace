@@ -4,11 +4,13 @@
 //   e      = lateral_weight   * near lateral offset (m)
 //          + heading_weight   * near path heading (rad)
 //          + lookahead_weight * lookahead-point lateral offset (m)       (left +)
+//          + far_heading_weight * path angle at the lookahead point (rad) (left +)
 //   delta  = kp*e + ki*integral(e) + kd*filtered(de/dt) + curvature_ff*atan(L*kappa)
 //
 // Inputs come from /lane_lite/target (lane perception). One parameter table is
 // shared by the ROS node and the separate PID tuner window, so names, ranges
 // and Korean descriptions never drift apart.
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -61,7 +63,9 @@ public:
   // Output stage at a fixed rate. Path loss is staged by time since the last
   // good detection: <= hold_time normal, <= recover_time recover_speed, then
   // stop. fresh=false (no perception message within timeout) stops immediately.
-  const Terms &step(double dt, bool fresh, const Config &c);
+  // speed_limit: temporary cap (parking approach slowdown), applied after min_speed.
+  const Terms &step(double dt, bool fresh, const Config &c,
+                    double speed_limit = std::numeric_limits<double>::infinity());
   const Terms &terms() const { return t_; }
 
 private:
@@ -69,7 +73,7 @@ private:
   Measurement last_;
   bool have_prev_ = false;
   double prev_error_ = 0, prev_time_ = 0, d_filtered_ = 0, integral_ = 0;
-  double near_lateral_ = 0, near_heading_ = 0, far_lateral_ = 0; // slew-limited inputs
+  double near_lateral_ = 0, near_heading_ = 0, far_lateral_ = 0, far_heading_ = 0; // slew-limited inputs
   double lost_ = 1e9, confidence_ = 0; // since / of the last good detection
 };
 } // namespace lane_pid

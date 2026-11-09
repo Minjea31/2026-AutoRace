@@ -18,7 +18,7 @@ double steady() {
 // /lane_fusion_pid/state layout (published every output tick):
 // [tracking, error, p, i, d, ff, target_steering, steering, speed,
 //  near_lateral_m, near_heading_rad, curvature, confidence, data_age_s, active,
-//  lookahead_lateral_m]
+//  lookahead_lateral_m, lost_s]  (lost_s: time since the last good detection)
 class LanePidController : public rclcpp::Node {
 public:
   LanePidController() : Node("lane_fusion_pid_controller") {
@@ -79,6 +79,8 @@ public:
           m.lookahead = msg->data[3];
           m.curvature = msg->data[4];
           m.confidence = msg->data[5];
+          if (msg->data.size() >= 8) // boundary states: 2 = detected this frame
+            m.detected = msg->data[6] > 1.5f || msg->data[7] > 1.5f;
           if (msg->data.size() >= 11) {
             m.near_lateral = msg->data[8];
             m.near_heading = msg->data[9];
@@ -133,7 +135,7 @@ private:
     s.data = {float(t.tracking), float(t.error), float(t.p), float(t.i), float(t.d), float(t.ff),
               float(t.target_steering), float(t.steering), float(t.speed), float(m.near_lateral),
               float(m.near_heading), float(m.curvature), float(m.confidence), float(std::min(age, 99.)),
-              float(config_["active"]), float(m.lateral)};
+              float(config_["active"]), float(m.lateral), float(std::min(t.lost, 99.))};
     state_->publish(s);
   }
   lane_pid::Config config_;

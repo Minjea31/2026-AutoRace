@@ -1,5 +1,6 @@
 // Synthetic BEV-space checks with an identity-like BEV (full-frame trapezoid).
 #include "autorace_lane_fusion/lane.hpp"
+#include <cmath>
 #include <gtest/gtest.h>
 #include <opencv2/imgproc.hpp>
 
@@ -55,12 +56,50 @@ TEST(LaneLite, ShortDropoutIsHeldThenLost) {
   EXPECT_EQ(p.process(empty, .1).state, "held");
   EXPECT_FALSE(p.process(empty, .7).valid);
 }
+TEST(LaneLite, HeldPathMovesWithOdometry) {
+  lane_lite::Pipeline p(identity());
+  const auto a = p.process(scene(170, 300), 0);
+  ASSERT_TRUE(a.valid);
+  cv::Mat empty(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+  p.move(.1, 0); // 10 cm forward along a straight lane: same lateral offset
+  auto r = p.process(empty, .1);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.state, "held");
+  EXPECT_NEAR(r.lateral_m, a.lateral_m, .02);
+  EXPECT_GT(r.center_path.back().y, a.center_path.back().y + 40); // far end slid toward the car
+  p.move(0, .1); // turned left: the held path now lies to the right
+  r = p.process(empty, .2);
+  ASSERT_TRUE(r.valid);
+  EXPECT_LT(r.lateral_m, a.lateral_m - .04);
+  // Reacquisition blends with the held path instead of jumping.
+  const auto back = p.process(scene(170, 300), .25);
+  ASSERT_TRUE(back.valid);
+  EXPECT_LT(back.lateral_m, a.lateral_m - .005);
+}
 TEST(LaneLite, OneFrameJumpIsRejected) {
   lane_lite::Pipeline p(identity());
   for (int i = 0; i < 5; ++i)
     p.process(scene(170, 300), i * .05);
   auto r = p.process(scene(260, 300), .25); // both lines jump 90 px at once
   EXPECT_LT(std::abs(r.target_x - 330), 25);
+}
+TEST(LaneLite, OdometryKeepsBoundaryTracksThroughAShift) {
+  // The car slid 0.165 m left (= 90 px at 0.55 m / 300 px): with odometry the
+  // remembered left/right tracks move too, so the shifted lines continue the
+  // same tracks at once instead of being rejected as a jump.
+  lane_lite::Pipeline p(identity());
+  for (int i = 0; i < 5; ++i)
+    p.process(scene(170, 300), i * .05);
+  const double d = .165;
+  p.move(0, M_PI / 2);
+  p.move(d, 0);
+  p.move(0, -M_PI / 2);
+  auto r = p.process(scene(260, 300), .25);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.state, "both");
+  EXPECT_NEAR(r.target_x, 420, 12);
+  EXPECT_EQ(r.left.frames, 6);
+  EXPECT_EQ(r.right.frames, 6);
 }
 TEST(LaneLite, TransverseBendIsFollowed) {
   // Only the outer boundary of a right-hand hairpin: it starts vertical on

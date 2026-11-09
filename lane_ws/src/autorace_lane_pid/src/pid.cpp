@@ -22,6 +22,10 @@ const std::vector<Spec> &specs() {
       {"lookahead_weight", "오차 정의", "-",
        "목표점 횡오차 가중치. 전방 목표점(lookahead)의 좌우 거리(m)에 곱함. 커브를 미리 보지만 "
        "크면 커브 안쪽을 깎음", 1.0, 0, 2, .05},
+      {"far_heading_weight", "오차 정의", "m/rad",
+       "목표점 선 각도 가중치. 전방 목표점(lookahead)에서 중앙 경로 방향과 차량 진행 방향의 각도(rad, 좌+)에 "
+       "곱함. 커브 안에서는 커브가 끝날 때까지 값이 남아 조향을 유지(커브 중간에 직진하며 바깥으로 나가는 것 방지). "
+       "0=끔", 0.0, 0, 1.5, .01},
       {"lateral_rate_limit", "오차 정의", "m/s",
        "횡오차 측정값의 최대 변화 속도. 정지선·노면 표시 오검출로 한 프레임에 크게 튀는 값을 "
        "이 속도로만 따라감. 차량 횡이동 속도보다 크게",
@@ -116,7 +120,8 @@ void Config::save(const std::string &path, const std::string &node) const {
   validate();
   std::ofstream f(path);
   f << "# Lane PID controller (config/sim = simulator, config/real = real car). Written by lane_pid_tuner.\n"
-       "# e = lateral_weight*near_lateral + heading_weight*near_heading + lookahead_weight*lateral\n# "
+       "# e = lateral_weight*near_lateral + heading_weight*near_heading + lookahead_weight*lateral\n"
+       "#     + far_heading_weight*heading (path angle at the lookahead point)\n# "
        "steer = kp*e + ki*int(e) + kd*de/dt + ff\n";
   YAML::Emitter e;
   e << YAML::BeginMap << YAML::Key << node << YAML::Value << YAML::BeginMap << YAML::Key
@@ -158,7 +163,7 @@ void Controller::reset() {
   last_ = {};
   have_prev_ = false;
   prev_error_ = prev_time_ = d_filtered_ = integral_ = 0;
-  near_lateral_ = near_heading_ = far_lateral_ = 0;
+  near_lateral_ = near_heading_ = far_lateral_ = far_heading_ = 0;
   lost_ = 1e9;
   confidence_ = 0;
 }
@@ -183,8 +188,9 @@ void Controller::measure(const Measurement &m, const Config &c) {
   follow(near_lateral_, m.near_lateral, c["lateral_rate_limit"]);
   follow(near_heading_, m.near_heading, c["heading_rate_limit"]);
   follow(far_lateral_, m.lateral, c["lateral_rate_limit"]);
+  follow(far_heading_, m.heading, c["heading_rate_limit"]);
   double e = c["lateral_weight"] * near_lateral_ + c["heading_weight"] * near_heading_ +
-             c["lookahead_weight"] * far_lateral_;
+             c["lookahead_weight"] * far_lateral_ + c["far_heading_weight"] * far_heading_;
   const double band = c["error_deadband"];
   e = std::copysign(std::max(0., std::abs(e) - band), e);
 
@@ -216,7 +222,7 @@ void Controller::measure(const Measurement &m, const Config &c) {
   t_.i = c["ki"] * integral_;
   t_.target_steering = std::clamp(t_.p + t_.i + t_.d + t_.ff, -limit, limit);
 }
-const Terms &Controller::step(double dt, bool fresh, const Config &c) {
+const Terms &Controller::step(double dt, bool fresh, const Config &c, double speed_limit) {
   dt = std::clamp(dt, 0., .1);
   lost_ += dt; // measure() zeroes it on every good detection
   t_.lost = lost_;
@@ -246,6 +252,7 @@ const Terms &Controller::step(double dt, bool fresh, const Config &c) {
       v = std::min(v, c["recover_speed"]);
   }
   // Braking (and every stop) is immediate; only acceleration is limited.
+  v = std::min(v, std::max(0., speed_limit));
   t_.speed = v < t_.speed ? v : std::min(v, t_.speed + c["acceleration"] * dt);
   return t_;
 }
