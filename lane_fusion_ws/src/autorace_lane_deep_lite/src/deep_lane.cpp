@@ -345,6 +345,7 @@ bool fitChain(const Path &points, const std::vector<float> &weights_in, double m
   cv::Mat cx, cy;
   int degree = 0;
   double arc = 0;
+  bool fitted = false;
   rms = 1e9;
   for (int attempt = 0; pts.size() >= 3; ++attempt) {
     const int n = int(pts.size());
@@ -382,13 +383,17 @@ bool fitChain(const Path &points, const std::vector<float> &weights_in, double m
         worst_e = e, worst = size_t(i);
     }
     rms = std::sqrt(sum / n);
-    if (rms <= max_residual)
+    if (rms <= max_residual) {
+      fitted = true;
       break;
+    }
     const size_t drop = attempt == 0 ? worst : pts.size() - 1;
     pts.erase(pts.begin() + long(drop));
     weights.erase(weights.begin() + long(drop));
   }
-  if (rms > max_residual)
+  // A degenerate centre can have several vertices but <8px total length.
+  // No solve ran in that case; never index the empty coefficient matrices.
+  if (!fitted)
     return false;
   const int samples = std::max(8, std::min(64, int(arc / 15) + 1));
   double row[6];

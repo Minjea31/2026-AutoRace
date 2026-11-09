@@ -17,7 +17,7 @@ target_link_libraries(lane_deep_lite_core PUBLIC ${OpenCV_LIBS} yaml-cpp)
 
 add_executable(lane_deep_lite_node src/node.cpp)
 target_link_libraries(lane_deep_lite_node lane_deep_lite_core)
-ament_target_dependencies(lane_deep_lite_node rclcpp sensor_msgs std_msgs cv_bridge)
+ament_target_dependencies(lane_deep_lite_node rclcpp sensor_msgs std_msgs)
 install(TARGETS lane_deep_lite_node DESTINATION lib/${PROJECT_NAME})
 
 # Bag evaluator: only where rosbag2 is installed.
@@ -48,5 +48,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_deep_lane test/test_deep_lane.cpp)
   target_link_libraries(test_deep_lane lane_deep_lite_core)
+  ament_add_gtest(test_fit_chain test/test_fit_chain.cpp)
+  target_include_directories(test_fit_chain PRIVATE include ${OpenCV_INCLUDE_DIRS})
+  target_link_libraries(test_fit_chain ${OpenCV_LIBS} yaml-cpp)
 endif()
 ament_package()

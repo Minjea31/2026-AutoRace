@@ -6,7 +6,7 @@
 //  left_state, right_state, near_lateral_m, near_heading_rad, near_m]
 // state: 0=lost 1=held 2=detected.
 #include "autorace_lane_deep_lite/deep_lane.hpp"
-#include <cv_bridge/cv_bridge.h>
+#include <algorithm>
 #include <mutex>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -104,7 +104,17 @@ private:
       if (views) {
         auto h = m.header;
         h.frame_id = "lane_deep_bev";
-        debug_->publish(*cv_bridge::CvImage(h, "bgr8", r.view).toImageMsg());
+        sensor_msgs::msg::Image image;
+        image.header = h;
+        image.height = r.view.rows;
+        image.width = r.view.cols;
+        image.encoding = "bgr8";
+        image.step = image.width * 3;
+        image.data.resize(image.step * image.height);
+        for (int row = 0; row < r.view.rows; ++row)
+          std::copy_n(r.view.ptr<unsigned char>(row), image.step,
+                      image.data.begin() + row * image.step);
+        debug_->publish(image);
       }
     } catch (const std::exception &e) {
       pipeline_.reset();

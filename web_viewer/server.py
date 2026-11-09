@@ -54,7 +54,7 @@ def jpeg_dimensions(data):
     return 0, 0
 
 
-def raw_jpeg(message):
+def raw_jpeg(message, class_mask=False):
     channels = {'mono8': 1, '8UC1': 1, 'bgr8': 3, 'rgb8': 3,
                 'bgra8': 4, 'rgba8': 4}.get(message.encoding)
     if channels is None:
@@ -71,6 +71,11 @@ def raw_jpeg(message):
         image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
     elif channels == 4:
         image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+    if class_mask and channels == 1:
+        # Class ids 1/2 would otherwise be almost black in a JPEG.
+        palette = np.zeros((256, 3), dtype=np.uint8)
+        palette[1], palette[2] = (0, 210, 255), (240, 240, 240)
+        image = palette[image]
     ok, encoded = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 82])
     if not ok:
         raise ValueError('JPEG 변환에 실패했습니다.')
@@ -98,7 +103,7 @@ class Stream:
                 data = bytes(message.data)
                 width, height = jpeg_dimensions(data)
             else:
-                data, width, height = raw_jpeg(message)
+                data, width, height = raw_jpeg(message, class_mask=self.key == 'mask')
         except (ValueError, cv2.error) as error:
             with self.condition:
                 self.error = str(error)
@@ -131,6 +136,9 @@ class Bridge(Node):
             self.create_subscription(kind, topic, streams[key].receive, qos_profile_sensor_data)
             for key, _, topic, kind in SOURCES
         ]
+        self.image_subscriptions.append(self.create_subscription(
+            Image, '/lane_deep/debug', streams['lane'].receive, qos_profile_sensor_data))
+        streams['lane'].topic = '/lane_fusion/debug | /lane_deep/debug'
 
 
 class Handler(BaseHTTPRequestHandler):
