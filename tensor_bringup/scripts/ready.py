@@ -8,15 +8,17 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rosidl_runtime_py.utilities import get_message
 
-MISSION_NODES = (
-    '/parking_node', '/slow_node', '/lane_fusion_deep_mask',
-    '/lane_fusion_node', '/lane_fusion_pid_controller', '/yolo_detect',
-)
-INPUT_TOPICS = (
+BASE_NODES = ('/parking_node', '/slow_node', '/yolo_detect')
+LANE_NODES = {  # same as tensor_bringup.launch.py
+    'fusion': ('/lane_fusion_deep_mask', '/lane_fusion_node', '/lane_fusion_pid_controller'),
+    'opencv': ('/lane_lite_node', '/lane_pid_controller'),
+    'deep': ('/lane_fusion_deep_mask', '/lane_deep_lite_node', '/lane_fusion_pid_controller'),
+}
+BASE_TOPICS = (
     '/camera/color/image_raw/compressed', '/scan', '/odometry/filtered',
-    '/lane_fusion/deep_mask', '/mission/lane', '/yolo/parking_sign',
-    '/yolo/slow_sign', '/yolo/bump_sign',
+    '/mission/lane', '/yolo/parking_sign', '/yolo/slow_sign', '/yolo/bump_sign',
 )
+INPUT_TOPICS = BASE_TOPICS  # replaced in main() by the lane mode's topics
 
 
 def missing_inputs(node, expected_nodes, seen, now):
@@ -34,9 +36,14 @@ def main():
     try:
         timeout = float(node.declare_parameter('timeout', 60.0).value)
         phase = node.declare_parameter('phase', 'inputs').value
+        mode = node.declare_parameter('lane_mode', 'fusion').value
         if not math.isfinite(timeout) or timeout <= 0 or phase not in ('inputs', 'nodes'):
             raise ValueError('timeout must be positive and phase must be inputs or nodes')
-        expected = MISSION_NODES + (('/mux',) if phase == 'nodes' else ())
+        if mode not in LANE_NODES:
+            raise ValueError('lane_mode must be fusion, opencv or deep')
+        global INPUT_TOPICS
+        INPUT_TOPICS = BASE_TOPICS + (('/lane_fusion/deep_mask',) if mode != 'opencv' else ())
+        expected = BASE_NODES + LANE_NODES[mode] + (('/mux',) if phase == 'nodes' else ())
         seen, subscriptions = {}, {}
         started = time.monotonic()
         stable_since = None

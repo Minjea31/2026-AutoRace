@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra -Wpedantic)
 find_package(ament_cmake REQUIRED)
-foreach(dep rclcpp sensor_msgs std_msgs cv_bridge)
+foreach(dep rclcpp sensor_msgs std_msgs cv_bridge nav_msgs)
   find_package(${dep} REQUIRED)
 endforeach()
 find_package(OpenCV REQUIRED)
@@ -18,7 +18,7 @@ target_link_libraries(lane_fusion_core PUBLIC ${OpenCV_LIBS} yaml-cpp)
 
 add_executable(lane_fusion_node src/node.cpp)
 target_link_libraries(lane_fusion_node lane_fusion_core Threads::Threads)
-ament_target_dependencies(lane_fusion_node rclcpp sensor_msgs std_msgs cv_bridge)
+ament_target_dependencies(lane_fusion_node rclcpp sensor_msgs std_msgs cv_bridge nav_msgs)
 
 # Qt tuner + bag evaluator. Skipped automatically on PCs without Qt5/rosbag2.
 find_package(Qt5 QUIET COMPONENTS Widgets)

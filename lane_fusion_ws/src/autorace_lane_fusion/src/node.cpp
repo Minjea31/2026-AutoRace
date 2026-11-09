@@ -2,8 +2,10 @@
 #include "autorace_lane_fusion/deep_latest.hpp"
 #include "autorace_lane_fusion/lane.hpp"
 #include <condition_variable>
+#include <deque>
 #include <cv_bridge/cv_bridge.h>
 #include <mutex>
+#include <nav_msgs/msg/odometry.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
@@ -16,11 +18,14 @@
 //  left_state, right_state, near_lateral_m, near_heading_rad, near_m]
 // state: 0=lost 1=held 2=detected.
 //
-// Asynchronous fusion: the worker always takes the NEWEST camera frame (older
-// ones are dropped) and never waits for the network. It uses the frame's own
-// mask if it has arrived, else the newest earlier mask whose capture time is
-// within deep_max_age of the frame's; otherwise that frame runs HSV only. The
-// JPEG is decoded only when HSV (or the debug picture) needs it.
+// Mask-synchronised fusion (sync_mask, default true): a frame is processed when
+// ITS OWN deep mask arrives (paired by the copied camera stamp), so deep and
+// HSV candidates always describe the same instant. Frames without a mask are
+// skipped. While no mask has arrived for mask_wait seconds (deep node off or
+// stalled) the newest frame runs alone with the newest mask no older than
+// deep_max_age, else HSV only (the previous asynchronous behaviour, also used
+// with sync_mask:=false). The JPEG is decoded only when HSV or the debug
+// picture needs it.
 class LaneFusionNode : public rclcpp::Node {
 public:
   LaneFusionNode() : Node("lane_fusion_node") {
@@ -33,6 +38,21 @@ public:
     const auto topic = declare_parameter<std::string>("image_topic", "/camera/color/image_raw/compressed");
     timeout_ = declare_parameter<double>("image_timeout", .3);
     const auto deep_topic = declare_parameter<std::string>("deep_topic", "/lane_fusion/deep_mask");
+    sync_ = declare_parameter<bool>("sync_mask", true);
+    mask_wait_ = declare_parameter<double>("mask_wait", .3);
+    // Wheel odometry moves a held centre path with the car during a short
+    // dropout. Empty topic or no messages: the path is held in place.
+    const auto odom = declare_parameter<std::string>("odom_topic", "/odom");
+    if (!odom.empty())
+      odom_ = create_subscription<nav_msgs::msg::Odometry>(
+          odom, rclcpp::QoS(10), [this](nav_msgs::msg::Odometry::ConstSharedPtr m) {
+            const double t = steady();
+            std::lock_guard<std::mutex> lock(mutex_);
+            const double dt = odom_time_ > 0 ? std::clamp(t - odom_time_, 0., .25) : 0.; // /odom ~9 Hz
+            odom_time_ = t;
+            forward_ += m->twist.twist.linear.x * dt;
+            yaw_ += m->twist.twist.angular.z * dt;
+          });
     target_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_fusion/target", rclcpp::QoS(1));
     // Debug picture only on request: off, nothing is advertised or drawn.
     if (declare_parameter<bool>("debug", false))
@@ -41,13 +61,26 @@ public:
         topic, rclcpp::SensorDataQoS().keep_last(1), [this](sensor_msgs::msg::CompressedImage::ConstSharedPtr m) {
           std::lock_guard<std::mutex> lock(mutex_);
           frame_ = m;
+          recent_.push_back(m);
+          while (recent_.size() > 30)
+            recent_.pop_front();
           deep_.addFrame(lane_lite::DeepLatest::nanos(m->header.stamp), steady());
           cv_.notify_one();
         });
     mask_ = create_subscription<sensor_msgs::msg::Image>(
         deep_topic, rclcpp::SensorDataQoS().keep_last(4), [this](sensor_msgs::msg::Image::ConstSharedPtr m) {
           std::lock_guard<std::mutex> lock(mutex_);
-          deep_.addMask(m, steady());
+          if (!deep_.addMask(m, steady()) || !sync_)
+            return;
+          const auto stamp = lane_lite::DeepLatest::nanos(m->header.stamp);
+          if (stamp <= done_stamp_)
+            return;
+          for (auto f = recent_.rbegin(); f != recent_.rend(); ++f)
+            if (lane_lite::DeepLatest::nanos((*f)->header.stamp) == stamp) {
+              pair_frame_ = *f, pair_mask_ = m; // newest pair wins; older pending one dropped
+              cv_.notify_one();
+              break;
+            }
         });
     // The tuner's "Apply" sends every lane_lite key atomically.
     parameters_ = add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter> &params) {
@@ -109,16 +142,38 @@ private:
       bool own = false;
       lane_lite::Config config;
       size_t revision;
+      double forward, yaw;
       {
         std::unique_lock<std::mutex> lock(mutex_);
-        cv_.wait(lock, [this] { return stop_ || frame_; });
+        // Masks flowing: wait for the next (frame, own mask) pair. Mask stream
+        // silent for mask_wait: run the newest frame alone (wakes per frame).
+        cv_.wait(lock, [this] {
+          return stop_ || pair_frame_ || (frame_ && (!sync_ || !deep_.alive(steady(), mask_wait_)));
+        });
         if (stop_)
           return;
-        frame = frame_;
-        frame_.reset();
+        if (pair_frame_) {
+          frame = pair_frame_;
+          mask = pair_mask_;
+          pair_frame_.reset();
+          pair_mask_.reset();
+          age = 0;
+          own = true;
+        } else {
+          frame = frame_;
+          frame_.reset();
+        }
+        const auto stamp_ns = lane_lite::DeepLatest::nanos(frame->header.stamp);
+        if (stamp_ns <= done_stamp_) // never step the tracker back in time
+          continue;
+        done_stamp_ = stamp_ns;
         config = config_;
         revision = revision_;
-        mask = deep_.pick(lane_lite::DeepLatest::nanos(frame->header.stamp), config["deep_max_age"], age, own);
+        forward = forward_;
+        yaw = yaw_;
+        forward_ = yaw_ = 0;
+        if (!mask)
+          mask = deep_.pick(stamp_ns, config["deep_max_age"], age, own);
       }
       try {
         if (revision != applied) {
@@ -142,6 +197,7 @@ private:
         if (mask)
           classes = cv::Mat(int(mask->height), int(mask->width), CV_8U, const_cast<uint8_t *>(mask->data.data()),
                             mask->step);
+        pipeline.move(forward, yaw);
         const auto r = pipeline.process(lane_lite::Pipeline::Image(image), stamp, views, classes);
         const double total = (steady() - begin) * 1000;
         std::lock_guard<std::mutex> lock(mutex_);
@@ -192,10 +248,18 @@ private:
   bool stop_ = false;
   size_t revision_ = 0;
   double timeout_ = .3, processed_ = 0, reported_ = 0;
+  bool sync_ = true;
+  double mask_wait_ = .3;
+  int64_t done_stamp_ = 0; // capture stamp of the last processed frame
+  std::deque<sensor_msgs::msg::CompressedImage::ConstSharedPtr> recent_; // for mask pairing
+  sensor_msgs::msg::CompressedImage::ConstSharedPtr pair_frame_;
+  sensor_msgs::msg::Image::ConstSharedPtr pair_mask_;
+  double odom_time_ = 0, forward_ = 0, yaw_ = 0; // odometry since the last frame
   Stats stats_;
   sensor_msgs::msg::CompressedImage::ConstSharedPtr frame_;
   lane_lite::DeepLatest deep_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr mask_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_;
   rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr compressed_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr target_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_;

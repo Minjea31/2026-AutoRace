@@ -173,7 +173,16 @@ void Pipeline::reset() {
   out_jumps_ = 0;
   base_side_ = -1;
   held_ = {};
+  motion_[0] = motion_[1] = motion_[2] = 0;
   width_ = config_["lane_width_px"];
+}
+void Pipeline::move(double forward_m, double yaw_rad) {
+  if (!std::isfinite(forward_m) || !std::isfinite(yaw_rad))
+    return;
+  const double mid = motion_[2] + yaw_rad / 2; // arc: chord along the mid heading
+  motion_[0] += forward_m * std::cos(mid);
+  motion_[1] += forward_m * std::sin(mid);
+  motion_[2] += yaw_rad;
 }
 
 Result Pipeline::process(const Image &image, double time, bool views, const cv::Mat &deep) {
@@ -191,6 +200,46 @@ Result Pipeline::process(const Image &image, double time, bool views, const cv::
   const double cu = c["vehicle_center_u"] * (w - 1), tol = c["width_tolerance"];
   const float gate = float(c["track_jump_px"]);
   const cv::Point2f vehicle(float(cu), float(h - 1));
+  // 0. Odometry since the previous frame moves every remembered path (both
+  // boundary tracks and the centre) into the current vehicle frame, so the
+  // left/right continuity gates and a held centre stay on the road while the
+  // car moves or turns. Points now behind the BEV bottom row are dropped.
+  if (motion_[0] != 0 || motion_[1] != 0 || motion_[2] != 0) {
+    const double mpx = c["lane_width_m"] / c["lane_width_px"];
+    const double mrow = (c["bev_far_m"] - c["bev_near_m"]) / (h - 1);
+    const double cs = std::cos(motion_[2]), sn = std::sin(motion_[2]);
+    auto shift = [&](Path &path) {
+      Path moved;
+      for (const auto &p : path) {
+        const double f = c["bev_near_m"] + (h - 1 - p.y) * mrow - motion_[0];
+        const double l = (cu - p.x) * mpx - motion_[1];
+        const double y = h - 1 - (cs * f + sn * l - c["bev_near_m"]) / mrow;
+        if (y <= h - 1)
+          moved.emplace_back(float(cu - (-sn * f + cs * l) / mpx), float(y));
+      }
+      path = moved.size() >= 2 ? moved : Path();
+    };
+    for (auto &track : tracks_)
+      shift(track.path);
+    shift(center_);
+    // The output gate's last good target too (else a real turn looks like a jump).
+    if (held_time_ >= 0) {
+      auto point = [&](double &fwd, double &left) {
+        const double f = fwd - motion_[0], l = left - motion_[1];
+        fwd = cs * f + sn * l;
+        left = -sn * f + cs * l;
+      };
+      point(held_.lookahead_m, held_.lateral_m);
+      point(held_.near_m, held_.near_lateral_m);
+      held_.heading -= motion_[2];
+      held_.near_heading -= motion_[2];
+      shift(held_.center_path);
+      held_.target_x = cu - held_.lateral_m / mpx;
+      held_.target_y = h - 1 - (held_.lookahead_m - c["bev_near_m"]) / mrow;
+      held_.lateral_px = cu - held_.target_x;
+    }
+    motion_[0] = motion_[1] = motion_[2] = 0;
+  }
   constexpr double kInf = std::numeric_limits<double>::infinity();
   Result r;
 
@@ -434,17 +483,27 @@ Result Pipeline::process(const Image &image, double time, bool views, const cv::
     }
     confidence = dl && dr ? (r.left.quality + r.right.quality) / 2 : .7 * base.quality;
     r.state = dl && dr ? "both" : dl ? "left only" : "right only";
-    if (!center_.empty() && time - center_seen_ <= c["track_memory"])
+  }
+  // A fresh centre too short to give a target (stop line, one short dash)
+  // does not replace a recent path: it is treated like a dropout.
+  const bool usable = center.size() >= 3 && pathLength(center) >= .1 * h;
+  const bool recent = !center_.empty() && time - center_seen_ <= c["track_memory"];
+  if ((dl || dr) && (usable || !recent)) {
+    // Reacquisition blends with the (motion-compensated) held path: no jump.
+    if (recent)
       center = blend(center, center_, alpha, gate);
     center_ = center;
     center_seen_ = time;
     center_confidence_ = confidence;
-  } else if (!center_.empty() && time - center_seen_ <= c["track_memory"]) {
+  } else if (recent) {
+    if (dl || dr)
+      r.notes.push_back("중앙 경로가 너무 짧아 이전 경로 유지");
     base_side_ = -1;
-    center = center_;
+    center = center_; // already moved with the car (step 0)
     confidence = center_confidence_ * (1 - (time - center_seen_) / std::max(.01, c["track_memory"]));
     r.state = "held";
   } else {
+    center.clear();
     center_.clear();
     r.state = "lost";
   }
@@ -513,10 +572,14 @@ Result Pipeline::process(const Image &image, double time, bool views, const cv::
     if (std::abs(r.near_lateral_m) > .9 * c["lane_width_m"])
       reject = "중앙 경로의 가까운 점이 차로 밖 (" + std::to_string(r.near_lateral_m).substr(0, 5) + " m)";
     const bool recent = held_time_ >= 0 && time - held_time_ <= c["track_memory"];
+    // Last good target extended along its heading to this lookahead distance
+    // (odometry may have moved it closer to the car).
+    const double expected = held_.lateral_m + std::tan(std::clamp(held_.heading, -1.2, 1.2)) *
+                                                  std::clamp(r.lookahead_m - held_.lookahead_m, -.3, .3);
     if (reject.empty() && recent &&
-        std::abs(r.lateral_m - held_.lateral_m) > c["max_target_jump_m"] * std::max(1., dt / .05)) {
+        std::abs(r.lateral_m - expected) > c["max_target_jump_m"] * std::max(1., dt / .05)) {
       if (++out_jumps_ < 3)
-        reject = "목표점 급변 " + std::to_string(int(std::abs(r.lateral_m - held_.lateral_m) * 100)) +
+        reject = "목표점 급변 " + std::to_string(int(std::abs(r.lateral_m - expected) * 100)) +
                  " cm, 확인 " + std::to_string(out_jumps_) + "/3";
     }
     if (reject.empty()) {

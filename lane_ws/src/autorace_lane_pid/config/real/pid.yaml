@@ -21,12 +21,14 @@
 # Note: lane_lite real bev_near_m / bev_far_m are still placeholders, so
 # near_heading is only approximate until they are measured.
 # e = lateral_weight*near_lateral + heading_weight*near_heading + lookahead_weight*lateral
+#     + far_heading_weight*heading (2026-11-09: path angle at the lookahead point, 0 = off)
 # steer = kp*e + ki*int(e) + kd*de/dt + ff
 lane_pid_controller:
   ros__parameters:
     lateral_weight: 0.3
     heading_weight: 0.27
     lookahead_weight: 0.95
+    far_heading_weight: 0.0
     lateral_rate_limit: 0.6
     heading_rate_limit: 2.0
     error_deadband: 0.0
