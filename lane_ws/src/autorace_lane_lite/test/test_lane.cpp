@@ -55,6 +55,26 @@ TEST(LaneLite, ShortDropoutIsHeldThenLost) {
   EXPECT_EQ(p.process(empty, .1).state, "held");
   EXPECT_FALSE(p.process(empty, .7).valid);
 }
+TEST(LaneLite, HeldPathMovesWithOdometry) {
+  lane_lite::Pipeline p(identity());
+  const auto a = p.process(scene(170, 300), 0);
+  ASSERT_TRUE(a.valid);
+  cv::Mat empty(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+  p.move(.1, 0); // 10 cm forward along a straight lane: same lateral offset
+  auto r = p.process(empty, .1);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.state, "held");
+  EXPECT_NEAR(r.lateral_m, a.lateral_m, .02);
+  EXPECT_GT(r.center_path.back().y, a.center_path.back().y + 40); // far end slid toward the car
+  p.move(0, .1); // turned left: the held path now lies to the right
+  r = p.process(empty, .2);
+  ASSERT_TRUE(r.valid);
+  EXPECT_LT(r.lateral_m, a.lateral_m - .04);
+  // Reacquisition blends with the held path instead of jumping.
+  const auto back = p.process(scene(170, 300), .25);
+  ASSERT_TRUE(back.valid);
+  EXPECT_LT(back.lateral_m, a.lateral_m - .005);
+}
 TEST(LaneLite, OneFrameJumpIsRejected) {
   lane_lite::Pipeline p(identity());
   for (int i = 0; i < 5; ++i)

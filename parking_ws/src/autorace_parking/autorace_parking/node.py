@@ -174,6 +174,9 @@ class ParkingNode(Node):
         self.fusion_health_received = None
         self.localization_not_before = None
         self.last_localization_rejection = None
+        self.localization_recovering = False
+        self.localization_restart_count = 0
+        self.last_localization_restart = None
         self.planning_cache_key = None
         self.planning_cache = None
         self.visual_path_cache_key = None
@@ -402,6 +405,9 @@ class ParkingNode(Node):
             if not isinstance(health.get('ready'), bool) or not math.isfinite(health['stamp']):
                 return
             if self.localization_not_before is not None and health['stamp']<self.localization_not_before:return
+            if not -.05 <= self.now_seconds()-health['stamp'] <= self.localization_timeout:
+                self.restart_localization(self.now_seconds(), 'Fusion health is stale or future-dated')
+                return
             self.fusion_health = health
             self.fusion_health_received = time.monotonic()
         except (ValueError, TypeError, KeyError, AttributeError):
@@ -425,6 +431,14 @@ class ParkingNode(Node):
     def on_localization(self, msg):
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         if self.localization_not_before is not None and stamp<self.localization_not_before:return
+        now = self.now_seconds()
+        stale = not -.05 <= now-stamp <= self.localization_timeout
+        previous_stale = (self.odometry.samples and
+                          not -.05 <= now-self.odometry.samples[-1].stamp <= self.localization_timeout)
+        if stale or previous_stale:
+            self.restart_localization(now, 'EKF odometry is stale or future-dated')
+            if stale or (self.localization_not_before is not None and stamp < self.localization_not_before):
+                return
         q, p = msg.pose.pose.orientation, msg.pose.pose.position
         values = (q.x, q.y, q.z, q.w, p.x, p.y, *msg.pose.covariance)
         if (msg.header.frame_id != self.odom_frame or msg.child_frame_id != self.base_frame
@@ -475,6 +489,9 @@ class ParkingNode(Node):
     def synchronization_status(self,now):
         stamp=self.odometry.samples[-1].stamp if self.odometry.samples else None
         return {'method':'scan_stamp_odometry_interpolation',
+            'localization_recovering':self.localization_recovering,
+            'localization_restart_count':self.localization_restart_count,
+            'last_localization_restart':self.last_localization_restart,
             'scan_age_s':None if self.scan_time is None else now-self.scan_time,
             'odom_age_s':None if stamp is None else now-stamp,
             'health_age_s':None if self.fusion_health is None else now-self.fusion_health['stamp'],
@@ -484,6 +501,35 @@ class ParkingNode(Node):
             'odom_history_capacity':self.odometry.samples.maxlen,
             'latest_scan_received_age_s':None if self.last_scan_received_stamp is None else now-self.last_scan_received_stamp,
             'last_odom_rejection':self.last_localization_rejection}
+
+    def restart_localization(self, now, reason):
+        # Reset once per outage. Moving this cutoff on every tick would prevent
+        # any subsequently delivered scan/EKF pair from ever being accepted.
+        if self.localization_recovering or self.follower.exited:
+            return
+        before = self.synchronization_status(now)
+        self.last_localization_restart = dict(stamp=now, reason=reason,
+            **{key:before[key] for key in ('scan_age_s','odom_age_s','health_age_s')})
+        if self.activation.active:
+            self.publish_command(0., 0.)
+        budgets = (self.recovery_attempts, self.recovery_remaining, self.blind_reverse_remaining)
+        parked = self.follower.parked
+        self.reset_motion()  # Cancels planners and clears all data in the old matching frame.
+        self.recovery_attempts, self.recovery_remaining, self.blind_reverse_remaining = budgets
+        self.follower.parked = parked
+        self.odometry.samples.clear()
+        self.odometry.discontinuity = False
+        self.odometry.reason = ''
+        self.fusion_health = self.fusion_health_received = None
+        self.last_localization_rejection = None
+        self.scan_not_before = self.localization_not_before = now
+        self.planning_cache_key = self.planning_cache = None
+        self.visual_path_cache_key = None
+        self.visual_path_cache_blocked = False
+        self.localization_recovering = True
+        self.localization_restart_count += 1
+        self.state, self.reason = 'WAITING_LOCALIZATION', reason
+        self.get_logger().warning('융합 위치 시각 오류: 이전 위치·스캔·매칭 기준·지도·경로를 폐기했습니다. 최신 데이터로 다시 매칭합니다.')
 
     def localization_ready(self, now):
         if self.localization_source == 'scan':
@@ -495,6 +541,7 @@ class ParkingNode(Node):
         if (time.monotonic()-self.fusion_health_received > self.localization_timeout
                 or not -.05 <= now-health['stamp'] <= self.localization_timeout):
             self.reason = 'Fusion health is stale or future-dated'
+            self.restart_localization(now, self.reason)
             return False
         if not health['ready']:
             self.reason = 'Fusion inputs not ready: '+str(health.get('reason') or
@@ -502,7 +549,12 @@ class ParkingNode(Node):
             return False
         if not self.tracker.healthy(now):
             self.reason = self.tracker.reason
+            if self.reason == 'EKF odometry is stale or future-dated':
+                self.restart_localization(now, self.reason)
             return False
+        if self.localization_recovering:
+            self.localization_recovering = False
+            self.get_logger().info('최신 융합 위치·라이다 재매칭 완료: 주차 경로를 다시 계산합니다.')
         return True
 
     def clear_visuals(self, clear_obstacles=True):
@@ -598,6 +650,8 @@ class ParkingNode(Node):
         self.roi_pub.publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))
 
     def reset_state(self):
+        self.localization_recovering = False
+        self.last_localization_restart = None
         self.approach_reference.reset(self.now_seconds())
         self.reset_motion()
         self.activation.reset()
@@ -1004,6 +1058,19 @@ class ParkingNode(Node):
                 or self.follower.exited
                 or not self.exit_lane_gate.ready(self.get_clock().now().nanoseconds, time.monotonic())):
             return
+        now = self.now_seconds()
+        if not self.tracker.valid:
+            return
+        if self.localization_source == 'fused':
+            if not self.localization_ready(now):
+                return
+            pose = self.tracker.current_pose(now)
+        else:
+            if self.scan_time is None or not -SCAN_FUTURE_TOLERANCE <= now-self.scan_time <= self.scan_timeout:
+                return
+            pose = self.tracker.pose
+        if not self.follower.exit_curve_complete(pose):
+            return
         # End the route permanently, including any asynchronous planning result.
         self.epoch += 1
         for name in ('pending', 'exit_pending'):
@@ -1029,7 +1096,7 @@ class ParkingNode(Node):
         self.lane_handoff_pub.publish(release)
         self.active_pub.publish(Bool(data=False))
         self.clear_visuals()
-        self.get_logger().info('후진 출차 중 차선 재인식: 주차를 종료하고 lane으로 제어권을 반환합니다.')
+        self.get_logger().info('곡선 후진 완료·차선 재인식: 남은 전진 경로를 생략하고 lane으로 제어권을 반환합니다.')
 
     def poll_plan(self):
         if self.pending is None or not self.pending[0].done():
@@ -1403,7 +1470,10 @@ class ParkingNode(Node):
                 self.last_plan_wall = wall_now
             self.publish_control_visuals()
         has_control_path = self.activation.active and not self.follower.exited and not self.recovery_lane_released and bool(self.follower.path)
-        if has_control_path:
+        if self.localization_recovering and self.activation.active and not self.follower.exited:
+            # Keep ownership of the parking mux input while awaiting a fresh match.
+            self.publish_command(0., 0.)
+        elif has_control_path:
             self.publish_command(speed, steering)
         elif self.had_control_path:
             # Stop the previous route once, then let the mux input expire.
@@ -1432,6 +1502,11 @@ class ParkingNode(Node):
                 sync=self.synchronization_status(now)
                 ages=', '.join(f'{key}='+('--' if sync[key] is None else f'{sync[key]:.2f}s') for key in ('scan_age_s','odom_age_s','health_age_s'))
                 log_explanation+=f' [{ages}; 정렬 대기 {sync["pending_scans"]}개]'
+                if self.localization_recovering and self.last_localization_restart:
+                    discarded = self.last_localization_restart
+                    prior = ', '.join(f'{key}='+('--' if discarded[key] is None else f'{discarded[key]:.2f}s')
+                                      for key in ('scan_age_s','odom_age_s','health_age_s'))
+                    log_explanation += f' [폐기 당시 {prior}]'
 
             self.get_logger().info(f'주차 상태: {transition} (시도 {self.attempt})'
                                    +(f' | {label}: {log_explanation}' if log_explanation else ''))

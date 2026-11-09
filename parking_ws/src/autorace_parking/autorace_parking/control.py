@@ -625,6 +625,37 @@ class Follower:
         c,s=math.cos(angle),math.sin(angle)
         return goal.x+c*x-s*y-x,goal.y+s*x+c*y-y
 
+    def exit_curve_complete(self, pose):
+        """Lane handoff must wait for all remaining reverse turning."""
+        if (not self.parked or not self.exiting or self.recovering or self.exited
+                or not self.path or not all(math.isfinite(x) for x in pose)):
+            return False
+        lane_yaw = self.entry_trace[0][2] if self.entry_trace else self.path[-1][2]
+        tolerance = self.exit_heading_tolerance
+        if abs(wrap(pose[2]-lane_yaw)) > tolerance:
+            return False
+        if (self.goal is not None and self.goal.parking_grid is not None
+                and not outside_grid(pose, self.goal.parking_grid, self.cfg)):
+            return False
+        remaining_turn = remaining_reverse = 0.
+        reverse_endpoint = None
+        for i in range(len(self.path)-1):
+            if math.dist(self.path[i][:2], self.path[i+1][:2]) > 1e-6 and self.path_direction(i) < 0:
+                reverse_endpoint = self.path[i+1]
+        for i in range(max(0, min(self.index, len(self.path)-1)), len(self.path)-1):
+            a, b = self.path[i:i+2]
+            if math.dist(a[:2], b[:2]) < 1e-6:
+                continue
+            if self.path_direction(i) < 0:
+                remaining_reverse += math.dist(a[:2], b[:2])
+                if max(abs(wrap(a[2]-lane_yaw)), abs(wrap(b[2]-lane_yaw))) > tolerance:
+                    return False
+                remaining_turn += abs(wrap(b[2]-a[2]))
+        # Only the forward tail may be skipped. Remaining straight reverse is
+        # still part of departure (with the existing 7 cm endpoint tolerance).
+        return (remaining_turn <= tolerance and remaining_reverse <= .07
+                and (reverse_endpoint is None or math.dist(pose[:2], reverse_endpoint[:2]) <= .07))
+
     def prepare_exit(self, pose, now, scan=None):
         # Keep vehicle headings unchanged: reverse waypoint order and velocity,
         # rather than turning the vehicle by pi. Stop at the last recorded
@@ -775,6 +806,10 @@ class Follower:
             if now-self.exit_last_plan>=1.:
                 self.rebuild_exit(pose,now,scan if obstacle_scan is None else obstacle_scan)
             if not self.exit_route_ready:return self.stop('EXIT_PATH_ERROR',now)
+        if self.exiting and len(self.path) > 1 and self.motion_direction > 0:
+            # Departure never drives a remaining forward tail. Hold parking
+            # ownership until fresh lane detection can take over after the turn.
+            return self.stop('EXIT_CONFIRMING', now)
         if self.goal is None and not self.recovering:
             return self.stop('EXIT_PATH_ERROR' if self.exiting else ('PATH_HELD' if self.path else 'PLANNING'), now)
         if self.awaiting_target_path:
@@ -789,6 +824,8 @@ class Follower:
         heading_ok = goal is not None and (abs(goal.yaw) <= yaw_tolerance if self.exiting or self.require_parking_heading else True)
         if self.exiting and self.entry_trace:
             heading_ok=heading_ok and abs(wrap(pose[2]-self.entry_trace[0][2]))<=self.cfg.exit_arrival_yaw_tolerance
+        if self.exiting:
+            heading_ok = heading_ok and self.exit_curve_complete(pose)
         if semantic and not self.exiting:
             heading_ok=(not self.require_parking_heading or bool(goal.heading_options and
                         min(abs(a) for a in goal.heading_options)<=yaw_tolerance))

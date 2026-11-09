@@ -39,13 +39,17 @@ struct Measurement {
   double lateral = 0, heading = 0, lookahead = 0, curvature = 0, confidence = 0; // target point
   double near_lateral = 0, near_heading = 0; // nearest centre-path point
   double time = 0; // acquisition/receipt time (s), monotonic per source
+  // At least one boundary DETECTED this frame (false: perception is holding
+  // its last centre path). Older perception output without states: = valid.
+  bool detected = true;
 };
 
 struct Terms {
   double error = 0, p = 0, i = 0, d = 0, ff = 0;
   double target_steering = 0; // saturated PID output
   double steering = 0, speed = 0; // after rate / acceleration limits
-  bool tracking = false;          // last measurement usable
+  bool tracking = false;          // driving on a path (detected or held/recovering)
+  double lost = 0;                // s since the last good detection
 };
 
 class Controller {
@@ -54,7 +58,9 @@ public:
   // Call exactly once per NEW measurement. dt comes from measurement times,
   // never from the output timer, so the D and I terms see real sampling.
   void measure(const Measurement &m, const Config &c);
-  // Output stage at a fixed rate. fresh=false (timeout) stops immediately.
+  // Output stage at a fixed rate. Path loss is staged by time since the last
+  // good detection: <= hold_time normal, <= recover_time recover_speed, then
+  // stop. fresh=false (no perception message within timeout) stops immediately.
   const Terms &step(double dt, bool fresh, const Config &c);
   const Terms &terms() const { return t_; }
 
@@ -64,5 +70,6 @@ private:
   bool have_prev_ = false;
   double prev_error_ = 0, prev_time_ = 0, d_filtered_ = 0, integral_ = 0;
   double near_lateral_ = 0, near_heading_ = 0, far_lateral_ = 0; // slew-limited inputs
+  double lost_ = 1e9, confidence_ = 0; // since / of the last good detection
 };
 } // namespace lane_pid

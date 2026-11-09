@@ -89,19 +89,55 @@ TEST(Pid, NoWindupWhileSaturated) {
   EXPECT_NEAR(pid.terms().i, 0, 1e-9);
 }
 
-TEST(Pid, LostLaneStopsAndResetsHistory) {
+TEST(Pid, PathLossIsHeldThenSlowedThenStopped) {
   Controller pid;
   auto c = plain(1, 1, 1);
-  for (int i = 0; i < 20; ++i) {
+  c.values["speed"] = .5;
+  c.values["recover_speed"] = .15;
+  for (int i = 0; i < 40; ++i) {
     pid.measure(sample(.1, i * .05), c);
     pid.step(.05, true, c);
   }
-  EXPECT_GT(pid.terms().speed, 0);
-  Measurement lost;
-  lost.time = 1.0;
+  const double cruise = pid.terms().speed, steer = pid.terms().target_steering;
+  ASSERT_GT(cruise, .3);
+  Measurement lost; // perception: no centre path this frame
+  lost.time = 2.0;
   pid.measure(lost, c);
+  pid.step(.05, true, c); // one lost frame: no stop, steering kept
+  EXPECT_NEAR(pid.terms().speed, cruise, 1e-9);
+  EXPECT_NEAR(pid.terms().target_steering, steer, 1e-9);
+  for (int i = 0; i < 4; ++i) // 0.25 s: recovery speed
+    pid.step(.05, true, c);
+  EXPECT_LE(pid.terms().speed, .15 + 1e-9);
+  EXPECT_GT(pid.terms().speed, 0);
+  for (int i = 0; i < 6; ++i) // 0.55 s: stop, I/D history cleared
+    pid.step(.05, true, c);
+  EXPECT_EQ(pid.terms().speed, 0);
+  pid.measure(sample(.1, 2.6), c);
   EXPECT_EQ(pid.terms().i, 0);
-  EXPECT_EQ(pid.step(.02, true, c).speed, 0);
+  EXPECT_GT(pid.step(.05, true, c).speed, 0); // reacquired: drives again
+}
+
+TEST(Pid, HeldPathSteersButCountsAsLoss) {
+  Controller pid;
+  auto c = plain(1);
+  pid.measure(sample(0, 0), c);
+  pid.step(.05, true, c);
+  auto held = sample(.2, .05);
+  held.detected = false; // perception holding its last path
+  for (int i = 0; i < 8; ++i) {
+    held.time = .05 * (i + 1);
+    pid.measure(held, c);
+    pid.step(.05, true, c);
+  }
+  EXPECT_GT(pid.terms().target_steering, 0); // follows the held path
+  EXPECT_LE(pid.terms().speed, c["recover_speed"] + 1e-9);
+  for (int i = 0; i < 3; ++i) {
+    held.time += .05;
+    pid.measure(held, c);
+    pid.step(.05, true, c);
+  }
+  EXPECT_EQ(pid.terms().speed, 0); // > recover_time without a detection
 }
 
 TEST(Pid, TimeoutStopsImmediatelyAndSteeringIsRateLimited) {

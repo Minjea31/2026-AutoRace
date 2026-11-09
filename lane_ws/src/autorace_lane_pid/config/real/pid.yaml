@@ -1,4 +1,7 @@
 # Lane PID controller (REAL CAR). NOT closed-loop validated on the car yet.
+# 2026-11-09: path-loss staging instead of a stop on one lost frame:
+#   lost <= hold_time 0.2 s normal speed, <= recover_time 0.5 s at most
+#   recover_speed 0.2 m/s, then stop (lane_lite track_memory is 0.5 s).
 # 2026-11-06 (pid11061.yaml, tuned on the car): heading_weight 0.27, lookahead_weight 0.95,
 #   kd 0.2, max_steering 0.6, steering_rate 3.6, speed 0.81, steer_slowdown 0.35.
 # 2026-11-06: speed 0.15 -> 0.5, steer_slowdown 1.0 -> 0.5 from the user's tuner
@@ -44,4 +47,7 @@ lane_pid_controller:
     confidence_stop: 0.1
     confidence_full: 0.5
     timeout: 0.3
+    hold_time: 0.2
+    recover_time: 0.5
+    recover_speed: 0.2
     active: 1.0

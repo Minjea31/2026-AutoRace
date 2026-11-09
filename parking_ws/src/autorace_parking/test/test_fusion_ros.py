@@ -145,8 +145,11 @@ def test_scan_waiting_for_alignment_expires_instead_of_being_replayed_late():
         node.now_seconds=lambda:21.
         node.on_localization(odometry(21.))
         assert not node.pending_scans
-        assert node.last_scan_stamp==pytest.approx(20.1)
+        # A real EKF outage now invalidates the old matching frame entirely.
+        assert node.last_scan_stamp is None
+        assert node.localization_recovering and node.tracker.matcher is None
         node.tick()
-        assert not commands and node.state=='WAITING_LOCALIZATION'
+        assert commands and commands[-1] == (0., 0.)
+        assert node.state=='WAITING_LOCALIZATION'
     finally:
         node.destroy_node();rclpy.shutdown()

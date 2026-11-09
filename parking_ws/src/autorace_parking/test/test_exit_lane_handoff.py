@@ -80,6 +80,8 @@ class Harness:
                or self.parking.lane_handoff_pub.get_subscription_count() < 2):
             assert time.monotonic() < end
             self.pump(.02)
+        self.parking.tracker.valid = True
+        self.parking.scan_time = self.parking.now_seconds()
 
     def lane(self):
         msg = AckermannDriveStamped()
@@ -115,7 +117,7 @@ def test_reverse_departure_releases_mux_immediately_and_completion_stays_termina
     n = h.parking
     n.activation.active = True
     n.follower.parked = True
-    n.follower.path = [(0., 0., 0.), (-1., 0., 0.)]
+    n.follower.path = [(0., 0., 0.), (-.04, 0., 0.)]
     n.had_control_path = True
     h.target_pub.publish(Float32MultiArray(data=VALID))
     n.publish_command(-.2, .1)  # parked hold / an entry reverse must not arm the gate
@@ -140,6 +142,27 @@ def test_reverse_departure_releases_mux_immediately_and_completion_stays_termina
         n.tick()
     h.pump(.05)
     assert n.state == 'EXITED' and h.mux._last_source == 'lane' and len(h.releases) == 1
+
+
+def test_lane_seen_during_reverse_turn_waits_until_turn_finishes_then_skips_forward_tail(h):
+    n = h.parking
+    n.activation.active = True
+    n.follower.parked = n.follower.exiting = True
+    n.follower.entry_trace = [(0., 0., 0.)]
+    n.follower.path = [(0., 0., .6), (-.2, -.1, .3), (-.4, -.1, 0.), (.2, -.1, 0.)]
+    n.tracker.pose = (0., 0., .6)
+    n.publish_command(-.2, .1)
+    h.pump(.04)
+    h.target_pub.publish(Float32MultiArray(data=VALID)); h.pump(.08)
+    assert not n.follower.exited and not h.releases
+    assert h.mux._last_source == 'parking'
+    # All reverse turning is consumed; the remaining route is forward only.
+    n.follower.index = 2
+    n.tracker.pose = (-.4, -.1, 0.)
+    n.scan_time = n.now_seconds()
+    h.target_pub.publish(Float32MultiArray(data=VALID)); h.pump(.08)
+    assert n.follower.exited and n.exit_lane_handed_off and len(h.releases) == 1
+    assert h.mux._last_source == 'lane'
 
 
 def test_delayed_parking_packets_are_ignored_and_next_mission_can_take_control(h):

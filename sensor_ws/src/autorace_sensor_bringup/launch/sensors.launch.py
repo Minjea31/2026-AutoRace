@@ -1,6 +1,7 @@
 """Start the existing LIMO sensor stack and persist process/topic events."""
 import json
 import re
+import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -9,7 +10,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction,
-    RegisterEventHandler, SetEnvironmentVariable,
+    RegisterEventHandler, SetEnvironmentVariable, GroupAction, SetLaunchConfiguration, TimerAction,
 )
 from launch.event_handlers import OnProcessExit, OnProcessIO, OnProcessStart, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -55,6 +56,9 @@ def _setup(context):
     if vehicle not in offsets:
         raise ValueError('vehicle must be 04 or 06')
     steering_offset = offsets[vehicle]
+    runner = Path(get_package_share_directory('autorace_sensor_bringup')) / 'scripts/performance_runner.py'
+    def prefix(role):
+        return shlex.join(['/usr/bin/python3', str(runner), '--role', role, '--'])
 
     ports = []
     if enabled('enable_lidar'):
@@ -124,6 +128,7 @@ def _setup(context):
         RegisterEventHandler(OnShutdown(on_shutdown=lambda e, c: record('LAUNCH_SHUTDOWN'))),
         LogInfo(msg=f'Sensor session logs: {log_dir}'),
         LogInfo(msg=f'Vehicle {vehicle}: Ackermann steering offset {steering_offset:+.3f} rad (wire units)'),
+        LogInfo(msg='CPU/startup scheduling enabled; EKF output rate unchanged'),
     ]
     topics, types = [], []
     expected_nodes = ['/sensor_monitor']
@@ -136,6 +141,7 @@ def _setup(context):
         expected_nodes.append('/limo/limo_base')
         actions.append(Node(
             package='limo_base', executable='limo_base', namespace='limo',
+            prefix=prefix('localization'),
             output='both', parameters=[{
                 'port_name': value('port_name'), 'use_mcnamu': False,
                 'odom_frame': 'odom', 'base_frame': 'base_link',
@@ -162,7 +168,7 @@ def _setup(context):
         ))
         watch('/scan', 'sensor_msgs/msg/LaserScan')
     if enabled('enable_camera'):
-        actions.append(include('orbbec_camera', value('camera_launch'), {
+        camera_action = include('orbbec_camera', value('camera_launch'), {
             'camera_name': value('camera_name'),
             'enable_color': 'true',
             'enable_depth': value('enable_depth'),
@@ -172,7 +178,11 @@ def _setup(context):
             'depth_registration': 'false', 'enable_d2c_viewer': 'false',
             # Rigid camera internal geometry belongs on /tf_static.
             'tf_publish_rate': value('camera_tf_publish_rate'),
-        }))
+        })
+        camera_action = TimerAction(period=4.0, actions=[GroupAction(actions=[
+            SetLaunchConfiguration('launch-prefix', prefix('vision')), camera_action,
+        ])])
+        actions.append(camera_action)
         camera = '/' + value('camera_name').strip('/')
         watch(camera + '/color/image_raw', 'sensor_msgs/msg/Image')
         expected_nodes.extend([camera + '/camera_container', camera + '/' + value('camera_name').strip('/')])
@@ -195,12 +205,14 @@ def _setup(context):
         expected_nodes.extend(['/sensor_fusion', '/ekf_filter_node_odom'])
         actions.append(Node(
             package='autorace_sensor_bringup', executable='sensor_fusion.py',
+            prefix=prefix('localization'),
             name='sensor_fusion', output='both',
             additional_env={'OPENBLAS_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1'},
             parameters=[value('fusion_params')],
         ))
         actions.append(Node(
             package='robot_localization', executable='ekf_node',
+            prefix=prefix('localization'),
             name='ekf_filter_node_odom', output='both', parameters=[value('ekf_params')],
         ))
         watch('/odometry/filtered', 'nav_msgs/msg/Odometry')

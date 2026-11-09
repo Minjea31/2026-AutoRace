@@ -52,10 +52,19 @@ const std::vector<Spec> &specs() {
       {"steer_slowdown", "속도", "1/rad", "조향 감속. 속도 = speed / (1 + 값×|조향각|)", 1.0, 0, 6, .1},
       {"curvature_slowdown", "속도", "m", "곡률 감속. 속도를 추가로 1 / (1 + 값×|곡률|)배", 0.0, 0, 2, .05},
       {"acceleration", "속도", "m/s²", "가속 제한. 감속은 즉시 적용", 0.5, .05, 3, .05},
-      {"confidence_stop", "안전", "-", "인식 신뢰도가 이 값 이하이면 정지", 0.10, 0, .9, .01},
+      {"confidence_stop", "안전", "-",
+       "인식 신뢰도가 이 값 이하인 검출은 유실로 봄(아래 hold_time/recover_time 단계 적용)",
+       0.10, 0, .9, .01},
       {"confidence_full", "안전", "-", "인식 신뢰도가 이 값 이상이면 최대 속도(사이 구간은 비례 감속)",
        0.50, .05, 1, .01},
-      {"timeout", "안전", "s", "이 시간 동안 새 인식 결과가 없으면 즉시 정지", 0.30, .05, 2, .01},
+      {"timeout", "안전", "s",
+       "이 시간 동안 /lane_lite/target 메시지 자체가 없으면(인식 노드 정지) 즉시 정지", 0.30, .05, 2, .01},
+      {"hold_time", "안전", "s",
+       "경로 유실(차선 미검출) 후 이 시간까지는 마지막 경로로 정상 속도 유지(HOLD)", 0.20, 0, 1, .01},
+      {"recover_time", "안전", "s",
+       "유실이 hold_time~이 시간이면 recover_speed 이하 저속 복구, 넘으면 정지. "
+       "lane_lite track_memory 이하로", 0.50, .05, 2, .01},
+      {"recover_speed", "안전", "m/s", "저속 복구 구간의 최대 속도", 0.15, 0, 1, .01},
       {"active", "안전", "0/1", "주행 허용. 0이면 속도 0(조향 계산은 계속). 튜너의 정지/주행 버튼", 1, 0, 1, 1},
   };
   return s;
@@ -83,6 +92,8 @@ void Config::validate() const {
     throw std::invalid_argument("confidence_stop must be < confidence_full");
   if ((*this)["min_speed"] > (*this)["speed"])
     throw std::invalid_argument("min_speed must be <= speed");
+  if ((*this)["hold_time"] > (*this)["recover_time"])
+    throw std::invalid_argument("hold_time must be <= recover_time");
 }
 Config Config::load(const std::string &path, const std::string &node) {
   Config c;
@@ -148,18 +159,20 @@ void Controller::reset() {
   have_prev_ = false;
   prev_error_ = prev_time_ = d_filtered_ = integral_ = 0;
   near_lateral_ = near_heading_ = far_lateral_ = 0;
+  lost_ = 1e9;
+  confidence_ = 0;
 }
 void Controller::measure(const Measurement &m, const Config &c) {
-  last_ = m;
-  t_.tracking = m.valid && m.confidence > c["confidence_stop"];
-  if (!t_.tracking) {
-    // Lost: forget I and D history so reacquisition starts clean. The output
-    // stage brings steering back to centre at the rate limit.
-    have_prev_ = false;
-    integral_ = d_filtered_ = 0;
-    t_.error = t_.p = t_.i = t_.d = t_.ff = t_.target_steering = 0;
-    return;
+  if (m.valid && m.detected && m.confidence > c["confidence_stop"]) {
+    lost_ = 0;
+    confidence_ = m.confidence;
   }
+  // No path in this frame: keep the last steering target; step() slows or
+  // stops by the time since the last good detection. A held path (valid but
+  // not detected) still steers: perception moved it with the car.
+  if (!m.valid)
+    return;
+  last_ = m;
   const double dt = m.time - prev_time_;
   const bool timed = have_prev_ && dt > 1e-4 && dt <= .5;
   // Measurement slew limit: a real vehicle cannot jump sideways or rotate
@@ -205,7 +218,16 @@ void Controller::measure(const Measurement &m, const Config &c) {
 }
 const Terms &Controller::step(double dt, bool fresh, const Config &c) {
   dt = std::clamp(dt, 0., .1);
-  const bool drive = fresh && t_.tracking;
+  lost_ += dt; // measure() zeroes it on every good detection
+  t_.lost = lost_;
+  const bool drive = fresh && lost_ <= c["recover_time"];
+  t_.tracking = drive;
+  if (!drive) {
+    // Stopped: forget I and D history so reacquisition starts clean. The
+    // output stage brings steering back to centre at the rate limit.
+    have_prev_ = false;
+    integral_ = d_filtered_ = 0;
+  }
   const double desired = drive ? t_.target_steering : 0.;
   const double rate = c["steering_rate"] * dt;
   t_.steering += std::clamp(desired - t_.steering, -rate, rate);
@@ -213,13 +235,15 @@ const Terms &Controller::step(double dt, bool fresh, const Config &c) {
 
   double v = 0;
   if (drive && c["active"] > .5) {
-    const double q = std::clamp((last_.confidence - c["confidence_stop"]) /
+    const double q = std::clamp((confidence_ - c["confidence_stop"]) /
                                     (c["confidence_full"] - c["confidence_stop"]),
                                 0., 1.);
     v = c["speed"] * q / (1 + c["steer_slowdown"] * std::abs(t_.steering)) /
         (1 + c["curvature_slowdown"] * std::abs(last_.curvature));
     if (q > 0)
       v = std::clamp(v, c["min_speed"], c["speed"]);
+    if (lost_ > c["hold_time"])
+      v = std::min(v, c["recover_speed"]);
   }
   // Braking (and every stop) is immediate; only acceleration is limited.
   t_.speed = v < t_.speed ? v : std::min(v, t_.speed + c["acceleration"] * dt);

@@ -43,6 +43,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+#if defined(__linux__)
+#include <sys/resource.h>
+#endif
 
 #include "angles/angles.h"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -2105,6 +2108,13 @@ void RosFilter<T>::periodicUpdate()
 
   rclcpp::Time cur_time = this->now();
 
+  // Keep overrun diagnostics on a monotonic clock: ROS time can be adjusted.
+  const auto cycle_begin = std::chrono::steady_clock::now();
+#if defined(__linux__)
+  struct rusage usage_begin{};
+  getrusage(RUSAGE_THREAD, &usage_begin);
+#endif
+
   if (toggled_on_) {
     // Now we'll integrate any measurements we've received if requested,
     // and update angular acceleration.
@@ -2120,6 +2130,7 @@ void RosFilter<T>::periodicUpdate()
     }
   }
 
+  const auto filter_done = std::chrono::steady_clock::now();
   // Get latest state and publish it
   auto filtered_position = std::make_unique<nav_msgs::msg::Odometry>();
 
@@ -2258,6 +2269,7 @@ void RosFilter<T>::periodicUpdate()
    * time suddenly moving backwards as well as the standard
    * timeout criterion before publishing. */
 
+  const auto publish_done = std::chrono::steady_clock::now();
   double diag_duration = (cur_time - last_diag_time_).nanoseconds();
   if (print_diagnostics_ &&
     (diag_duration >= diagnostic_updater_->getPeriod().nanoseconds() ||
@@ -2267,6 +2279,7 @@ void RosFilter<T>::periodicUpdate()
     last_diag_time_ = cur_time;
   }
 
+  const auto diagnostics_done = std::chrono::steady_clock::now();
   // Clear out expired history data
   if (smooth_lagged_data_) {
     clearExpiredHistory(filter_.getLastMeasurementTime() - history_length_);
@@ -2275,11 +2288,36 @@ void RosFilter<T>::periodicUpdate()
   // Warn the user if the update took too long
   const double loop_elapsed = (this->now() - cur_time).seconds();
   if (loop_elapsed > 1. / frequency_) {
+    const auto cycle_done = std::chrono::steady_clock::now();
+    auto milliseconds = [](auto start, auto end) {
+        return std::chrono::duration<double, std::milli>(end - start).count();
+      };
+#if defined(__linux__)
+    struct rusage usage_done{};
+    getrusage(RUSAGE_THREAD, &usage_done);
+    auto cpu_ms = [](const struct rusage & usage) {
+        return 1000. * (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
+               .001 * (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec);
+      };
+#endif
     RCLCPP_ERROR_STREAM(
       get_logger(),
       "Failed to meet update rate! Took " << std::setprecision(20) << loop_elapsed << "seconds. "
         "Try decreasing the rate, limiting sensor output frequency, or limiting the number of "
         "sensors.");
+    std::ostringstream timing;
+    timing << "EKF overrun timing (ms): wall=" << milliseconds(cycle_begin, cycle_done) <<
+        " filter=" << milliseconds(cycle_begin, filter_done) <<
+        " publish=" << milliseconds(filter_done, publish_done) <<
+        " diagnostics=" << milliseconds(publish_done, diagnostics_done) <<
+        " history=" << milliseconds(diagnostics_done, cycle_done);
+#if defined(__linux__)
+    timing << " thread_cpu=" << cpu_ms(usage_done) - cpu_ms(usage_begin) <<
+        " voluntary_switches=" << usage_done.ru_nvcsw - usage_begin.ru_nvcsw <<
+        " involuntary_switches=" << usage_done.ru_nivcsw - usage_begin.ru_nivcsw <<
+        " major_faults=" << usage_done.ru_majflt - usage_begin.ru_majflt;
+#endif
+    RCLCPP_WARN_STREAM(get_logger(), timing.str());
   }
 }
 
