@@ -29,6 +29,7 @@
  */
 
 #include "limo_base/limo_driver.h"
+#include <stdexcept>
 int flag=0; 
 
 namespace AgileX {
@@ -42,6 +43,24 @@ LimoDriver::LimoDriver(std::string node_name):rclcpp::Node(node_name),keep_runni
     pub_odom_tf_ = this->declare_parameter<bool>("pub_odom_tf", false);
     use_mcnamu_ = this->declare_parameter<bool>("use_mcnamu", false);
     int control_rate = this->declare_parameter<int>("control_rate", 50);
+    steering_limit_enabled_ = this->declare_parameter<bool>("steering_limit_enabled", false);
+    max_inner_angle_ = this->declare_parameter<double>("max_inner_angle", 0.80);
+    if (!std::isfinite(max_inner_angle_) || max_inner_angle_ <= 0.0 || max_inner_angle_ >= 1.57079632679) {
+        throw std::invalid_argument("max_inner_angle must be finite and between 0 and pi/2");
+    }
+
+    rcl_interfaces::msg::ParameterDescriptor fixed_model;
+    fixed_model.read_only = true;
+    steering_command_model_.enabled = this->declare_parameter<bool>("steering_command_calibration", false, fixed_model);
+    steering_command_model_.gain = this->declare_parameter<double>("steering_command_gain", 1.92, fixed_model);
+    steering_command_model_.deadband = this->declare_parameter<double>("steering_command_deadband", 0.23, fixed_model);
+    steering_command_model_.wire_limit = this->declare_parameter<double>("steering_command_limit", 0.35, fixed_model);
+    steering_command_model_.wire_offset = this->declare_parameter<double>("steering_command_offset", 0.0, fixed_model);
+    steering_command_model_.validate();
+    RCLCPP_INFO(get_logger(), "Ackermann command calibration=%s gain=%.2f deadband=%.2f cap=%.2f offset=%+.3f",
+                steering_command_model_.enabled ? "true" : "false", steering_command_model_.gain,
+                steering_command_model_.deadband, steering_command_model_.wire_limit,
+                steering_command_model_.wire_offset);
 
     std::cout << "Loading parameters: " << std::endl;
     std::cout << "- port name: " << port_name << std::endl;
@@ -415,6 +434,10 @@ void LimoDriver::sendFrame(const LimoFrame& frame) {
 }
 void LimoDriver::twistCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
 {
+    if (!std::isfinite(msg->linear.x) || !std::isfinite(msg->angular.z)) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "Rejected non-finite cmd_vel");
+        return;
+    }
     const int motion_mode = motion_mode_.load();
     if (motion_mode < 0) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
@@ -427,6 +450,10 @@ void LimoDriver::twistCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg
             break;
         }
         case MODE_ACKERMANN: {
+            if (std::abs(msg->linear.x) < 1e-6) {
+                setMotionCommand(0, 0, 0, 0);
+                break;
+            }
             double r = msg->linear.x / msg->angular.z;
             if(fabs(r) < track_/2.0)
             {
@@ -436,20 +463,14 @@ void LimoDriver::twistCmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg
             double central_angle = std::atan(wheelbase_ / r);
             double inner_angle = convertCentralAngleToInner(central_angle);
 
-            if (inner_angle > max_inner_angle_) {
+            if (steering_limit_enabled_ && inner_angle > max_inner_angle_) {
                 inner_angle = max_inner_angle_;
             }
-            if (inner_angle < -max_inner_angle_) {
+            if (steering_limit_enabled_ && inner_angle < -max_inner_angle_) {
                 inner_angle = -max_inner_angle_;
             }
 
-            double steering_angle;
-            if (inner_angle > 0) {
-                steering_angle = inner_angle / right_angle_scale_;
-            }
-            else {
-                steering_angle = inner_angle / right_angle_scale_;
-            }
+            const double steering_angle = steering_command_model_.encode(inner_angle, right_angle_scale_);
 
             setMotionCommand(msg->linear.x, 0, 0, steering_angle);
             break;

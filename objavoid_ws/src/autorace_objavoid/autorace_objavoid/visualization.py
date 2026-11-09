@@ -40,18 +40,21 @@ class Visualizer:
         markers, clusters = MarkerArray(), MarkerArray()
         path = Path()
         path.header.frame_id = 'base_link'
-        points = self.preview_points(steering, c) if speed > 0 else ()
-        curve = self.marker('command_path', 1, Marker.LINE_STRIP, (0., .85, 1., 1.))
+        from .node import path_is_valid
+        points = self.preview_points(steering, c) if speed > 0 and path_is_valid(state) else ()
+        color = (1.,.65,.1,1.) if state.startswith('SCAN_UNAVAILABLE') else (0.,.85,1.,1.)
+        curve = self.marker('command_path', 1, Marker.LINE_STRIP, color)
         curve.points = [self.point(x, y) for x, y in points]
         if not points:
             curve.action = Marker.DELETE
         markers.markers.append(curve)
-        curvature = math.tan(steering) / c.wheelbase
+        from .node import preview_poses
+        poses = preview_poses(steering,c)
         for index, (x, y) in enumerate(points):
             pose = PoseStamped()
             pose.header = path.header
             pose.pose.position = self.point(x, y)
-            yaw = curvature * c.preview_distance * index / 24
+            yaw = poses[index][2]
             pose.pose.orientation.z, pose.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
             path.poses.append(pose)
         lane = self.marker('lane_center', 11, Marker.LINE_STRIP, (1., .85, .15, 1.))
@@ -66,13 +69,16 @@ class Visualizer:
         if road is None:
             limits.action = lane_id.action = Marker.DELETE
         else:
-            for lateral in (-road.half_width, road.half_width):
-                distance = -.4
-                while distance < c.visual_road_distance:
-                    limits.points.extend((self.point(*road.point(distance, lateral), z=.03),
-                                          self.point(*road.point(min(distance+.15, c.visual_road_distance), lateral), z=.03)))
-                    distance += .25
-            lane_id.text = f'LANE{road.lane}\nEST'
+            if hasattr(road,'edges'):
+                for nx,ny,offset in road.edges:
+                    for x in (i*.25 for i in range(math.ceil(c.visual_road_distance/.25))):
+                        for xx in (x,min(x+.15,c.visual_road_distance)):
+                            limits.points.append(self.point(xx,-(nx*xx+offset)/ny,z=.03))
+            else:
+                for lateral in (-road.half_width,road.half_width):
+                    limits.points.extend((self.point(*road.point(0.,lateral)),
+                                          self.point(*road.point(c.visual_road_distance,lateral))))
+            lane_id.text = 'YELLOW BOUNDARIES' if hasattr(road,'edges') else 'CAMERA ROAD'
         markers.markers.extend((limits, lane_id))
         for index in range(max(len(groups), self.previous_count)):
             color = (*colorsys.hsv_to_rgb((.53 + index*.61803398875) % 1., .65, 1.), 1.)

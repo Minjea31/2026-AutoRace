@@ -10,17 +10,19 @@
 int main(int argc, char **argv) {
   if (argc < 3) {
     std::cerr << "lane_lite_eval BAG|IMAGE CONFIG.yaml [OUT_DIR|OUT.png] [--topic T] "
-                 "[--every N] [--start I] [--count N]\n";
+                 "[--every N] [--start I] [--count N] [--no-views]\n";
     return 1;
   }
   std::string bag_path = argv[1], config_path = argv[2], out, topic;
   size_t every = 0, first = 0, count = ~size_t(0);
+  bool views = true; // --no-views: time the pipeline as the driving node runs it
   for (int i = 3; i < argc; ++i) {
     std::string a = argv[i];
     if (a == "--topic" && i + 1 < argc) topic = argv[++i];
     else if (a == "--every" && i + 1 < argc) every = std::stoul(argv[++i]);
     else if (a == "--start" && i + 1 < argc) first = std::stoul(argv[++i]);
     else if (a == "--count" && i + 1 < argc) count = std::stoul(argv[++i]);
+    else if (a == "--no-views") views = false;
     else out = a;
   }
   try {
@@ -61,7 +63,7 @@ int main(int argc, char **argv) {
     const size_t last = std::min(bag.size(), first + count);
     for (size_t i = first; i < last; ++i) {
       auto frame = bag.frame(i);
-      auto r = pipeline.process(frame.image, frame.time);
+      auto r = pipeline.process(frame.image, frame.time, views || (every && i % every == 0));
       ++n;
       ms += r.processing_ms;
       worst_ms = std::max(worst_ms, r.processing_ms);

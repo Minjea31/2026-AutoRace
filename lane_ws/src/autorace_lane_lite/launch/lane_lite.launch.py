@@ -26,9 +26,12 @@ def generate_launch_description():
         DeclareLaunchArgument('use_sim_time', default_value=PythonExpression(
             ["'true' if '", arg('profile'), "' == 'sim' else 'false'"])),
         DeclareLaunchArgument('gui', default_value='false', description='true opens lane_lite_tuner'),
+        DeclareLaunchArgument('debug', default_value='false',
+                              description='true publishes /lane_lite/debug (BEV picture, built only while subscribed)'),
         Node(package='autorace_lane_lite', executable='lane_lite_node', output='screen',
              parameters=[{'config_file': arg('config_file'), 'image_topic': arg('image_topic'),
-                          'use_sim_time': sim_time}]),
+                          'use_sim_time': sim_time,
+                          'debug': ParameterValue(arg('debug'), value_type=bool)}]),
         Node(package='autorace_lane_lite', executable='lane_lite_tuner', output='screen',
              condition=IfCondition(arg('gui')),
              arguments=['--config', arg('config_file'), '--topic', arg('image_topic')],

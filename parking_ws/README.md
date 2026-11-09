@@ -1,236 +1,105 @@
-# parking_ws — LiDAR 주차 실행 안내
+# parking_ws
 
-`/yolo/parking_sign`을 연속 **3회 true**로 받으면 주차를 시작합니다. **미션 시작 시 차량 오른쪽에 주차 차량과 빈 칸이 있는 배치**를 사용합니다. 직진한 뒤 우회전해 전진 주차하고, 시뮬레이션 시간으로 3초 정지한 다음 **진입할 때 기록한 회전 구간을 그대로 후진**합니다. 회전 시작점 부근에서 멈추며 초기 출발점까지 돌아가지 않습니다.
+출차 중 새 차선을 보더라도 곡선 후진이 남아 있으면 parking 제어를 유지합니다.
+남은 후진 경로의 회전과 실제 차량의 차선 방향 오차가 `exit_heading_tolerance`(기본 0.05rad) 안이고,
+주차 구역 밖이며, 최신 위치·차선·lane 전진 명령을 확인했을 때만 lane에 넘깁니다.
+후진 구간 끝에 실제로 도착했는지도 기존 7cm 도착 여유 안에서 확인합니다. 남은 직선 후진은 생략하지 않습니다.
+남은 전진 경로는 parking이 실행하지 않고 차선 확인까지 정지 대기합니다.
 
-아래는 **시뮬레이터와 주차 노드를 ros2 launch, 어댑터 창을 `simul` 폴더에서 `./adapter`로 실행**하는 절차입니다. 장애물 편집과 전체 시뮬레이터 기능은 [simul README](../simul/README.md)를 참고하세요.
+융합 위치 또는 `/localization/health`가 오래되거나 미래 시각이면, 주차 미션을 유지한 채
+이전 위치 이력·대기 스캔·라이다 매칭 기준·장애물 지도·경로·비동기 계획을 한 번 폐기합니다.
+폐기 시각 이후의 정상 EKF·health·라이다로 재매칭하며, 완료 전에는 parking의 정지 명령을 유지합니다.
+복구 도중 추가 지연 데이터가 와도 기준 시각을 반복해서 옮기지 않습니다. 입력이 계속 잘못되면 정지 대기합니다.
+주차 시도 번호·활성 상태와 후진 복구 횟수/거리 제한, 별도 접근 기준점은 유지합니다.
+이미 출차 완료한 미션은 자동으로 다시 시작하지 않습니다. 정합 프레임이 바뀌므로 과거 지도나 출차 경로를 재사용하지 않습니다.
 
-## 1. 환경 설정과 최초 빌드
+차량 오른쪽의 장애물과 빈 주차칸을 찾고, 경로 생성·추종·주차·출차를 수행합니다.
+위치는 sensor_ws의 휠·IMU 융합 결과를 사용하고, 라이다 관측을 기억 지도에 누적합니다.
 
-Ubuntu 22.04 / ROS 2 Humble 기준입니다. Conda와 시스템 ROS가 설치되어 있어야 합니다. 시뮬레이터는 Conda `autorace-simul`의 Python 3.10, 주차 패키지는 시스템 `/usr/bin/python3`으로 빌드합니다.
+## 감속 시작 기준 상대 위치
 
-**환경 파일은 각 터미널에서 source로 적용합니다.** `./env.sh`는 부모 터미널의 환경을 바꾸지 못합니다. 각 명령 블록의 `cd` 경로에서 실행하며, 어댑터는 `~/2026-AutoRace/simul` 폴더에서 실행합니다.
+lane이 주차 표지를 연속 2회 확인해 감속을 시작하면 `/parking/approach_start`
+(`std_msgs/Header`, 시작 시각)를 발행합니다. fused 모드의 parking 노드는 그 시각에 맞춘
+EKF 위치·방향을 기준점으로 저장합니다. EKF는 계속 실행하며 기존 주차 지도·경로·TF는 유지합니다.
 
-### 시뮬레이터 패키지 빌드
+`/parking/approach_odometry` (`nav_msgs/Odometry`)는 기준점에 대한 상대 x/y/yaw를
+`parking_approach` 좌표계로 출력합니다. 기준점의 위치·방향은 0이며 twist는 기존
+base_link 기준을 유지합니다. pose covariance는 고정 기준점 좌표계로 회전합니다.
+이 토픽은 별도 관측 출력으로, 기존 경로 제어의 입력 토픽을 대체하지 않습니다. TF는 추가하지 않습니다.
 
-~~~bash
-cd ~/2026-AutoRace
-source simul/env.sh
-python -m pip install colcon-common-extensions
-cd simul
-python -m colcon build --symlink-install --packages-select limo_parking_sim
-~~~
+시작 시각을 사이에 둔 EKF 샘플로 위치를 보간하고, 최대 `localization_timeout`(기본 0.3초)까지만 기다립니다.
+오래된·미래·초기화 이전 신호는 거부하며, 데이터 누락 시 기준점을 만들지 않고 로그를 남깁니다.
+중복 시작 신호는 현재 기준점을 바꾸지 않습니다. `/parking/reset` 또는 기존 시계 역행 초기화 때
+기준점을 해제합니다. 신호는 volatile QoS로 발행되므로 수신 노드는 감속 시작 전에 실행해야 합니다.
 
-`source simul/env.sh`는 `autorace-simul` 환경이 없으면 생성하고, 있으면 활성화한 뒤 필수 패키지와 ROS 환경을 준비합니다. ROS 실행 파일은 빌드 당시 Python을 사용하므로 **시뮬레이터 빌드는 이 Conda 환경에서** 수행합니다. 기존에 다른 Python으로 빌드했다면 빌드·설치 경로를 분리해야 합니다. [시뮬레이터 빌드 안내](../simul/README.md#7-ros-패키지로-빌드하기-선택)도 참고하세요.
+```bash
+ros2 topic echo /parking/approach_odometry
+```
 
-### 주차 패키지 빌드
+## 빌드와 실차 실행
 
-~~~bash
-cd ~/2026-AutoRace
-source parking_ws/env.sh
-cd parking_ws
-/usr/bin/python3 -m colcon build --symlink-install --packages-select autorace_parking
-cd ..
-source parking_ws/env.sh
-~~~
+센서와 mux를 먼저 실행합니다. ROS 2 Humble 시스템 환경에서 빌드하세요.
 
-`parking_ws/env.sh`는 시스템 ROS, 로컬 의존성, 빌드된 주차 패키지를 연결합니다. `ackermann_msgs`가 없다면 `sudo apt install ros-humble-ackermann-msgs`로 설치합니다. 이미 `parking_ws/.ros-deps`에 추출한 로컬 패키지가 있으면 환경 파일이 연결합니다. NumPy, colcon, RViz와 패키지에 선언된 ROS 의존성도 필요합니다.
-
-처음 실행하거나 실행 파일·launch 구성을 변경했을 때 빌드합니다. `build`, `install`, `log`, `.ros-deps`는 Git에 포함하지 않습니다.
-
-## 2. 시뮬레이션 실행 — 터미널 4개
-
-환경 파일의 기본값은 **ROS_DOMAIN_ID=42, ROS_LOCALHOST_ONLY=1**입니다. 이미 지정된 0 이외의 도메인은 유지하므로 네 터미널의 값이 같아야 합니다. 42로 고정하려면 각 터미널에서 환경을 적용하기 전에 `export AUTORACE_SIM_DOMAIN_ID=42`를 실행하세요.
-
-### 터미널 1 — 시뮬레이터
-
-~~~bash
-cd ~/2026-AutoRace
-source simul/env.sh
-source simul/install/local_setup.bash
-ros2 launch limo_parking_sim parking.launch.py \
-  mission:=parking view:=parking parking_adapter:=false
-~~~
-
-주차 미션 시작 위치와 주차장 시점으로 실행합니다. `parking_adapter:=false`로 두고 터미널 3에서 공용 어댑터를 실행합니다.
-
-| 키 | 동작 |
-| --- | --- |
-| K | 키보드 제어 전환. 주차 노드 시험 시 **ROS 제어**로 둡니다. |
-| P | 일시정지 / 계속 |
-| F5 | 주차 미션의 시작 위치로 차량 리셋 |
-
-실제 센서 드라이버나 두 번째 시뮬레이터는 함께 실행하지 않습니다. 센서와 `/clock`은 이 시뮬레이터에서 발행합니다.
-
-### 터미널 2 — 주차 노드와 RViz
-
-~~~bash
-cd ~/2026-AutoRace
-source parking_ws/env.sh
-ros2 launch autorace_parking parking.launch.py use_sim_time:=true rviz:=true
-~~~
-
-주차 노드, 차량 모형 시각화 노드, RViz를 실행합니다. RViz가 필요 없으면 `rviz:=false`로 바꿉니다. 주차 launch는 어댑터를 자동 실행하지 않습니다.
-
-### 터미널 3 — simul 공용 어댑터 창
-
-~~~bash
-cd ~/2026-AutoRace/simul
-source env.sh
-./adapter
-~~~
-
-`./adapter`는 기존 `adapter.sh`를 실행하므로 어댑터용 colcon 빌드나 `source install/local_setup.bash`가 필요 없습니다. **주차 (parking)** 행의 **/mission/parking/command_03을 ON**으로 켜고, 주차 단독 시험에서는 나머지 입력을 OFF로 둡니다. 처음에는 모두 OFF입니다. 창과 실행 터미널을 유지하세요.
-
-어댑터는 주차 노드의 `AckermannDriveStamped`를 시뮬레이터의 `/cmd_vel` (`Twist`)로 변환합니다. 출력 토픽이 `/cmd_vel`인지 확인하고, 같은 토픽을 발행하는 기존 mux나 다른 어댑터는 종료합니다.
-
-창 없이 주차 입력만 연결하려면 같은 `simul` 폴더에서 위 GUI 실행 대신 사용합니다.
-
-~~~bash
-./adapter --no-gui --topic /mission/parking/command_03
-~~~
-
-### 터미널 4 — 주차 시작 신호
-
-~~~bash
-cd ~/2026-AutoRace
-source parking_ws/env.sh
-ros2 topic pub -r 10 --times 3 /yolo/parking_sign std_msgs/msg/Bool '{data: true}'
-~~~
-
-YOLO 대신 시작 신호를 수동으로 3회 보냅니다. 이는 **시작 조건**이며, 이후 속도·조향 명령은 주차 노드가 발행합니다. 매 시도마다 `--times 3`을 사용하세요. true를 계속 발행하면 3회마다 미션을 다시 시작합니다.
-
-false 또는 0.5초를 넘는 감지 공백은 연속 횟수만 초기화하며 진행 중인 미션을 취소하지 않습니다.
-
-## 3. 주차 노드만 ros2 run으로 실행
-
-터미널 2의 launch 대신 주차 노드 하나만 실행할 수도 있습니다.
-
-~~~bash
-cd ~/2026-AutoRace
-source parking_ws/env.sh
+```bash
+cd ~/2026-AutoRace/parking_ws
+source /opt/ros/humble/setup.bash
+source ../sensor_ws/install/setup.bash
+/usr/bin/python3 -m colcon build --symlink-install
+export ROS_DOMAIN_ID=94 ROS_LOCALHOST_ONLY=0
+source real_env.sh
 ros2 run autorace_parking parking_node --ros-args \
-  --params-file parking_ws/src/autorace_parking/config/parking.yaml \
-  -p use_sim_time:=true
-~~~
+  --params-file ~/2026-AutoRace/parking_ws/src/autorace_parking/config/parking_real.yaml
+```
 
-이 경우 RViz와 차량 모형 노드는 자동 실행되지 않습니다. 시뮬레이터, 공용 어댑터, 시작 신호는 앞 절과 동일합니다. **주차 노드를 launch와 run으로 중복 실행하지 않습니다.**
+실차는 `parking_real.yaml`을 사용합니다. bare run과 기본 launch의 설정은 실차 프로필과 다르며, 기본 launch는 시뮬레이션 시간을 사용합니다.
+실차 launch를 쓰려면 명시적으로 설정합니다.
 
-## 4. 상태 확인·재시도·종료
+```bash
+ros2 launch autorace_parking parking.launch.py use_sim_time:=false \
+  params_file:=$HOME/2026-AutoRace/parking_ws/src/autorace_parking/config/parking_real.yaml
+```
 
-터미널 4에서 JSON 상태 전체를 확인합니다.
+RViz는 같은 ROS 도메인과 환경에서 실행합니다.
 
-~~~bash
-ros2 topic echo /parking/status --once --field data --full-length
-~~~
+```bash
+rviz2 -d ~/2026-AutoRace/parking_ws/parking_real.rviz
+```
 
-정상 흐름은 다음과 같습니다. 상태 전환은 주차 노드 터미널에도 출력합니다.
+## 동작 흐름
 
-~~~text
-WAITING_SIGN → WAITING_SCAN → PLANNING → APPROACHING/PARKING
-→ CONFIRMING → PARKED (3초 정지) → EXITING → EXIT_CONFIRMING → EXITED
-~~~
+1. `/yolo/parking_sign`의 true를 연속 3회 받으면 시작합니다. 이후 5초의 무시 구간이 지난 뒤 true를 다시 받으면 위치 추정의 미션 기준·기억 지도·목표·경로를 초기화해 새로 시작합니다. 공용 EKF 자체를 초기화하는 것은 아닙니다.
+2. 미션 시작 위치에 고정한 ROI에서 후보를 찾습니다. 전방 x는 **0~3m**, 오른쪽 거리는 **0~2m**이며 ROS 좌표 y로는 **-2~0m**입니다.
+3. 장애물 배치를 두 객체 사이 또는 6칸 지도와 정합해 빈 공간의 목표를 선택합니다. 칸 영역 전체가 아닌 실제 관측·기억 장애물 점과 차체·여유 공간으로 충돌을 검사합니다.
+4. 연결 가능한 경로를 추종해 주차합니다. 차량 중앙을 목표에 맞추고 도착 오차는 뒤축 기준으로 계산합니다.
+5. 도착 후 3초 정지하고 기록한 진입 경로를 이용해 후진 출차합니다.
 
-`EXITED`는 출차 완료이며, 이후에는 0 속도 명령을 계속 발행합니다. `PLANNING`은 주차 완료가 아니라 진입 경로를 찾는 상태입니다. 상태 JSON의 `reason`, `goal_error`, `entry_trace_poses`, `exit_path_length_m`으로 정지 이유와 경로 기록을 확인할 수 있습니다.
+## 후진과 제어권
 
-**주행 중 장애물·충돌 판정으로 정지하거나 최종 경로를 폐기하지 않습니다.** 충돌·실패 여부는 사용자가 판단합니다. 실패했다면 아래 순서로 재시도합니다.
+- 복구 후진은 필요한 조건에서 정지 확인 후 수행합니다. 한 번에 실제 **최소 20cm**, 최대 **30cm**, 속도 **0.2m/s**, 최대 **5회**이며 누적 한도도 검사합니다.
+- 후진 충돌 여부는 기억 지도로 판단합니다. 지도에 점이 없는 후방은 빈 공간으로 취급하므로 지도에 없는 실제 장애물은 검출하지 못할 수 있습니다.
+- 경로가 없을 때는 주행 명령을 계속 발행하지 않습니다. 복구 후 새 진입 경로가 없으면 정지를 확인하고 제어를 해제하며, mux의 입력 만료 후 다른 유효 미션 또는 lane이 선택됩니다.
+- 관측과 재계획은 계속합니다. 연결 가능한 새 진입 경로를 확보하면 parking 제어를 다시 시작합니다.
 
-1. 터미널 4에서 주차 제어를 대기 상태로 초기화합니다.
+## 주요 토픽
 
-   ~~~bash
-   ros2 service call /parking/reset std_srvs/srv/Trigger '{}'
-   ~~~
-
-2. 시뮬레이터 창에서 **F5**로 차량을 시작 위치로 되돌립니다.
-3. 시작 신호를 새로 3회 보냅니다.
-
-   ~~~bash
-   ros2 topic pub -r 10 --times 3 /yolo/parking_sign std_msgs/msg/Bool '{data: true}'
-   ~~~
-
-새로운 3회 true는 이전 미션의 진행·실패·완료 여부와 관계없이 경로와 위치 추정을 초기화해 새 시도를 시작합니다. 노드를 매번 재시작할 필요는 없습니다. `/parking/reset`은 차량을 이동시키지 않으며, **F5만 눌러서는 노드가 새 미션을 시작하지 않습니다.**
-
-센서 수신 지연·위치 추정 실패·경로 오류에 따른 정지는 유지합니다. `/scan`이 0.5초 넘게 오래되면 `WAITING_SCAN`, 스캔 정합이 실패하면 `TRACKING_LOST`가 됩니다. 위치 추정이 실패했다면 위 재시도 순서를 사용하세요. 시뮬레이터 자체의 물리 충돌 처리는 주차 노드와 별개입니다.
-
-종료할 때는 주차 노드, 어댑터, 시뮬레이터를 실행한 각 터미널에서 Ctrl+C를 누릅니다.
-
-## 5. 주차 노드의 입출력
-
-| 방향 | 토픽 | 타입 | 내용 |
-| --- | --- | --- | --- |
-| 구독 | `/scan` | `sensor_msgs/msg/LaserScan` | Best Effort 라이다 입력 |
-| 구독 | `/yolo/parking_sign` | `std_msgs/msg/Bool` | 연속 3회 true로 시작·재시도 |
-| 발행 | `/mission/parking/command_03` | `ackermann_msgs/msg/AckermannDriveStamped` | 활성 미션에서 20 Hz 속도(m/s)·조향각(rad) |
-| 발행 | `/parking/path` | `nav_msgs/msg/Path` | 현재 차량 기준 진입·후진 경로 |
-| 발행 | `/parking/obstacles` | `visualization_msgs/msg/MarkerArray` | 라이다 군집의 파란색 박스 테두리 |
-| 발행 | `/parking/target` | `visualization_msgs/msg/MarkerArray` | 목표 위치·방향 화살표 |
-| 발행 | `/parking/active` | `std_msgs/msg/Bool` | 미션 활성 여부 |
-| 발행 | `/parking/status` | `std_msgs/msg/String` | 상태·시도 번호·명령·추정 오차 JSON |
-
-주차 노드가 `/cmd_vel`을 직접 발행하지는 않습니다. 공용 어댑터가 `/mission/parking/command_03`을 받아 `/cmd_vel`로 전달합니다. `/parking/reset`은 `std_srvs/srv/Trigger` 서비스입니다.
-
-`rviz:=true`일 때 별도 `parking_robot_visual` 노드가 `/parking/robot_description` (`std_msgs/msg/String`)을 발행합니다. RViz의 Fixed Frame은 **base_link**이며, 원시 라이다 표시용 `laser_link → base_link` TF는 시뮬레이터가 제공합니다. 차량 모형은 저장소의 `sensor_ws` 메시를 재사용하므로 해당 워크스페이스를 빌드할 필요는 없습니다.
-
-## 6. 경로와 설정
-
-주차 후보는 **미션 시작 좌표계의 오른쪽(y < 0)에 있는 차량 군집 사이**에서만 찾습니다. 왼쪽에 더 가까운 빈 공간이 보여도 선택하지 않습니다. 회전·이동 후에도 시작 위치와 방향을 기준으로 판단하므로, 오른쪽 주차 열이 현재 차량의 왼쪽에 보이더라도 좌측 주차로 바뀌지 않습니다. 시각화와 위치 추정에는 전체 스캔을 사용합니다.
-
-직진 → 우회전 원호 → 칸 안쪽 직진 경로를 우선 생성합니다. 차체 치수·조향 한계·관측 형상은 **경로 생성 단계**에 반영합니다. 칸이 가려지면 관측된 구간까지만 접근해 다시 계획하고, 최종 진입 경로를 받으면 이를 유지합니다. 이동 추정은 연속 LiDAR 스캔 정합을 사용하며 주차 노드는 odom·IMU·TF를 구독하지 않습니다.
-
-주차 완료 후에는 기록한 진입 궤적을 역순으로 따라갑니다. 칸 안쪽 직진과 회전 구간을 되짚고, 진입 전 방향과 다시 맞는 마지막 기록 자세에서 멈춥니다. 앞서 길게 직진한 구간은 후진하지 않습니다.
-
-설정 파일은 [parking.yaml](src/autorace_parking/config/parking.yaml)입니다. 값을 바꾸면 주차 노드를 재시작해 적용합니다.
-
-| 설정 | 기본값 | 의미 |
+| 방향 | 토픽 | 내용 |
 | --- | --- | --- |
-| `recognition_frames` | `3` | 연속 true 수 |
-| `row_yaw` | `0.0` | 시작 차량 방향 기준 주차 열 방향(rad) |
-| `parking_speed` | `1.0` | 기준 속도(m/s). 곡선·정지 지점 앞에서 감속 |
-| `parking_hold_seconds` | `3.0` | 주차 후 대기 시간(시뮬레이션 초) |
-| `exit_heading_tolerance` | `0.05` | 후진 끝점을 찾을 때 초기 방향과의 허용 차이(rad, 약 2.9°) |
-| `allow_reverse` | `false` | 진입은 전진만 사용. 출차는 기록한 궤적을 후진 |
-| `scan_timeout` | `0.5` | 스캔 수신 제한 시간(초) |
+| 입력 | `/yolo/parking_sign` | 주차 시작 신호 |
+| 입력 | `/scan` | 라이다 |
+| 입력 | `/odometry/filtered`, `/localization/health` | 융합 위치와 준비 상태 |
+| 출력 | `/mission/parking/command_03` | mux에 전달하는 주차 명령 |
+| 출력 | `/parking/path` | 주차 경로 |
+| 출력 | `/parking/lookahead` | 추종 목표점·lookahead 표시 |
+| 서비스 | `/parking/reset` | 미션 초기화 |
 
-빈 칸이 관측되지 않거나 진입 경로를 생성할 수 없으면 대기합니다. 카메라 주차선 인식·영상 중심 보정·후진 T자 주차는 포함하지 않습니다. 실차 보정·검증은 수행하지 않았습니다.
+지도·장애물·목표·ROI 표시는 포함된 RViz 설정에서 함께 확인할 수 있습니다.
 
-## 7. 실행 문제 확인
+## 조향과 설정
 
-### 토픽 목록에 /parameter_events와 /rosout만 보일 때
+경로와 추종기는 실제 중앙 조향각을 기준으로 계산합니다. 발행 직전에만 gain **1.92**, deadband **0.23**, 전송값 상한 **0.35**의 보정을 기존 드라이버 변환에 맞춰 적용합니다.
+따라서 명령 토픽의 조향각 숫자는 추종기가 계산한 실제 목표각과 다를 수 있습니다. 드라이버 보정은 OFF여야 하며, 중복 보정이 확인되면 주행을 대기합니다.
+조향 변화율 제한은 기본 0으로 즉시 출력합니다.
 
-기존 터미널에서 환경 파일을 다시 읽고 조회합니다.
-
-~~~bash
-cd ~/2026-AutoRace
-source parking_ws/env.sh
-echo "ROS_DOMAIN_ID=$ROS_DOMAIN_ID ROS_LOCALHOST_ONLY=$ROS_LOCALHOST_ONLY"
-ros2 topic list -t
-ros2 topic echo /scan --once --qos-reliability best_effort --field header
-~~~
-
-공통 환경 파일은 `ros2 topic list` 등의 조회를 데몬 없이 직접 DDS에 연결합니다. 파일 수정이 기존 터미널에 자동 적용되지는 않습니다. 계속 보이지 않으면 시뮬레이터 실행 상태와 터미널 간 도메인을 확인하세요.
-
-### 시작 신호를 보냈는데 움직이지 않을 때
-
-- 시뮬레이터가 ROS 제어이고 일시정지 상태가 아닌지 확인합니다.
-- 공용 어댑터에서 parking 입력이 ON인지 확인합니다.
-- `/parking/status`의 전체 `state`와 `reason`을 확인합니다.
-- `ros2 topic info /scan`, `ros2 topic info /clock`으로 발행자가 각각 하나인지 확인합니다.
-
-### ROS 패키지를 찾지 못할 때
-
-`autorace_parking`은 주차 패키지 빌드 후 `source parking_ws/env.sh`, `limo_parking_sim`은 Conda에서 시뮬레이터 빌드 후 `source simul/env.sh`와 `source simul/install/local_setup.bash`를 적용합니다. Python 경로가 달라 실행에 실패하면 해당 패키지를 지정된 Python으로 빌드했는지도 확인하세요.
-
-## 8. 검증 도구
-
-저장소 루트에서 실행합니다. 테스트에는 실제 실행 중인 시뮬레이터와 다른 ROS 도메인을 사용합니다.
-
-~~~bash
-cd ~/2026-AutoRace
-source parking_ws/env.sh
-ROS_DOMAIN_ID=176 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest \
-  -p no:cacheprovider -q parking_ws/src/autorace_parking/test
-
-# 시뮬레이터 운동·라이다 모델로 주차와 후진을 검사하고 그림/JSON 저장
-/usr/bin/python3 parking_ws/tools/check_parking_sim.py --output /tmp/parking-check
-~~~
-
-연속 감지·재시도, 시작 기준 오른쪽 후보 선택, 회전 후 좌표 변환, 직진 후 우회전, 최종 경로 유지, 주차 대기와 진입 회전 후진, 센서 단절·시각 허용 범위·초기화와 ROS 메시지를 검사합니다. 검증 도구의 실제 차량 위치는 결과 판정과 그림에만 사용하며 주차 알고리즘에 입력하지 않습니다.
+실차 파라미터는 `src/autorace_parking/config/parking_real.yaml`에서 확인하세요.
+분석·검증 도구는 `tools/`, 회귀 테스트는 `src/autorace_parking/test/`에 있습니다.
+시뮬레이터 사용법은 [simul 문서](../simul/README.md)를 참고하세요.

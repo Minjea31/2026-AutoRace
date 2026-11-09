@@ -21,7 +21,7 @@ def test_ros_activation_markers_path_control_and_stale_stop():
     from limo_parking_sim.config import load_config
     from limo_parking_sim.model import Simulation
     rclpy.init()
-    node = ParkingNode(parameter_overrides=[Parameter('plan_period', value=.1),
+    node = ParkingNode(parameter_overrides=[Parameter('localization_source', value='scan'), Parameter('plan_period', value=.1),
                                             Parameter('exit_heading_tolerance', value=.04)])
     assert node.follower.exit_heading_tolerance == .04
     driver = Node('parking_test_driver')
@@ -63,7 +63,7 @@ def test_ros_activation_markers_path_control_and_stale_stop():
             msg.ranges = sim.scan().tolist()
             node.on_scan(msg)
             spin_for(.08)
-            if any(command.drive.speed > 0 for command in commands):
+            if any(command.drive.speed > 0 for command in commands) and any(path.poses for path in paths):
                 moving = True
                 break
         assert moving and any(path.poses for path in paths)
@@ -76,25 +76,37 @@ def test_ros_activation_markers_path_control_and_stale_stop():
         assert commands[-1].drive.speed == 0.0
         assert not paths[-1].poses
         assert node.state == 'WAITING_SCAN'
-        # Each new group of three messages restarts even a latched failure or
-        # a completed/departing mission, and clears its recorded route.
+        # Signs are ignored during cooldown; a later true starts a fresh mission.
         for state in ('TRACKING_LOST', 'PARKED', 'EXITING', 'EXITED'):
             old_follower, old_epoch, old_attempt = node.follower, node.epoch, node.attempt
             node.state = state
-            node.tracker.valid = False
             old_follower.entry_trace = [(0., 0., 0.), (.5, 0., 0.)]
             old_follower.path = old_follower.entry_trace.copy()
-            for _ in range(2):
-                signs.publish(Bool(data=True))
-                spin_for(.06)
-            assert node.attempt == old_attempt and node.follower is old_follower
-            signs.publish(Bool(data=True))
-            spin_for(.06)
-            assert node.attempt == old_attempt + 1 and node.epoch == old_epoch + 1
-            assert node.follower is not old_follower and not node.follower.entry_trace
-            assert not node.follower.path and not node.follower.parked
-            assert node.tracker.valid and node.state == 'WAITING_SCAN'
-            assert commands[-1].drive.speed == 0.
+            route = old_follower.path.copy()
+            for _ in range(3):
+                node.on_sign(Bool(data=True))
+            assert node.attempt == old_attempt and node.epoch == old_epoch
+            assert node.follower is old_follower and node.follower.path == route
+            # After cooldown, one true restarts; the following messages are ignored.
+            node.sign_ignore_until = time.monotonic() - 1.
+            for _ in range(3):
+                node.on_sign(Bool(data=True))
+            assert node.follower is not old_follower and node.attempt == old_attempt+1
+            assert node.epoch == old_epoch+1 and not node.follower.path
+            assert node.follower.goal is None and node.scan is None
+            assert node.state == 'WAITING_SCAN'
+        old_attempt = node.attempt
+        # Even an explicit reset cannot turn queued signs into an immediate start.
+        node.sign_ignore_until = time.monotonic() + 5.
+        node.on_reset(None, Trigger.Response())
+        for _ in range(3):
+            node.on_sign(Bool(data=True))
+        assert not node.activation.active and node.activation.count == 0
+        assert node.attempt == old_attempt
+        node.sign_ignore_until = time.monotonic() - 1.
+        for _ in range(3):
+            node.on_sign(Bool(data=True))
+        assert node.activation.active and node.attempt == old_attempt + 1
         node.on_reset(None, Trigger.Response())
         assert node.follower.exit_heading_tolerance == .04
         spin_for(.08)
@@ -118,7 +130,7 @@ def test_fresh_scan_ahead_of_clock_does_not_discard_entry_path(future_seconds):
     from limo_parking_sim.model import Simulation
 
     rclpy.init()
-    node = ParkingNode()
+    node = ParkingNode(parameter_overrides=[Parameter('localization_source', value='scan'), Parameter('clearance', value=.04)])
     node.now_seconds = lambda: 20.
     sim = Simulation(load_config())
     try:
@@ -152,7 +164,7 @@ def test_pending_replan_does_not_replace_accepted_final_entry_path():
     from autorace_parking.core import Gap
 
     rclpy.init()
-    node = ParkingNode()
+    node = ParkingNode(parameter_overrides=[Parameter('localization_source', value='scan')])
     node.now_seconds = lambda: 20.
     try:
         for _ in range(3):

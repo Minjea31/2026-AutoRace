@@ -1,10 +1,13 @@
 // /lane_lite/target -> error-based PID -> /lane_pid/command (+ /mission/lane).
 // Gains are ROS parameters; the separate lane_pid_tuner window edits them live.
 #include "autorace_lane_pid/pid.hpp"
+#include "autorace_lane_pid/parking_approach.hpp"
 #include <ackermann_msgs/msg/ackermann_drive_stamped.hpp>
 #include <chrono>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <std_msgs/msg/header.hpp>
 
 namespace {
 double steady() {
@@ -15,7 +18,7 @@ double steady() {
 // /lane_pid/state layout (published every output tick):
 // [tracking, error, p, i, d, ff, target_steering, steering, speed,
 //  near_lateral_m, near_heading_rad, curvature, confidence, data_age_s, active,
-//  lookahead_lateral_m]
+//  lookahead_lateral_m, lost_s]  (lost_s: time since the last good detection)
 class LanePidController : public rclcpp::Node {
 public:
   LanePidController() : Node("lane_pid_controller") {
@@ -31,6 +34,15 @@ public:
     config_.validate();
     const bool vehicle = declare_parameter("enable_vehicle_output", false);
     const auto input = declare_parameter<std::string>("target_topic", "/lane_lite/target");
+    // Parking approach (same as lane_fusion_pid): N confirmed /yolo/parking_sign
+    // -> lane speed capped for a fixed time + /parking/approach_start event.
+    const auto parking_topic = declare_parameter<std::string>("parking_sign_topic", "/yolo/parking_sign");
+    const int confirmations = declare_parameter<int>("parking_slowdown_confirmations", 2);
+    const double parking_speed = declare_parameter<double>("parking_slowdown_speed", .3);
+    const double parking_duration = declare_parameter<double>("parking_slowdown_duration", 10.);
+    parking_ = lane_pid::ParkingApproach(confirmations, parking_speed, parking_duration,
+                                       declare_parameter<double>("parking_slowdown_max_gap", .5),
+                                       declare_parameter<double>("parking_slowdown_cooldown", 5.));
 
     parameters_ = add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter> &ps) {
       rcl_interfaces::msg::SetParametersResult result;
@@ -57,6 +69,7 @@ public:
       vehicle_ = create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/mission/lane",
                                                                               rclcpp::QoS(1));
     state_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_pid/state", rclcpp::QoS(1));
+    approach_start_ = create_publisher<std_msgs::msg::Header>("/parking/approach_start", rclcpp::QoS(10));
     target_ = create_subscription<std_msgs::msg::Float32MultiArray>(
         input, rclcpp::QoS(1), [this](std_msgs::msg::Float32MultiArray::ConstSharedPtr msg) {
           if (msg->data.size() < 6)
@@ -68,6 +81,8 @@ public:
           m.lookahead = msg->data[3];
           m.curvature = msg->data[4];
           m.confidence = msg->data[5];
+          if (msg->data.size() >= 8) // boundary states: 2 = detected this frame
+            m.detected = msg->data[6] > 1.5f || msg->data[7] > 1.5f;
           if (msg->data.size() >= 11) {
             m.near_lateral = msg->data[8];
             m.near_heading = msg->data[9];
@@ -83,6 +98,17 @@ public:
           measurement_ = m;
           received_ = steady();
         });
+    parking_sign_ = create_subscription<std_msgs::msg::Bool>(
+        parking_topic, rclcpp::QoS(10),
+        [this, parking_speed, parking_duration](std_msgs::msg::Bool::ConstSharedPtr msg) {
+          if (parking_.receive(msg->data, steady())) {
+            std_msgs::msg::Header event;
+            event.stamp = now();
+            approach_start_->publish(event);
+            RCLCPP_INFO(get_logger(), "주차 표지 확인: lane 속도 최대 %.2f m/s, %.1f초간 감속",
+                        parking_speed, parking_duration);
+          }
+        });
     timer_ = create_wall_timer(std::chrono::milliseconds(20), [this] { tick(); });
     RCLCPP_INFO(get_logger(), "lane_pid_controller: %s -> /lane_pid/command%s", input.c_str(),
                 vehicle ? " + /mission/lane" : " (vehicle output OFF)");
@@ -94,7 +120,8 @@ private:
     const double dt = last_tick_ < 0 || ros_now < last_tick_ ? 0 : ros_now - last_tick_;
     last_tick_ = ros_now;
     const double age = received_ > 0 ? steady() - received_ : 1e9;
-    const auto &t = controller_.step(dt, age <= config_["timeout"], config_);
+    const auto &t = controller_.step(dt, age <= config_["timeout"], config_,
+                                     parking_.limit(steady(), config_["speed"]));
 
     ackermann_msgs::msg::AckermannDriveStamped out;
     out.header.stamp = now();
@@ -110,16 +137,19 @@ private:
     s.data = {float(t.tracking), float(t.error), float(t.p), float(t.i), float(t.d), float(t.ff),
               float(t.target_steering), float(t.steering), float(t.speed), float(m.near_lateral),
               float(m.near_heading), float(m.curvature), float(m.confidence), float(std::min(age, 99.)),
-              float(config_["active"]), float(m.lateral)};
+              float(config_["active"]), float(m.lateral), float(std::min(t.lost, 99.))};
     state_->publish(s);
   }
   lane_pid::Config config_;
   lane_pid::Controller controller_;
+  lane_pid::ParkingApproach parking_;
   lane_pid::Measurement measurement_;
   double received_ = 0, last_tick_ = -1, last_measure_ = -1e18;
   rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr command_, vehicle_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr state_;
+  rclcpp::Publisher<std_msgs::msg::Header>::SharedPtr approach_start_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr target_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr parking_sign_;
   rclcpp::TimerBase::SharedPtr timer_;
   OnSetParametersCallbackHandle::SharedPtr parameters_;
 };

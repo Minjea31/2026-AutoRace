@@ -1,4 +1,15 @@
 # Lane PID controller (REAL CAR). NOT closed-loop validated on the car yet.
+# 2026-11-09: tuner opencv.yaml (car 06): curvature_ff 0.3, steering_rate 4.0, speed 0.8, steer_slowdown 0.15,
+#   hold_time 0.25 (far_heading_weight stays 0.0: not in that file). Use 0.0 not 0 for doubles.
+# 2026-11-09: path-loss staging instead of a stop on one lost frame:
+#   lost <= hold_time 0.2 s normal speed, <= recover_time 0.5 s at most
+#   recover_speed 0.2 m/s, then stop (lane_lite track_memory is 0.5 s).
+# 2026-11-06 (pid11061.yaml, tuned on the car): heading_weight 0.27, lookahead_weight 0.95,
+#   kd 0.2, max_steering 0.6, steering_rate 3.6, speed 0.81, steer_slowdown 0.35.
+# 2026-11-06: speed 0.15 -> 0.5, steer_slowdown 1.0 -> 0.5 from the user's tuner
+#   save (pid1106.yaml). mux caps forward speed at 0.5 m/s.
+# max_steering 0.40 -> 0.65: matches mux max_steering_angle_rad 0.65 and the
+#   limo_base inner-wheel limit raised to 0.80 rad (RC reaches ~38 deg centre).
 # 2026-11-05: kp 0.4 -> 1.0, lateral_weight 0.5 -> 0.3, heading_weight 0.10 -> 0.15,
 #   kd 0.06 -> 0.12.
 #   The real BEV puts the target ~0.68 m ahead (sim ~1.2 m), so the sim gains
@@ -12,30 +23,35 @@
 # Note: lane_lite real bev_near_m / bev_far_m are still placeholders, so
 # near_heading is only approximate until they are measured.
 # e = lateral_weight*near_lateral + heading_weight*near_heading + lookahead_weight*lateral
+#     + far_heading_weight*heading (2026-11-09: path angle at the lookahead point, 0 = off)
 # steer = kp*e + ki*int(e) + kd*de/dt + ff
 lane_pid_controller:
   ros__parameters:
     lateral_weight: 0.3
-    heading_weight: 0.15
-    lookahead_weight: 1.0
+    heading_weight: 0.27
+    lookahead_weight: 0.95
+    far_heading_weight: 0.0
     lateral_rate_limit: 0.6
     heading_rate_limit: 2.0
     error_deadband: 0.0
     kp: 1.0
     ki: 0.0
-    kd: 0.12
+    kd: 0.2
     d_filter_tau: 0.05
     integral_limit: 0.2
-    curvature_ff: 0.0
+    curvature_ff: 0.3
     wheelbase: 0.2
-    max_steering: 0.4
-    steering_rate: 2.0
-    speed: 0.15
+    max_steering: 0.6
+    steering_rate: 4.0
+    speed: 0.8
     min_speed: 0.06
-    steer_slowdown: 1.0
+    steer_slowdown: 0.15
     curvature_slowdown: 0.0
     acceleration: 0.5
     confidence_stop: 0.1
     confidence_full: 0.5
     timeout: 0.3
+    hold_time: 0.25
+    recover_time: 0.5
+    recover_speed: 0.2
     active: 1.0

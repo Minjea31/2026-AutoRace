@@ -5,12 +5,12 @@ ROS 2 Humble의 `autorace_signal` 패키지입니다. [신호·미션 토픽 규
 ## 동작
 
 - `/yolo/signal`의 **false는 빨강, true는 초록**입니다. 최초 미수신·미확정 상태에서는 명령을 발행하지 않습니다.
-- **같은 값이 5회 연속** 들어와야 확정합니다. 반대 값이 들어오거나 수신 간격이 0.5초를 넘으면 연속 횟수를 초기화합니다. 확인 중에는 기존 정지 상태를 유지합니다.
+- **같은 값이 3회 연속** 들어와야 확정합니다. 반대 값이 들어오거나 수신 간격이 0.5초를 넘으면 연속 횟수를 초기화합니다. 확인 중에는 기존 정지 상태를 유지합니다.
 - 빨강 확정 시 최신 lane 메시지를 복사해 **`drive.speed`만 0**으로 바꿔 30 Hz 발행합니다. 헤더 시각은 현재 ROS 시각으로 갱신하며 조향각·조향각 변화율·가속도·jerk·frame은 유지합니다.
 - lane이 없거나 만료·비정상이면 **속도와 조향이 0인 기본 정지 명령**을 발행합니다. 정상 lane이 복구되면 그 조향을 반영합니다.
-- **빨강 5회 연속 확인된 시점부터 10초**를 셉니다. 정지 중에는 **빨강이 1회만 들어와도 그 수신 시점부터 다시 10초**를 셉니다. 예를 들어 정지 시작 후 5초에 빨강이 한 번 더 들어오면, 처음 정지한 시점에서 총 15초까지 정지를 유지합니다. 수신 간격이 0.5초를 넘었어도 정지 중 빨강 1회로 타이머가 연장됩니다.
-- **초록 5회 연속 확인 또는 마지막 빨강 수신 후 10초 경과** 시 발행을 중단합니다. 빨강이 10초 미만 간격으로 계속 들어오면 정지를 계속 유지합니다. 초록 1~4회만으로는 타이머가 연장되거나 정지가 해제되지 않습니다.
-- 출발할 때 확인 횟수를 비웁니다. **이후 새 빨강 5회가 들어오면 다시 정지**합니다.
+- **빨강 3회 연속 확인된 시점부터 10초**를 셉니다. 정지 중에는 **빨강이 1회만 들어와도 그 수신 시점부터 다시 10초**를 셉니다. 예를 들어 정지 시작 후 5초에 빨강이 한 번 더 들어오면, 처음 정지한 시점에서 총 15초까지 정지를 유지합니다. 수신 간격이 0.5초를 넘었어도 정지 중 빨강 1회로 타이머가 연장됩니다.
+- **초록 3회 연속 확인 또는 마지막 빨강 수신 후 10초 경과** 시 발행을 중단합니다. 빨강이 10초 미만 간격으로 계속 들어오면 정지를 계속 유지합니다. 초록 1~2회만으로는 타이머가 연장되거나 정지가 해제되지 않습니다.
+- 출발할 때 확인 횟수를 비웁니다. **이후 새 빨강 3회가 들어오면 다시 정지**합니다.
 - 정지 명령 발행 중단 후 mux의 기존 후보가 만료되어야 lane으로 복귀합니다. 기본 mux timeout은 **0.25초**이며, 다른 유효 미션이 있으면 mux 우선순위를 따릅니다.
 
 `10초`는 **실제 경과 시간(steady clock)**입니다. 시뮬레이션을 일시정지해도 대기는 계속 진행됩니다. `use_sim_time`은 명령 헤더와 lane stamp 검사에 사용하는 ROS 시계를 선택합니다.
@@ -20,7 +20,7 @@ ROS 2 Humble의 `autorace_signal` 패키지입니다. [신호·미션 토픽 규
 [node.py](src/autorace_signal/autorace_signal/node.py)의 import 아래에서 조정합니다. 변경 후 노드를 재시작하세요. symlink 빌드에서는 Python 상수 변경만으로 다시 빌드할 필요는 없습니다.
 
 ```python
-CONFIRM_FRAMES = 5
+CONFIRM_FRAMES = 3
 MAX_RED_WAIT_SEC = 10.0
 SIGNAL_GAP_TIMEOUT_SEC = 0.5
 PUBLISH_RATE_HZ = 30.0
@@ -64,7 +64,7 @@ ros2 run autorace_signal signal_node
 
 # 설정 변경 예시
 ros2 run autorace_signal signal_node --ros-args \
-  -p confirm_frames:=5 -p max_red_wait_sec:=10.0
+  -p confirm_frames:=3 -p max_red_wait_sec:=10.0
 ```
 
 `signal_node`는 `/cmd_vel`을 발행하지 않습니다. 실차에서는 lane·YOLO·mux를 별도로 실행합니다. 비활성·출발·종료 시에는 signal command 발행을 멈추며, mux가 마지막 후보를 만료시킵니다. 상태 전환은 터미널 로그로 확인합니다.
@@ -91,11 +91,11 @@ cd ~/2026-AutoRace
 export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1
 source signal_ws/env.sh
 
-# 빨강 연속 5회: 정지 시작
-ros2 topic pub -r 10 --times 5 /yolo/signal std_msgs/msg/Bool '{data: false}'
+# 빨강 연속 3회: 정지 시작
+ros2 topic pub -r 10 --times 3 /yolo/signal std_msgs/msg/Bool '{data: false}'
 
-# 초록 연속 5회: 정지 명령 발행 중단
-ros2 topic pub -r 10 --times 5 /yolo/signal std_msgs/msg/Bool '{data: true}'
+# 초록 연속 3회: 정지 명령 발행 중단
+ros2 topic pub -r 10 --times 3 /yolo/signal std_msgs/msg/Bool '{data: true}'
 
 # 정지 중 속도와 유지된 조향 확인 (초록/시간 초과 후에는 새 메시지가 없음)
 ros2 topic echo /mission/signal/command_02 --once
@@ -109,7 +109,7 @@ ros2 topic pub -r 20 --use-sim-time /mission/lane \
   '{header: auto, drive: {speed: 0.3, steering_angle: 0.0}}'
 ```
 
-위 예제는 실행 중인 시뮬레이터의 `/clock`을 사용합니다. 실시간 시계로 시험할 때는 signal launch의 `use_sim_time`을 false로 두고 lane pub의 `--use-sim-time`을 생략합니다. lane이 연결된 상태에서는 초록 5회 연속 확인 또는 마지막 빨강 수신 후 10초 경과로 정지가 해제되고, mux의 후보 만료 후 차량이 움직입니다.
+위 예제는 실행 중인 시뮬레이터의 `/clock`을 사용합니다. 실시간 시계로 시험할 때는 signal launch의 `use_sim_time`을 false로 두고 lane pub의 `--use-sim-time`을 생략합니다. lane이 연결된 상태에서는 초록 3회 연속 확인 또는 마지막 빨강 수신 후 10초 경과로 정지가 해제되고, mux의 후보 만료 후 차량이 움직입니다.
 
 ## 토픽
 
@@ -119,7 +119,7 @@ ros2 topic pub -r 20 --use-sim-time /mission/lane \
 | 구독 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` |
 | 발행 | `/mission/signal/command_02` | `ackermann_msgs/msg/AckermannDriveStamped` |
 
-QoS는 Reliable / Volatile / KeepLast(1)입니다. 5회 확인은 **수신한 메시지 수**를 세며, 서로 다른 원본 영상인지는 Bool만으로 구분할 수 없습니다. 토픽은 ROS remapping으로 변경할 수 있습니다.
+QoS는 Reliable / Volatile / KeepLast(1)입니다. 3회 확인은 **수신한 메시지 수**를 세며, 서로 다른 원본 영상인지는 Bool만으로 구분할 수 없습니다. 토픽은 ROS remapping으로 변경할 수 있습니다.
 
 ## 검증
 
@@ -130,4 +130,4 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest \
   -p no:cacheprovider -q signal_ws/src/autorace_signal/test
 ```
 
-연속 5회·노이즈·수신 공백·정지 중 빨강 1회로 타이머 연장·마지막 빨강 기준 10초 경계·초록 해제·새 빨강 재정지, lane 필드 보존과 유효성, 실제 DDS pub/sub와 기존 mux의 정지 유지 및 lane 복귀를 검사합니다. ROS 통합 테스트는 별도 도메인과 고유 토픽을 사용하며 실제 `/cmd_vel`에는 발행하지 않습니다. mux 통합 테스트는 같은 저장소의 `mux_ws` 소스를 사용합니다.
+연속 3회·노이즈·수신 공백·정지 중 빨강 1회로 타이머 연장·마지막 빨강 기준 10초 경계·초록 해제·새 빨강 재정지, lane 필드 보존과 유효성, 실제 DDS pub/sub와 기존 mux의 정지 유지 및 lane 복귀를 검사합니다. ROS 통합 테스트는 별도 도메인과 고유 토픽을 사용하며 실제 `/cmd_vel`에는 발행하지 않습니다. mux 통합 테스트는 같은 저장소의 `mux_ws` 소스를 사용합니다.

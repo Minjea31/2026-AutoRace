@@ -104,7 +104,29 @@ ros2 run autorace_lane_lite lane_lite_tuner --profile real  # 차선 튜너 (차
 
 ssh X11 포워딩(`ssh -Y`)으로 차에서 창을 띄울 수도 있지만, 차선 튜너는 영상 때문에 매우 느립니다. 노트북에서 실행하는 쪽을 권합니다.
 
-### 1-4. 상태 확인 명령 (차량 PC)
+### 1-4. 토픽 주기(hz) 점검 (차량 PC, GUI 모두 끈 상태)
+
+| 토픽 | 기대값 | 낮으면 |
+| --- | --- | --- |
+| `/camera/color/image_raw/compressed` | 약 30 Hz | 카메라 드라이버·USB 문제 |
+| `/lane_lite/target` | 카메라와 거의 같게 | 차량 PC가 인식 처리를 못 따라감(CPU) |
+| `/mission/lane` | 50 Hz | lane_pid 노드가 안 떠 있음 |
+| `/cmd_vel` | 30 Hz | mux가 안 떠 있음 |
+| `/odom` | 수십 Hz | `limo_base`·시리얼 문제 |
+| `/scan` | 약 10 Hz | 라이다 (주차·라바콘 등에서 사용) |
+
+```bash
+ros2 topic hz /camera/color/image_raw/compressed
+ros2 topic hz /lane_lite/target
+ros2 topic hz /mission/lane
+ros2 topic hz /cmd_vel
+ros2 topic info /lane_lite/debug     # debug:=false면 "Unknown topic"이 정상
+top                                  # lane_lite_node, limo_base CPU % 확인
+```
+
+`/lane_lite/debug`가 필요하면(노트북에서 `rqt_image_view`로 볼 때만) `debug:=true`로 띄웁니다. 노트북 차선 튜너는 카메라 영상을 직접 받아 그리므로 `debug`와 상관없습니다.
+
+### 1-5. 상태 확인 명령 (차량 PC)
 
 ```bash
 ros2 topic hz /camera/color/image_raw/compressed   # 카메라 (~30 Hz)
@@ -147,6 +169,7 @@ cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane
 | `lane` | `true` | `false`면 인식 노드 없이 PID 제어만 |
 | `gui` | sim `true`, real `false` | PID 튜너 창 |
 | `lane_gui` | `false` | 차선 튜너 창 |
+| `debug` | `false` | `true`면 `/lane_lite/debug`(BEV 검출 영상) 발행. 끄면 토픽도 안 만들고 시각화 계산도 생략(인식 CPU 약 1/3 절약) |
 | `enable_vehicle_output` | `true` | `false`면 `/mission/lane` 대신 `/lane_pid/command` 미리보기만 |
 | `image_topic` | `/camera/color/image_raw/compressed` | 카메라 토픽 (`CompressedImage`) |
 

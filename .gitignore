@@ -11,3 +11,7 @@
 AGENTS.md
 Agent.md
 
+
+# Sensor SDK runtime logs
+/sensor_ws/Log/
+/mux_ws/Log/

@@ -1,0 +1,29 @@
+# Lane PID controller (SIMULATOR). Written by lane_fusion_pid_tuner.
+# e = lateral_weight*near_lateral + heading_weight*near_heading + lookahead_weight*lateral
+# steer = kp*e + ki*int(e) + kd*de/dt + ff
+lane_fusion_pid_controller:
+  ros__parameters:
+    lateral_weight: 0.5
+    heading_weight: 0.1
+    lookahead_weight: 1.0
+    lateral_rate_limit: 0.6
+    heading_rate_limit: 2.0
+    error_deadband: 0.0
+    kp: 0.4
+    ki: 0.0
+    kd: 0.06
+    d_filter_tau: 0.05
+    integral_limit: 0.2
+    curvature_ff: 0.0
+    wheelbase: 0.2
+    max_steering: 0.4
+    steering_rate: 2.0
+    speed: 0.25
+    min_speed: 0.08
+    steer_slowdown: 1.0
+    curvature_slowdown: 0.0
+    acceleration: 0.5
+    confidence_stop: 0.1
+    confidence_full: 0.5
+    timeout: 0.3
+    active: 1.0

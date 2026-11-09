@@ -1,0 +1,14 @@
+sensor_fusion:
+  ros__parameters:
+    wheel_topic: /odom
+    imu_topic: /imu
+    odom_frame: odom
+    world_frame: parking_odom
+    base_frame: base_link
+    imu_frame: imu_link
+    sensor_timeout: 0.3
+    gyro_calibration_seconds: 2.0
+    wheel_speed_scale: 1.0
+    gyro_scale: 1.0
+    wheel_speed_stddev: 0.03
+    gyro_stddev: 0.015

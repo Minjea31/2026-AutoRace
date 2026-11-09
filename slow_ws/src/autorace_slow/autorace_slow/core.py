@@ -7,13 +7,15 @@ class Mission:
     count: int = 0
     last_received: float = None
     deadline: float = None
+    armed: bool = False
 
 
 class SlowState:
-    def __init__(self, confirm_frames=3, hold_sec=8., gap_timeout_sec=.5):
+    def __init__(self, confirm_frames=2, hold_sec=8., gap_timeout_sec=.5, require_white_mark=True):
         self.required = confirm_frames
         self.hold = hold_sec
         self.gap = gap_timeout_sec
+        self.require_white_mark = require_white_mark
         self.missions = {kind: Mission() for kind in ('slow', 'bump')}
 
     def tick(self, now):
@@ -36,12 +38,30 @@ class SlowState:
         if mission.deadline is not None:
             mission.deadline = now+self.hold
             return False
+        if mission.armed:
+            return False
         mission.count += 1
         if mission.count < self.required:
             return False
         mission.count = 0
+        if self.require_white_mark:
+            mission.armed = True
+            return False
         mission.deadline = now+self.hold
         return True
+
+    def receive_white(self, detected, now, eligible_kinds=None):
+        """A new positive floor observation starts only previously armed missions."""
+        self.tick(now)
+        activated = []
+        if detected:
+            for kind, mission in self.missions.items():
+                if (mission.armed and mission.deadline is None
+                        and (eligible_kinds is None or kind in eligible_kinds)):
+                    mission.armed = False
+                    mission.deadline = now + self.hold
+                    activated.append(kind)
+        return tuple(activated)
 
     def selected(self, now):
         self.tick(now)

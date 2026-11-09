@@ -1,100 +1,72 @@
-"""Reactive LiDAR avoidance with an entry-anchored three-lane road guard."""
+"""Two-obstacle LiDAR avoidance with deep lane corridor guidance."""
 from dataclasses import dataclass, replace
 import math
 import time
 import numpy as np
-from .gap_planner import GapFallback
-
-DISTANCE_EPS = 1e-6  # LaserScan float32 rounding at inclusive distance thresholds.
-
+from .start_gate import StartGate
+from .latest_scan import LatestScan
 
 @dataclass(frozen=True)
 class Config:
-    front_half_angle_deg: float = 25.0
-    side_limit_angle_deg: float = 90.0
-    far_distance: float = 1.0
-    near_distance: float = 0.5
-    stop_distance: float = 0.05
-    blocked_distance: float = 0.25
-    cruise_speed: float = 0.4
-    avoid_speed: float = 0.25
+    cruise_speed: float = 0.5
+    avoid_speed: float = 0.4
     near_speed: float = 0.2
-    far_steering: float = 0.30
-    near_steering: float = 0.32
-    side_steering: float = 0.12
-    switch_margin: float = 0.15
+    near_distance: float = 0.5
+    far_distance: float = 2.5
+    roi_half_width: float = 0.75
+    priority_half_angle_deg: float = 35.0
+    max_avoid_steering: float = 0.6981317008
+    max_lane_steering: float = 0.35
     lane_gain: float = 0.8
-    max_lane_steering: float = 0.15
-    scan_timeout: float = 0.25
+    lane_width: float = 0.52
+    scan_timeout: float = 0.0  # Keep the last valid scan until a newer one arrives.
     lane_timeout: float = 0.5
     future_tolerance: float = 0.05
     publish_rate: float = 20.0
-    min_valid_beams: int = 3
+    front_half_angle_deg: float = 25.0
+    side_limit_angle_deg: float = 90.0
     lidar_yaw_deg: float = 0.0
+    lidar_x: float = 0.103
+    lidar_y: float = 0.0
     inf_is_clear: bool = False
     wheelbase: float = 0.2
-    preview_distance: float = 0.7
-    min_preview_distance: float = 0.15
+    preview_distance: float = 0.5
+    max_preview_distance: float = 1.0
     cluster_jump_distance: float = 0.12
     cluster_min_points: int = 3
-    cluster_max_distance: float = 3.0
+    cluster_max_distance: float = 3.5
     object_max_extent: float = 1.0
     vehicle_length: float = 0.322
     vehicle_width: float = 0.220
-    lidar_x: float = 0.103
-    lidar_y: float = 0.0
-    clearance_margin: float = 0.02
-    visual_road_distance: float = 2.0
-    road_guard_enabled: bool = True
-    lane_width: float = 0.52
-    initial_lane: int = 2
-    lane_change_hysteresis: float = 0.03
-    odom_timeout: float = 0.5
+    clearance_margin: float = 0.05
+    visual_road_distance: float = 2.5
+    turn_distance: float = -1.0  # Negative: legacy single turn preview.
+    follow_steering: float = 0.0
 
     def __post_init__(self):
         if not all(math.isfinite(v) for v in vars(self).values()):
-            raise ValueError('all settings must be finite')
-        if not 0 < self.front_half_angle_deg < self.side_limit_angle_deg <= 110:
-            raise ValueError('invalid sector angles')
-        if not 0 < self.stop_distance < self.near_distance < self.far_distance:
-            raise ValueError('require stop_distance < near_distance < far_distance')
-        if not self.stop_distance < self.blocked_distance <= self.near_distance:
-            raise ValueError('require stop_distance < blocked_distance <= near_distance')
-        if not 0 < self.near_speed <= self.avoid_speed <= self.cruise_speed <= .5:
-            raise ValueError('invalid speed limits')
-        if not 0 < self.far_steering <= self.near_steering <= .4886921906:
+            raise ValueError('settings must be finite')
+        if not 0.2 <= self.near_speed <= self.avoid_speed <= self.cruise_speed <= 0.5:
+            raise ValueError('speed must be within 0.2..0.5 m/s')
+        if not 0 < self.max_lane_steering <= self.max_avoid_steering <= math.radians(40) + 1e-9:
             raise ValueError('invalid steering limits')
-        if not 0 < self.side_steering <= self.far_steering:
-            raise ValueError('side_steering must be positive and <= far_steering')
-        if not 0 < self.min_preview_distance <= self.preview_distance:
-            raise ValueError('require 0 < min_preview_distance <= preview_distance')
-        if self.visual_road_distance <= 0:
-            raise ValueError('visual_road_distance must be positive')
-        if (type(self.road_guard_enabled) is not bool or type(self.initial_lane) is not int
-                or self.initial_lane not in (1, 2, 3)
-                or self.lane_width <= self.vehicle_width + 2 * self.clearance_margin
-                or not 0 <= self.lane_change_hysteresis < self.lane_width / 2
-                or self.odom_timeout <= 0):
-            raise ValueError('invalid road guard settings')
-        if (min(self.scan_timeout, self.lane_timeout, self.publish_rate,
-                self.wheelbase, self.preview_distance, self.cluster_jump_distance,
-                self.cluster_max_distance, self.object_max_extent,
-                self.vehicle_length, self.vehicle_width) <= 0
-                or min(self.switch_margin, self.future_tolerance, self.lane_gain,
-                       self.max_lane_steering, self.clearance_margin) < 0
-                or self.max_lane_steering > self.near_steering
-                or type(self.min_valid_beams) is not int or self.min_valid_beams < 1
-                or type(self.cluster_min_points) is not int or self.cluster_min_points < 1):
-            raise ValueError('invalid timing, beam count, or lane settings')
+        if (min(self.lane_timeout, self.publish_rate, self.wheelbase,
+                self.preview_distance, self.cluster_jump_distance, self.cluster_max_distance,
+                self.object_max_extent, self.vehicle_length, self.vehicle_width,
+                self.near_distance, self.far_distance, self.roi_half_width, self.max_preview_distance) <= 0
+                or self.scan_timeout < 0 or self.clearance_margin < 0 or self.future_tolerance < 0 or self.lane_gain < 0
+                or self.turn_distance < -1 or abs(self.follow_steering) > self.max_avoid_steering
+                or 3*self.lane_width <= self.vehicle_width + 2*self.clearance_margin
+                or type(self.cluster_min_points) is not int or self.cluster_min_points < 1
+                or not 0 < self.priority_half_angle_deg < 90
+                or not 0 < self.front_half_angle_deg < self.side_limit_angle_deg <= 110):
+            raise ValueError('invalid geometry/timing settings')
 
 
 @dataclass(frozen=True)
 class Sector:
     distance: float
     valid_beams: int
-
-    def known(self, c):
-        return self.valid_beams >= c.min_valid_beams
 
 
 @dataclass(frozen=True)
@@ -115,87 +87,16 @@ class RoadBand:
         return (self.ny * distance + self.nx * (lateral - self.offset),
                 -self.nx * distance + self.ny * (lateral - self.offset))
 
-    def lane_steering(self, c):
-        target = (2 - self.lane) * c.lane_width
-        angle = c.lane_gain * (math.atan2(target - self.offset, c.preview_distance)
-                               + math.atan2(-self.nx, self.ny))
-        return max(-c.max_lane_steering, min(c.max_lane_steering, angle))
-
-
 @dataclass(frozen=True)
-class OdomPose:
-    x: float
-    y: float
-    yaw: float
-    stamp: float
-    received: float
-    frame: str
+class MeasuredRoad(RoadBand):
+    # Each unit normal points into the half-plane containing the vehicle.
+    # A single edge imposes exactly one constraint, never a fabricated opposite.
+    edges: tuple = ()
 
-
-def read_odometry(msg, received):
-    p, q = msg.pose.pose.position, msg.pose.pose.orientation
-    stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-    if not all(math.isfinite(v) for v in (p.x, p.y, q.x, q.y, q.z, q.w, stamp, received)):
-        raise ValueError('non-finite odometry')
-    norm = math.sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w)
-    if not math.isfinite(norm) or norm < 1e-8 or not msg.header.frame_id:
-        raise ValueError('invalid odometry orientation/frame')
-    x, y, z, w = q.x / norm, q.y / norm, q.z / norm, q.w / norm
-    yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-    return OdomPose(p.x, p.y, yaw, stamp, received, msg.header.frame_id)
-
-
-def odom_fresh(pose, c, ros_now, steady_now):
-    return (pose is not None and pose.stamp > 0
-            and -c.future_tolerance <= ros_now - pose.stamp < c.odom_timeout
-            and 0 <= steady_now - pose.received < c.odom_timeout)
-
-
-@dataclass
-class RoadTracker:
-    origin: tuple | None = None
-    yaw: float = 0.
-    frame: str = ''
-    lane: int = 2
-
-    def reset(self):
-        self.origin, self.frame = None, ''
-
-    def initialize(self, pose, data, c):
-        if self.origin is not None:
-            return pose.frame == self.frame
-        if not lane_reference(data):
-            return False
-        near_offset = data[10] * math.sin(data[9]) - data[8] * math.cos(data[9])
-        if abs(near_offset) > c.lane_width / 2:
-            return False  # The initial detection must agree with the stated entry lane.
-        self.yaw = pose.yaw + data[9]
-        co, si = math.cos(pose.yaw), math.sin(pose.yaw)
-        x = pose.x + co * data[10] - si * data[8]
-        y = pose.y + si * data[10] + co * data[8]
-        lateral = (2 - c.initial_lane) * c.lane_width
-        self.origin = (x + math.sin(self.yaw) * lateral, y - math.cos(self.yaw) * lateral)
-        self.frame, self.lane = pose.frame, c.initial_lane
-        return True
-
-    def band(self, pose, c):
-        if self.origin is None or pose.frame != self.frame:
-            return None
-        nx, ny = -math.sin(self.yaw), math.cos(self.yaw)
-        lateral = nx * (pose.x - self.origin[0]) + ny * (pose.y - self.origin[1])
-        threshold = c.lane_width / 2
-        margin = c.lane_change_hysteresis
-        left_threshold = threshold + (-margin if self.lane == 1 else margin)
-        right_threshold = -threshold + (margin if self.lane == 3 else -margin)
-        if lateral > left_threshold:
-            self.lane = 1
-        elif lateral < right_threshold:
-            self.lane = 3
-        else:
-            self.lane = 2
-        co, si = math.cos(pose.yaw), math.sin(pose.yaw)
-        return RoadBand(nx * co + ny * si, -nx * si + ny * co,
-                        lateral, 1.5 * c.lane_width, self.lane)
+    def body_gap(self, x, y, yaw, half_length, half_width):
+        co,si=math.cos(yaw),math.sin(yaw)
+        return min(nx*x+ny*y+offset-half_length*abs(nx*co+ny*si)
+                   -half_width*abs(-nx*si+ny*co) for nx,ny,offset in self.edges)
 
 
 @dataclass(frozen=True)
@@ -284,9 +185,12 @@ def cluster_scan(msg, c):
 
 
 def scan_fresh(scan, c, ros_now, steady_now):
+    """Zero timeout keeps the latest valid input; reception health is separate."""
     return (scan is not None and scan.stamp > 0
-            and -c.future_tolerance <= ros_now - scan.stamp < c.scan_timeout
-            and 0 <= steady_now - scan.received < c.scan_timeout)
+            and ros_now-scan.stamp >= -c.future_tolerance
+            and steady_now >= scan.received
+            and (c.scan_timeout == 0 or
+                 (ros_now-scan.stamp < c.scan_timeout and steady_now-scan.received < c.scan_timeout)))
 
 
 def compact_clusters(groups, c):
@@ -307,7 +211,7 @@ def object_sectors(scan, groups, c):
     a = math.radians(c.lidar_yaw_deg)
     co, si = math.cos(a), math.sin(a)
     boxes = []
-    for group in compact_clusters(groups, c):
+    for group in groups:
         xmin, xmax, ymin, ymax = cluster_bounds(group)
         x, y = (xmin + xmax) / 2, (ymin + ymax) / 2
         boxes.append((c.lidar_x + co * x - si * y, c.lidar_y + si * x + co * y,
@@ -325,297 +229,67 @@ def object_sectors(scan, groups, c):
                    scan.frame_id, scan.points, tuple(boxes), scan.road)
 
 
+def path_clearances(scan, routes, gap_cap=None):
+    """Check all candidate swept bodies in bulk, keeping every raw return and box."""
+    if not routes:
+        return []
+    poses = np.asarray([preview_poses(angle,c) for angle,c in routes])
+    x,y,yaw = poses[:,:,0],poses[:,:,1],poses[:,:,2]
+    co,si = np.cos(yaw),np.sin(yaw)
+    lengths,widths,caps = [],[],[]
+    for angle,c in routes:
+        hl,hw = c.vehicle_length/2+c.clearance_margin,c.vehicle_width/2+c.clearance_margin
+        step = c.preview_distance/24
+        k = max(abs(math.tan(angle)/c.wheelbase),abs(math.tan(c.follow_steering)/c.wheelbase))
+        padding = step/2+2*math.hypot(hl,hw)*math.sin(min(math.pi/2,k*step/4))
+        lengths.append(hl+padding);widths.append(hw+padding);caps.append(c.far_distance if gap_cap is None else min(c.far_distance,gap_cap))
+    hl,hw = np.asarray(lengths)[:,None],np.asarray(widths)[:,None]
+    gaps = np.asarray(caps,dtype=float)
+    if scan.road is not None:
+        r=scan.road
+        if isinstance(r,MeasuredRoad):
+            for nx,ny,offset in r.edges:
+                radius=hl*np.abs(nx*co+ny*si)+hw*np.abs(-nx*si+ny*co)
+                gaps=np.minimum(gaps,np.min(nx*x+ny*y+offset-radius,axis=1))
+        else:
+            radius=hl*np.abs(r.nx*co+r.ny*si)+hw*np.abs(-r.nx*si+r.ny*co)
+            gaps=np.minimum(gaps,np.min(r.half_width-np.abs(r.nx*x+r.ny*y+r.offset)-radius,axis=1))
+    cloud=np.asarray(scan.points,dtype=float).reshape(-1,2)
+    if len(cloud):
+        # Exact broad phase: outside this union a point cannot reduce the
+        # capped score for any swept rectangle. No obstacle is subsampled.
+        rx,ry=hl*np.abs(co)+hw*np.abs(si),hl*np.abs(si)+hw*np.abs(co)
+        extra=max(caps)
+        keep=((cloud[:,0]>=np.min(x-rx)-extra)&(cloud[:,0]<=np.max(x+rx)+extra)
+              &(cloud[:,1]>=np.min(y-ry)-extra)&(cloud[:,1]<=np.max(y+ry)+extra))
+        cloud=cloud[keep]
+    co,si,x,y,hl,hw = (v[:,:,None] for v in (co,si,x,y,hl,hw))
+    if len(cloud):
+        dx,dy=cloud[:,0]-x,cloud[:,1]-y
+        gx,gy=np.abs(co*dx+si*dy)-hl,np.abs(-si*dx+co*dy)-hw
+        hit=np.any((gx<=0)&(gy<=0),axis=(1,2))
+        distance=np.min(np.hypot(np.maximum(gx,0),np.maximum(gy,0)),axis=(1,2))
+        gaps=np.minimum(gaps,np.where(hit,0.,distance))
+    if scan.boxes:
+        ox,oy,bx,by,a=np.asarray(scan.boxes,dtype=float).T
+        oc,os=np.cos(a),np.sin(a)
+        dx,dy=ox-x,oy-y
+        along,across=np.abs(co*oc+si*os),np.abs(si*oc-co*os)
+        gap=np.maximum.reduce([
+            np.abs(co*dx+si*dy)-hl-bx*along-by*across,
+            np.abs(-si*dx+co*dy)-hw-bx*across-by*along,
+            np.abs(oc*dx+os*dy)-bx-hl*along-hw*across,
+            np.abs(-os*dx+oc*dy)-by-hl*across-hw*along])
+        gaps=np.minimum(gaps,np.min(gap,axis=(1,2)))
+    return np.maximum(gaps,0.).tolist()
+
+
 def path_clearance(scan, steering, c):
-    """Swept-body clearance to raw returns and filled RViz obstacle boxes."""
-    curvature = math.tan(steering) / c.wheelbase
-    half_length = c.vehicle_length / 2 + c.clearance_margin
-    half_width = c.vehicle_width / 2 + c.clearance_margin
-    # Cover motion and rotation between samples, not only the sampled rectangles.
-    step = c.preview_distance / 24
-    padding = step / 2 + 2 * math.hypot(half_length, half_width) * math.sin(
-        min(math.pi / 2, abs(curvature) * step / 4))
-    half_length += padding
-    half_width += padding
-    clearance = c.far_distance
-    # More distant returns cannot reduce the capped gap anywhere on this arc.
-    limit = c.preview_distance + math.hypot(half_length, half_width) + clearance
-    points = tuple((x, y) for x, y in scan.points if math.hypot(x, y) <= limit)
-    boxes = tuple((x, y, hx, hy, math.cos(a), math.sin(a))
-                  for x, y, hx, hy, a in scan.boxes
-                  if math.hypot(x, y) <= limit + math.hypot(hx, hy))
-    path = preview_points(steering, c)
-    if len(points) > 32:
-        # Evaluate the exact same rectangles/points in bulk, without dropping
-        # returns or changing the swept-body padding and clearance thresholds.
-        positions = np.asarray(path, dtype=float)
-        cloud = np.asarray(points, dtype=float)
-        yaw = np.arange(25) * curvature * c.preview_distance / 24
-        co, si = np.cos(yaw)[:, None], np.sin(yaw)[:, None]
-        dx = cloud[None, :, 0] - positions[:, None, 0]
-        dy = cloud[None, :, 1] - positions[:, None, 1]
-        gap_x = np.abs(co*dx + si*dy) - half_length
-        gap_y = np.abs(-si*dx + co*dy) - half_width
-        if np.any((gap_x <= 0.) & (gap_y <= 0.)):
-            return 0.
-        clearance = min(clearance, float(np.min(np.hypot(np.maximum(0., gap_x),
-                                                        np.maximum(0., gap_y)))))
-        points = ()
-    for index, (x, y) in enumerate(path):
-        yaw = curvature * c.preview_distance * index / 24
-        co, si = math.cos(yaw), math.sin(yaw)
-        if scan.road is not None:
-            gap = scan.road.body_gap(x, y, yaw, half_length, half_width)
-            if gap <= 0:
-                return 0.
-            clearance = min(clearance, gap)
-        for px, py in points:
-            dx, dy = px - x, py - y
-            bx, by = co * dx + si * dy, -si * dx + co * dy
-            gap_x, gap_y = abs(bx) - half_length, abs(by) - half_width
-            if gap_x <= 0 and gap_y <= 0:
-                return 0.
-            clearance = min(clearance, math.hypot(max(0., gap_x), max(0., gap_y)))
-        for ox, oy, hx, hy, oc, os in boxes:
-            dx, dy = ox - x, oy - y
-            along, across = abs(co * oc + si * os), abs(si * oc - co * os)
-            # Separating-axis test for two oriented, filled rectangles.
-            gap = max(abs(co * dx + si * dy) - half_length - hx * along - hy * across,
-                      abs(-si * dx + co * dy) - half_width - hx * across - hy * along,
-                      abs(oc * dx + os * dy) - hx - half_length * along - half_width * across,
-                      abs(-os * dx + oc * dy) - hy - half_length * across - half_width * along)
-            if gap <= 0:
-                return 0.
-            clearance = min(clearance, gap)
-    return clearance
+    return path_clearances(scan,[(steering,c)])[0]
 
 
 def path_clear(scan, steering, c):
     return path_clearance(scan, steering, c) > 0.
-
-
-def cluster_direction_scores(scan, c):
-    """Avoid the nearest observed cluster behind the immediate front obstacle."""
-    width = c.vehicle_width / 2 + c.clearance_margin
-    front = c.vehicle_length / 2
-    primary = []
-    for index, (x, y, hx, hy, yaw) in enumerate(scan.boxes):
-        ex = abs(math.cos(yaw))*hx + abs(math.sin(yaw))*hy
-        ey = abs(math.sin(yaw))*hx + abs(math.cos(yaw))*hy
-        if x + ex > front and abs(y) <= width + ey:
-            primary.append((x-ex, index, x))
-    if primary:
-        _, first_index, first_x = min(primary)
-    else:
-        points = [x for x, y in scan.points if x > front and abs(y) <= width]
-        if not points:
-            return {1: None, -1: None}
-        first_index, first_x = -1, min(points)
-    behind = []
-    for index, (x, y, hx, hy, yaw) in enumerate(scan.boxes):
-        if index == first_index or x <= first_x + DISTANCE_EPS:
-            continue
-        ex = abs(math.cos(yaw))*hx + abs(math.sin(yaw))*hy
-        ey = abs(math.sin(yaw))*hx + abs(math.cos(yaw))*hy
-        distance = math.hypot(max(0., abs(x)-ex), max(0., abs(y)-ey))
-        behind.append((distance, y))
-    if not behind:
-        return {1: None, -1: None}
-    distance, lateral = min(behind)
-    if abs(lateral) <= c.clearance_margin:
-        return {1: None, -1: None}  # A centred car provides no left/right preference.
-    if any(abs(other_distance-distance) <= DISTANCE_EPS and other_y*lateral < 0
-           for other_distance, other_y in behind):
-        return {1: None, -1: None}
-    preferred = -1 if lateral > 0 else 1
-    return {preferred: 1., -preferred: 0.}
-
-
-@dataclass
-class AvoidanceMemory:
-    side: int = 0
-    phase: str = 'STRAIGHT'
-    entry_yaw: float | None = None
-    frame: str = ''
-    obstacle: tuple | None = None  # world x/y, half length/width, yaw
-
-    def reset(self):
-        self.side, self.phase = 0, 'STRAIGHT'
-        self.entry_yaw, self.frame = None, ''
-        self.obstacle = None
-
-
-def forward_entry_clear(scan, c):
-    """The longer straight corridor triggers avoidance before the command arc."""
-    return path_clear(scan, 0., replace(c, preview_distance=max(c.preview_distance, c.far_distance)))
-
-
-def adaptive_prefix(evaluate, c):
-    """Find the longest checked prefix; never command a token sliver of space."""
-    # Cover one input-timeout window plus one control period at crawl speed.
-    minimum = max(c.min_preview_distance,
-                  c.near_speed * (c.scan_timeout + 1 / c.publish_rate))
-    if minimum >= c.preview_distance:
-        return None
-    low, high = minimum, c.preview_distance
-    checked = replace(c, preview_distance=low)
-    result = evaluate(checked)
-    if result[1] <= 0:
-        return None
-    best = result, checked
-    for _ in range(8):
-        distance = (low + high) / 2
-        checked = replace(c, preview_distance=distance)
-        result = evaluate(checked)
-        if result[1] > 0:
-            low, best = distance, (result, checked)
-        else:
-            high = distance
-    result, checked = best
-    state, speed, steering, side = result
-    return (state, min(speed, c.near_speed), steering, side), checked
-
-
-def checked_command(scan, c, angles, state, speed, side=0):
-    """Prefer long safe paths, using the same candidate order at every length."""
-    def evaluate(checked):
-        for angle in dict.fromkeys(angles):
-            if path_clear(scan, angle, checked):
-                return state, speed, angle, side
-        return 'STOP_PATH_BLOCKED', 0., 0., side
-    result = evaluate(c)
-    return (result, c) if result[1] > 0 else adaptive_prefix(evaluate, c) or (result, c)
-
-
-def turn_path(scan, c, side=0, scores=None):
-    """Avoid the front car; use the nearest following cluster for side preference."""
-    scores = cluster_direction_scores(scan, c) if scores is None else scores
-    limit = c.near_steering if scan.front.distance <= c.near_distance else c.far_steering
-    speed = c.near_speed if scan.front.distance <= c.near_distance else c.avoid_speed
-
-    def evaluate(checked):
-        candidates = []
-        for direction in (1, -1):
-            sector = scan.left if direction > 0 else scan.right
-            if not sector.known(c):
-                continue
-            for magnitude in dict.fromkeys((c.side_steering, (limit + c.side_steering) / 2, limit)):
-                angle = direction * magnitude
-                gap = path_clearance(scan, angle, checked)
-                if gap > 0:
-                    candidates.append((gap, angle, direction))
-        if not candidates:
-            return 'STOP_PATH_BLOCKED', 0., 0., side
-        preferred = 0
-        left, right = scores.get(1), scores.get(-1)
-        if left is not None or right is not None:
-            if left != right:
-                preferred = 1 if (left or 0.) > (right or 0.) else -1
-        pool = ([p for p in candidates if p[2] == side]
-                or [p for p in candidates if p[2] == preferred] or candidates)
-        best = max(p[0] for p in pool)
-        tolerance = min(c.switch_margin, best * .25)
-        comparable = [p for p in pool if p[0] >= best - tolerance]
-        gap, angle, direction = min(comparable, key=lambda p: (abs(p[1]), -p[0]))
-        return ('AVOID_LEFT' if direction > 0 else 'AVOID_RIGHT'), speed, angle, direction
-
-    result = evaluate(c)
-    return (result, c) if result[1] > 0 else adaptive_prefix(evaluate, c) or (result, c)
-
-
-def remember_obstacle(scan, c, memory, pose):
-    """Remember the triggering observed footprint in odom, not a sector minimum."""
-    memory.obstacle = None
-    if pose is None:
-        return
-    candidates = list(scan.boxes) or [(x, y, .02, .02, 0.) for x, y in scan.points]
-    front = c.vehicle_length / 2
-    width = c.vehicle_width / 2 + c.clearance_margin
-    ahead = []
-    for x, y, hx, hy, yaw in candidates:
-        ex = abs(math.cos(yaw)) * hx + abs(math.sin(yaw)) * hy
-        ey = abs(math.sin(yaw)) * hx + abs(math.cos(yaw)) * hy
-        if x + ex > front and abs(y) <= width + ey:
-            ahead.append((x - ex, x, y, hx, hy, yaw))
-    if not ahead:
-        return
-    _, x, y, hx, hy, yaw = min(ahead)
-    co, si = math.cos(pose.yaw), math.sin(pose.yaw)
-    memory.obstacle = (pose.x + co*x - si*y, pose.y + si*x + co*y,
-                       hx, hy, pose.yaw + yaw)
-    memory.frame = pose.frame
-
-
-def obstacle_passed(scan, c, memory, pose):
-    if memory.obstacle is None:
-        # Without an entry reference, require observed side passage rather
-        # than assuming a briefly clear forward preview means the car passed.
-        front = c.vehicle_length / 2 + c.clearance_margin
-        width = c.vehicle_width / 2 + c.clearance_margin
-        for x, y, hx, hy, yaw in scan.boxes:
-            ex = abs(math.cos(yaw))*hx + abs(math.sin(yaw))*hy
-            ey = abs(math.sin(yaw))*hx + abs(math.cos(yaw))*hy
-            if x - ex <= front and -memory.side*y - ey > width:
-                return True
-        return not (scan.points or scan.boxes) and scan.front.distance >= c.far_distance
-    if pose is None or pose.frame != memory.frame:
-        return False
-    ox, oy, hx, hy, yaw = memory.obstacle
-    co, si = math.cos(pose.yaw), math.sin(pose.yaw)
-    dx, dy = ox - pose.x, oy - pose.y
-    x, y = co*dx + si*dy, -si*dx + co*dy
-    relative = yaw - pose.yaw
-    ex = abs(math.cos(relative))*hx + abs(math.sin(relative))*hy
-    ey = abs(math.sin(relative))*hx + abs(math.cos(relative))*hy
-    return (x - ex <= c.vehicle_length / 2 + c.clearance_margin
-            and -memory.side*y - ey > c.vehicle_width / 2 + c.clearance_margin)
-
-
-def control_command(scan, c, memory, lane_steering=None, heading_error=None, scores=None, pose=None):
-    """Straight -> fixed-side avoidance -> heading alignment -> lane following."""
-    if not scan.front.known(c):
-        return ('STOP_FRONT_UNKNOWN', 0., 0., memory.side), c
-    if scan.front.distance <= c.stop_distance + DISTANCE_EPS:
-        return ('STOP_TOO_CLOSE', 0., 0., memory.side), c
-    if scan.front.distance <= c.blocked_distance + DISTANCE_EPS:
-        return ('STOP_PATH_BLOCKED', 0., 0., memory.side), c
-    forward = forward_entry_clear(scan, c)
-    obstacle_forward = forward_entry_clear(replace(scan, road=None), c)
-    if memory.phase == 'TURN':
-        if obstacle_passed(scan, c, memory, pose):
-            memory.phase = 'ALIGN'
-            memory.side, memory.obstacle = 0, None
-        else:
-            result, checked = turn_path(scan, c, memory.side, scores)
-            if result[1] > 0 and result[3] != memory.side:
-                memory.side = result[3]
-                remember_obstacle(scan, c, memory, pose)
-            return result, checked
-    if memory.phase == 'ALIGN':
-        if not obstacle_forward:
-            result, checked = turn_path(scan, c, 0, scores)
-            if result[1] > 0:
-                memory.side, memory.phase = result[3], 'TURN'
-                remember_obstacle(scan, c, memory, pose)
-            return result, checked
-        if heading_error is None:
-            return ('STOP_ALIGNMENT_REFERENCE', 0., 0., memory.side), c
-        if abs(heading_error) > math.radians(5):
-            angle = max(-c.max_lane_steering, min(c.max_lane_steering, c.lane_gain * heading_error))
-            if abs(angle) < 1e-6:
-                return ('STOP_ALIGNMENT_REFERENCE', 0., 0., memory.side), c
-            return checked_command(scan, c, (angle, angle / 2), 'ALIGN', c.avoid_speed, memory.side)
-        memory.phase, memory.side = 'LANE', 0
-    if not forward:
-        result, checked = turn_path(scan, c, memory.side, scores)
-        if result[1] > 0:
-            memory.side, memory.phase = result[3], 'TURN'
-            remember_obstacle(scan, c, memory, pose)
-        return result, checked
-    if memory.phase == 'LANE' and lane_steering is not None:
-        angle = max(-c.max_lane_steering, min(c.max_lane_steering, lane_steering))
-        speed = c.avoid_speed if abs(angle) > 1e-6 else c.cruise_speed
-        return checked_command(scan, c, (angle, angle / 2, 0.), 'LANE_FOLLOW', speed)
-    return ('PATH_FORWARD', c.cruise_speed, 0., 0), c
 
 
 def lane_hint(data, c):
@@ -627,296 +301,522 @@ def lane_hint(data, c):
     return max(-c.max_lane_steering, min(c.max_lane_steering, angle))
 
 
-def lane_guidance(lane, road, c, now):
-    """Prefer fresh camera measurements; odometry bridges missing lane input."""
-    if lane is not None and 0 <= now - lane[1] < c.lane_timeout:
-        return lane[0]
-    if road is not None:
-        return road.lane_steering(c)
-    return None
-
-
 def lane_reference(data):
     """Connect the two reported centre points; these are not measured road edges."""
     if len(data) != 11 or data[0] != 1 or not all(math.isfinite(v) for v in data):
         return ()
-    if not 0 < data[10] < data[3]:
+    if not 0 < data[10] <= data[3]+1e-6:
         return ()
     return ((float(data[10]), float(data[8])), (float(data[3]), float(data[1])))
 
 
+def preview_poses(steering, c):
+    """The checked and displayed initial turn plus the planned onward turn."""
+    def advance(x, y, yaw, angle, distance):
+        k = math.tan(angle)/c.wheelbase
+        arc = min(distance, math.radians(60)/max(abs(k),1e-9))
+        dx,dy = (arc,0.) if abs(k)<1e-6 else (math.sin(k*arc)/k,(1-math.cos(k*arc))/k)
+        co,si = math.cos(yaw),math.sin(yaw)
+        x,y = x+co*dx-si*dy,y+si*dx+co*dy
+        yaw += k*arc
+        tail = distance-arc
+        return x+tail*math.cos(yaw),y+tail*math.sin(yaw),yaw
+    split = c.preview_distance if c.turn_distance < 0 else min(c.preview_distance,c.turn_distance)
+    junction = advance(0.,0.,0.,steering,split)
+    return [advance(0.,0.,0.,steering,d) if d <= split else
+            advance(*junction,c.follow_steering,d-split)
+            for d in (c.preview_distance*i/24 for i in range(25))]
+
+
 def preview_points(steering, c):
-    """Constant-steering bicycle arc used for preview and known-point screening."""
-    curvature = math.tan(steering) / c.wheelbase
-    points = []
-    for i in range(25):
-        distance = c.preview_distance * i / 24
-        if abs(curvature) < 1e-6:
-            points.append((distance, 0.))
-        else:
-            points.append((math.sin(curvature * distance) / curvature,
-                           (1 - math.cos(curvature * distance)) / curvature))
-    return points
+    return [(x,y) for x,y,_ in preview_poses(steering,c)]
 
 
-def command_status(state, speed, steering, held_side=0):
-    """Only mode and current steering/remembered avoidance direction."""
-    mode = state.removeprefix('CREEP/').split(' (')[0]
-    mode = {'AVOID_LEFT': 'AVOID', 'AVOID_RIGHT': 'AVOID',
-            'PATH_FORWARD': 'STRAIGHT', 'LANE_FOLLOW': 'LANE',
-            'GAP_FOLLOW': 'GAP'}.get(mode, mode)
-    if speed > 0:
-        direction = 'LEFT' if steering > 1e-6 else 'RIGHT' if steering < -1e-6 else 'FORWARD'
-    else:
-        direction = {1: 'LEFT', -1: 'RIGHT'}.get(held_side, 'NONE')
-    return f'mode={mode} direction={direction}'
+def default_config_args(argv, config_path):
+    """Load the installed YAML unless the caller supplied a parameter file.
+
+    Defaults precede caller arguments so explicit -p overrides retain priority.
+    """
+    if any(arg == '--params-file' or arg.startswith('--params-file=') for arg in argv[1:]):
+        return list(argv)
+    return [argv[0], '--ros-args', '--params-file', str(config_path), '--', *argv[1:]]
+
+
+def lane_boundary(data, c):
+    if lane_hint(data, c) is None or data[6] != 2 or data[7] != 2 or not lane_reference(data):
+        return None
+    heading = data[9]
+    nx, ny = -math.sin(heading), math.cos(heading)
+    return RoadBand(nx, ny, -nx*data[10]-ny*data[8], c.lane_width/2, 2)
+
+
+def current_road(data, band, mask_fresh, c):
+    """Only camera outer edges constrain avoidance; lane targets are guidance only."""
+    return band if mask_fresh and band is not None else None
+
+
+def obstacle_max_x(box):
+    x,_,hx,hy,yaw = box
+    return x+abs(math.cos(yaw))*hx+abs(math.sin(yaw))*hy
+
+
+def nearest_objects(scan, c=None, primary=None):
+    """Rank threats to our lane; keep all other boxes in collision checks."""
+    c = c or Config()
+    def radius(b):
+        return abs(math.sin(b[4]))*b[2]+abs(math.cos(b[4]))*b[3]
+    def on_road(b):
+        r = scan.road
+        if isinstance(r,MeasuredRoad):
+            return all(nx*b[0]+ny*b[1]+offset >= -math.hypot(b[2],b[3]) for nx,ny,offset in r.edges)
+        return r is None or abs(r.nx*b[0]+r.ny*b[1]+r.offset) <= r.half_width+radius(b)
+    candidates = [b for b in scan.boxes if
+        b[0] > 0. and abs(math.atan2(b[1],b[0])) <= math.radians(c.priority_half_angle_deg)+1e-12
+        and b[0]-b[2] <= c.far_distance
+        and abs(b[1]) <= c.roi_half_width and on_road(b)]
+    threats = [b for b in candidates if abs(b[1]) <= c.lane_width/2+c.clearance_margin+radius(b)]
+    threats.sort(key=lambda b:max(0.,b[0]-b[2]))
+    first = None
+    if primary is not None:
+        matches = [b for b in candidates if math.dist(b[:2],primary[:2]) < .30
+                   and abs(b[1]-primary[1]) < .15]
+        if matches:
+            first = min(matches,key=lambda b:math.dist(b[:2],primary[:2]))
+    if first is None:
+        first = threats[0] if threats else None
+    if first is None:
+        return []
+    following = [b for b in candidates if b != first and b[0] > max(0.,first[0])+.10
+                 and abs(b[1]) <= 1.5*c.lane_width+radius(b)]
+    return [first]+sorted(following,key=lambda b:b[0])[:1]
+
+
+def plan_avoidance(scan, c, lane_angle=0., lane_ok=False, primary=None, previous_angle=None, lane_data=None):
+    """Nearest obstacle sets passing side; second obstacle resolves the onward route.
+
+    Check finite steering samples against the swept vehicle. If every path is
+    blocked, retain minimum forward speed as requested and report NO_CLEAR_PATH.
+    """
+    objects = nearest_objects(scan, c, primary)
+    def pass_angle(box, side_hint=0):
+        x,y,hx,hy,yaw = box
+        radius = abs(math.sin(yaw))*hx+abs(math.cos(yaw))*hy
+        side = side_hint if side_hint and abs(y) < .03 else (-1 if y >= 0 else 1)
+        target_y = y+side*(radius+c.vehicle_width/2+c.clearance_margin)
+        # Once the box is already clear to the side, straight is sufficient;
+        # retaining its identity must not force another turn away from it.
+        target_y = side*max(0.,side*target_y)
+        # Aim before the obstacle's front face, not its centre: turn earlier.
+        ahead = max(.30,x-hx-c.vehicle_length/2)
+        return math.atan2(2*c.wheelbase*target_y,ahead*ahead+target_y*target_y)
+    desired = lane_angle
+    preferred = []
+    if objects:
+        first = pass_angle(objects[0],(-1 if objects[1][1] >= 0 else 1) if len(objects)>1 else 0)
+        preferred.append(first)
+        desired = first
+        if len(objects) > 1:
+            second = pass_angle(objects[1])
+            preferred.append(second)
+            remaining = obstacle_max_x(objects[0])-c.vehicle_length/2
+            blend = max(.15,min(.75,1.-remaining/.6))
+            # Only a primary within the forward priority cone remains ranked.
+            # Passed boxes still participate in every swept-body check.
+            if first*second < 0:
+                blend = min(blend,.25)
+            desired = (1.-blend)*first+blend*second
+    clamp = lambda a: max(-c.max_avoid_steering,min(c.max_avoid_steering,a))
+    desired = clamp(desired)
+    angles = sorted(set(map(clamp,[desired,lane_angle,0.]+([previous_angle] if previous_angle is not None else [])+preferred+
+                        [c.max_avoid_steering*i/8 for i in range(-8,9)])),
+                    key=lambda a: (abs(a-desired),abs(a)))
+    # Missing dashed/yellow detections reduce speed, not obstacle avoidance priority.
+    # Inspect progressively shorter arcs before declaring every direction blocked.
+    # Every chosen arc still uses the complete vehicle body and clearance margin.
+    horizon = min(c.preview_distance,c.max_preview_distance)
+    if len(objects) > 1:
+        horizon = min(c.far_distance,c.max_preview_distance,max(horizon,math.hypot(*objects[1][:2])+c.vehicle_length/2+c.clearance_margin+c.lane_width))
+    split = max(.25,obstacle_max_x(objects[0])+c.vehicle_length/2+.15) if objects else horizon
+    for fraction in (1., .75, .5, .25):
+        checked = replace(c, preview_distance=horizon*fraction,turn_distance=split,follow_steering=0.)
+        routes = []
+        for initial in angles:
+            follows = [0.]
+            if len(objects) > 1 and checked.preview_distance > split:
+                junction = preview_poses(initial,replace(checked,preview_distance=split))[-1]
+                x,y,hx,hy,yaw = objects[1]
+                dx,dy = x-junction[0],y-junction[1]
+                co,si = math.cos(junction[2]),math.sin(junction[2])
+                local = (co*dx+si*dy,-si*dx+co*dy,hx,hy,yaw-junction[2])
+                follow = clamp(pass_angle(local))
+                follows = sorted(set([follow,0.,-c.max_lane_steering,c.max_lane_steering]),key=lambda a:abs(a-follow))
+            for follow in follows:
+                route = replace(checked,follow_steering=follow)
+                routes.append((initial,route))
+        def accepts(initial, route):
+            return (len(objects)<2 or fraction<1. or
+                route.preview_distance < obstacle_max_x(objects[1])+c.vehicle_length/2+c.clearance_margin or
+                preview_poses(initial,route)[-1][0] > obstacle_max_x(objects[1])+c.vehicle_length/2+c.clearance_margin)
+        clear = [(min(gap,.10),initial,route)
+                 for (initial,route),gap in zip(routes,path_clearances(scan,routes,gap_cap=.10))
+                 if gap > 0 and accepts(initial,route)]
+        if not clear:
+            continue
+        best_gap = max(gap for gap,_,_ in clear)
+        def route_cost(item):
+            _,initial,route=item
+            x,y,yaw=preview_poses(initial,route)[-1]
+            continuity=abs(initial-previous_angle) if previous_angle is not None else 0.
+            # Compare only collision-checked, near-best-clearance routes.
+            # Penalise both terminal heading and sideways runaway paths.
+            target_heading=lane_data[9] if lane_data is not None else 0.
+            target_y=(lane_data[8]+math.tan(target_heading)*(x-lane_data[10])) if lane_data is not None else 0.
+            recovery=abs(yaw-target_heading)+abs(y-target_y)/max(route.preview_distance,.1)
+            # A weak quadratic cost has zero slope at the previous angle:
+            # it discourages large changes without the L1 "stickiness" that
+            # could outweigh the desired steering and prevent unwinding.
+            return (abs(initial-desired)+.2*continuity*continuity,recovery)
+        _,angle,checked = min((item for item in clear if item[0] >= best_gap-.02),key=route_cost)
+        obstacle_gap = path_clearance(replace(scan,road=None),angle,checked)
+        speed = c.cruise_speed if lane_ok else c.near_speed
+        if objects and obstacle_gap < c.clearance_margin:
+            speed = min(speed,c.avoid_speed)
+        if fraction < 1.:
+            speed = min(speed,c.near_speed+(c.avoid_speed-c.near_speed)*fraction)
+        state = 'AVOID' if objects else 'LANE'
+        if fraction < 1.:
+            state += '/SHORT_PREVIEW'
+        return state,max(c.near_speed,speed),angle,checked
+    # No direction is certified clear. Honour continuous motion, retain the
+    # obstacle-side preference rather than replacing it with lane recovery.
+    return 'NO_CLEAR_PATH', c.near_speed, desired, c
+
+
+def plan_in_lane(scan,c,lane_data,primary=None,previous_angle=None):
+    """Use lane_deep guidance without treating white dividers as road limits."""
+    hint=lane_hint(lane_data,c) if lane_data is not None else None
+    if hint is None:
+        return 'LANE_UNAVAILABLE',.2,0.,c
+    # scan.road may carry an actual external boundary, but never fabricate one
+    # from the current lane centre and its 0.52m width.
+    for margin in dict.fromkeys((c.clearance_margin,0.)):
+        checked=replace(c,clearance_margin=margin)
+        result=plan_avoidance(scan,checked,hint,True,primary,previous_angle,lane_data)
+        state,speed,angle,route=result
+        if path_is_valid(state) and path_clearance(scan,angle,route)>0:
+            if margin < c.clearance_margin:
+                return state+'/BODY_WIDTH',.2,angle,route
+            return result
+    return 'NO_CLEAR_PATH',.2,0.,c
+
+
+def plan_with_boundaries(scan,c,lane_angle=0.,lane_ok=False,primary=None,previous_angle=None):
+    if scan.road is None:
+        return 'ROAD_UNAVAILABLE',c.near_speed,lane_angle,c
+    return plan_avoidance(scan,c,lane_angle,lane_ok,primary,previous_angle)
+
+
+def avoidance_command(scan, c, lane_angle=0., lane_ok=False):
+    """Public three-value command API; plan_avoidance also returns checked geometry."""
+    return plan_avoidance(scan, c, lane_angle, lane_ok)[:3]
+
+
+def path_is_valid(state):
+    return state.split('/')[0] in ('AVOID','LANE')
 
 
 def main(args=None):
     import rclpy
     from rclpy.clock import Clock, ClockType
-    from rclpy.executors import ExternalShutdownException
+    from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+    from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
     from rclpy.node import Node
-    from rclpy.qos import QoSProfile, qos_profile_sensor_data
-    from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
-    from sensor_msgs.msg import LaserScan
+    from rclpy.qos import QoSProfile, qos_profile_sensor_data, ReliabilityPolicy
+    from rcl_interfaces.msg import ParameterDescriptor
+    from sensor_msgs.msg import LaserScan, CompressedImage, Image
     from std_msgs.msg import Float32MultiArray
     from ackermann_msgs.msg import AckermannDriveStamped
-    from nav_msgs.msg import Odometry
 
     class ObjavoidNode(Node):
         def __init__(self):
             super().__init__('objavoid_node')
             ro = ParameterDescriptor(read_only=True)
-            self.c = Config(**{key: self.declare_parameter(key, value, ro).value
-                               for key, value in vars(Config()).items()})
-            scan_topic = self.declare_parameter('scan_topic', '/scan', ro).value
-            lane_topic = self.declare_parameter('lane_target_topic', '/lane_lite/target', ro).value
-            odom_topic = self.declare_parameter('odom_topic', '/odom', ro).value
-            command_topic = self.declare_parameter('command_topic', '/mission/objavoid/command_05', ro).value
-            if not scan_topic or not lane_topic or not odom_topic or not command_topic or command_topic == '/cmd_vel':
-                raise ValueError('invalid topic setting')
+            self.c = Config(**{k: self.declare_parameter(k, v, ro).value for k, v in vars(Config()).items()})
             self.declare_parameter('manual_active', True)
+            self.start_gate = StartGate(**{k: self.declare_parameter('start_'+k, v, ro).value
+                for k, v in dict(x_min=0., x_max=2.5, y_min=-.75, y_max=.75,
+                                 minimum_objects=2, image_timeout=.3).items()})
+            from .white_roi import WhiteROI, load_lane_white, validate_white
+            self.white_roi = WhiteROI(**{k: self.declare_parameter('white_roi_'+k, v, ro).value
+                                        for k, v in vars(WhiteROI()).items()})
+            white_config = self.declare_parameter('lane_white_config', '', ro).value
+            self.white_thresholds = (load_lane_white(white_config) if white_config else validate_white(
+                self.declare_parameter('white_s_max', 70, ro).value,
+                self.declare_parameter('white_v_min', 120, ro).value))
+            camera = self.declare_parameter('white_image_topic', '/camera/color/image_raw/compressed', ro).value
+            self.white_sub = self.create_subscription(CompressedImage, camera, self.on_white_image, qos_profile_sensor_data)
+            self.white_debug_pub = self.create_publisher(CompressedImage, '/objavoid/white_roi/debug/compressed', qos_profile_sensor_data)
             self.scan = None
-            self.scan_error = 'not received'
+            self.scan_input = LatestScan()
+            self.scan_sequence = 0
+            self.scan_skipped = 0
+            self.scan_group = MutuallyExclusiveCallbackGroup()
+            self.object_scan = None
+            self.plan_key = None
+            self.plan_result = None
+            self.plan_ms = 0.
+            self.scan_period = None
+            self.primary_box = None
             self.clusters = ()
-            self.cluster_frame = 'laser_link'
             self.lane = None
-            self.odom = None
-            self.odom_error = 'not received'
-            self.road_tracker = RoadTracker()
-            self.current_road = None
-            self.memory = AvoidanceMemory()
-            self.gap = GapFallback(
-                path_clear,
-                enabled=self.declare_parameter('gap_fallback_enabled', True, ro).value,
-                extra_width=self.declare_parameter('gap_extra_width', .1, ro).value,
-                on_search=lambda: self.log_status('GAP_SEARCH', 0., 0.),
-                on_failure=lambda reason: self.log_status(reason, 0., 0.))
-            self.direction_scores = {1: None, -1: None}
-            self.last_ros = None
-            self.last_status = None
             self.path_config = self.c
-            self.pub = self.create_publisher(AckermannDriveStamped, command_topic, QoSProfile(depth=1))
+            self.last_angle = 0.
+            self.last_ros = None
+            self.last_state = None
+            scan_topic = self.declare_parameter('scan_topic', '/scan', ro).value
+            lane_topic = self.declare_parameter('lane_target_topic', '/lane_deep/target', ro).value
+            mask_topic = self.declare_parameter('lane_mask_topic', '/lane_fusion/deep_mask', ro).value
+            command = self.declare_parameter('command_topic', '/mission/objavoid/command_05', ro).value
+            if not all((scan_topic, lane_topic, mask_topic, command)) or command == '/cmd_vel':
+                raise ValueError('invalid topics')
+            self.pub = self.create_publisher(AckermannDriveStamped, command, QoSProfile(depth=1))
+            self.scan_sub = self.create_subscription(LaserScan, scan_topic, self.on_scan,
+                QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
+                callback_group=self.scan_group)
+            self.lane_sub = self.create_subscription(Float32MultiArray, lane_topic, self.on_lane, QoSProfile(depth=1))
+            self.mask_sub = self.create_subscription(Image, mask_topic, self.on_mask, qos_profile_sensor_data)
             from .visualization import Visualizer
             self.visualizer = Visualizer(self, preview_points, cluster_bounds)
-            self.scan_sub = self.create_subscription(LaserScan, scan_topic, self.on_scan,
-                                                     QoSProfile(depth=1, reliability=qos_profile_sensor_data.reliability))
-            self.lane_sub = self.create_subscription(Float32MultiArray, lane_topic,
-                                                     self.on_lane, QoSProfile(depth=1))
-            self.odom_sub = self.create_subscription(Odometry, odom_topic, self.on_odom,
-                                                     qos_profile_sensor_data)
-            self.add_on_set_parameters_callback(self.on_parameters)
-            self.steady = Clock(clock_type=ClockType.STEADY_TIME)
-            self.timer = self.create_timer(1 / self.c.publish_rate, self.tick, clock=self.steady)
-        def log_status(self, state, speed, steering):
-            message = command_status(state, speed, steering, self.memory.side)
-            if message != self.last_status:
-                self.get_logger().info(message)
-                self.last_status = message
+            self.web = None
+            self.web_last = -math.inf
+            enabled = self.declare_parameter('web_enabled', True, ro).value
+            host = self.declare_parameter('web_host', '127.0.0.1', ro).value
+            port = self.declare_parameter('web_port', 8085, ro).value
+            projection_config = self.declare_parameter('web_lane_config', '', ro).value
+            if type(enabled) is not bool or type(port) is not int or not 1 <= port <= 65535:
+                raise ValueError('invalid web settings')
+            from .web_view import WebViewer, GroundProjection
+            projection = None
+            try:
+                projection = GroundProjection.load(projection_config or config_path.with_name('camera_projection.yaml'))
+            except (OSError,ValueError,KeyError,TypeError) as error:
+                self.get_logger().warning(f'Camera projection unavailable: {error}')
+            self.projection = projection
+            if enabled:
+                try:
+                    self.web = WebViewer(host, port, projection,
+                        (self.white_roi.left, self.white_roi.right, self.white_roi.top, self.white_roi.bottom))
+                    self.get_logger().info(f'Objavoid viewer: http://{host}:{port}')
+                except OSError as error:
+                    self.get_logger().warning(f'Web viewer unavailable: {error}')
+            self.timer = self.create_timer(1/self.c.publish_rate, self.tick, clock=Clock(clock_type=ClockType.STEADY_TIME))
 
-        def publish_visual(self, state, speed, steering, now):
-            if not self.visualizer.due(state, now):
+        def publish_web(self, state, speed, angle, now, road=None, lane_ok=None):
+            if self.web is None or now-self.web_last < .1:
                 return
-            lane_points = (lane_reference(self.lane[2]) if self.lane and
-                           0 <= now - self.lane[1] < self.c.lane_timeout else ())
-            fresh = scan_fresh(self.scan, self.c, self.get_clock().now().nanoseconds * 1e-9, now)
+            from .web_view import snapshot
+            ros_now = self.get_clock().now().nanoseconds*1e-9
+            fresh = scan_fresh(self.scan, self.c, ros_now, now)
             groups = compact_clusters(self.clusters, self.c) if fresh else ()
-            self.visualizer.publish(state, speed, steering, now, self.path_config,
-                                    lane_points, self.current_road, groups, self.cluster_frame)
-
-        def on_parameters(self, parameters):
-            for p in parameters:
-                if p.name == 'manual_active' and type(p.value) is not bool:
-                    return SetParametersResult(successful=False, reason='manual_active must be bool')
-            return SetParametersResult(successful=True)
+            scan = replace(self.object_scan,road=road) if fresh else None
+            lane_fresh = self.lane is not None and 0 <= now-self.lane[1] < self.c.lane_timeout
+            points = lane_reference(self.lane[0]) if lane_fresh else ()
+            if lane_ok is None:
+                road = None
+                lane_ok = lane_fresh
+            white_ok = (self.start_gate.white_hit
+                and -self.c.future_tolerance <= ros_now-self.start_gate.white_stamp < self.start_gate.image_timeout
+                and 0 <= now-self.start_gate.white_received < self.start_gate.image_timeout)
+            if scan is not None:
+                scan = replace(scan,road=road)
+            data = snapshot(state, speed, angle, self.path_config, self.start_gate,
+                scan, road, points, nearest_objects(scan,self.c,self.primary_box) if scan else (), fresh, lane_ok,
+                white_ok, self.start_gate.count(groups,self.c),
+                preview_points(angle,self.path_config) if speed > 0 and path_is_valid(state) else ())
+            data['path_valid'] = speed > 0 and path_is_valid(state)
+            data['diagnostics'] = dict(plan_ms=self.plan_ms,
+                scan_age_ms=(ros_now-self.scan.stamp)*1000 if self.scan else None,
+                receive_age_ms=(now-self.scan.received)*1000 if self.scan else None,
+                scan_period_ms=self.scan_period*1000 if self.scan_period is not None else None,
+                checked_distance=self.path_config.preview_distance,
+                path_held=state.startswith('SCAN_UNAVAILABLE'))
+            latest = self.scan_input.snapshot()
+            data['diagnostics'].update(
+                latest_receive_age_ms=(time.monotonic()-latest.received)*1000 if latest else None,
+                received_scans=latest.sequence if latest else 0,
+                skipped_scans=self.scan_skipped,
+                pending_scans=max(0,latest.sequence-self.scan_sequence) if latest else 0)
+            data['scan_receiving'] = self.scan is not None and 0 <= time.monotonic()-self.scan.received < .25
+            self.web.publish(data)
+            self.web_last = now
 
         def on_scan(self, msg):
+            # Separate callback group/thread: no clustering, JPEG or planning.
+            self.scan_input.put(msg, time.monotonic())
+
+        def consume_scan(self):
+            latest = self.scan_input.snapshot()
+            if latest is None or latest.sequence == self.scan_sequence:
+                return
+            self.scan_skipped += max(0,latest.sequence-self.scan_sequence-1)
+            self.scan_sequence = latest.sequence
+            msg = latest.message
             try:
-                scan = read_scan(msg, time.monotonic(), self.c)
+                scan = read_scan(msg, latest.received, self.c)
+                if scan.stamp <= 0 or scan.stamp > self.get_clock().now().nanoseconds*1e-9+self.c.future_tolerance:
+                    return
                 if self.scan and scan.stamp <= self.scan.stamp:
                     return
-                self.clusters = cluster_scan(msg, self.c)
-                self.direction_scores = {1: None, -1: None}
-                self.cluster_frame = scan.frame_id
-                self.scan = scan
-                self.scan_error = None
+                clusters = cluster_scan(msg, self.c)
+                object_scan = object_sectors(scan,clusters,self.c)
+                self.scan_period = latest.period
+                self.scan,self.clusters,self.object_scan = scan,clusters,object_scan
             except (ValueError, TypeError, OverflowError) as error:
-                self.scan = None
-                self.clusters = ()
-                self.direction_scores = {1: None, -1: None}
-                self.memory.reset()
-                self.gap.reset()
-                self.scan_error = str(error)
+                # A malformed frame must not erase the last valid geometry.
+                self.get_logger().warning(f'Ignoring invalid scan: {error}', throttle_duration_sec=5.)
+
+        def on_white_image(self, msg):
+            import cv2
+            now = time.monotonic()
+            ros_now = self.get_clock().now().nanoseconds * 1e-9
+            stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+            if (stamp <= 0 or stamp <= self.start_gate.white_stamp
+                    or not -self.c.future_tolerance <= ros_now - stamp < self.start_gate.image_timeout):
+                return
+            try:
+                image = cv2.imdecode(np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                if image is None:
+                    raise ValueError('Cannot decode camera JPEG')
+                if self.web is not None:
+                    self.web.set_camera(image, now)
+                ratio, bounds, mask = self.white_roi.measure(image, *self.white_thresholds)
+                self.start_gate.observe_white(ratio >= self.white_roi.minimum_ratio, stamp, now)
+                if self.white_debug_pub.get_subscription_count():
+                    preview = self.white_roi.preview(image, bounds, ratio, mask, ['objavoid'])
+                    ok, encoded = cv2.imencode('.jpg', preview)
+                    if ok:
+                        self.white_debug_pub.publish(CompressedImage(
+                            header=msg.header, format='jpeg', data=encoded.tobytes()))
+            except (ValueError, cv2.error) as error:
+                self.start_gate.observe_white(False, stamp, now)
+                self.get_logger().warning(str(error), throttle_duration_sec=5.)
+
 
         def on_lane(self, msg):
-            hint = lane_hint(msg.data, self.c)
-            self.lane = (hint, time.monotonic(), tuple(msg.data)) if hint is not None else None
+            data = tuple(msg.data)
+            self.lane = (data, time.monotonic()) if lane_hint(data, self.c) is not None else None
 
-        def on_odom(self, msg):
-            try:
-                pose = read_odometry(msg, time.monotonic())
-                if self.odom is not None and pose.stamp <= self.odom.stamp:
-                    return
-                self.odom, self.odom_error = pose, None
-            except (ValueError, TypeError, OverflowError) as error:
-                self.odom, self.odom_error = None, str(error)
-
-        def road_context(self, ros_now, now):
-            if not self.c.road_guard_enabled:
-                return None, None
-            if self.odom is None:
-                return None, f'WAIT_ODOM ({self.odom_error})'
-            if not odom_fresh(self.odom, self.c, ros_now, now):
-                return None, 'STOP_ODOM_EXPIRED'
-            if self.road_tracker.origin is None:
-                if (not self.lane or not 0 <= now - self.lane[1] < self.c.lane_timeout
-                        or not self.road_tracker.initialize(self.odom, self.lane[2], self.c)):
-                    return None, 'WAIT_ROAD_REFERENCE'
-            road = self.road_tracker.band(self.odom, self.c)
-            return (road, None) if road is not None else (None, 'STOP_ODOM_FRAME_CHANGED')
+        def on_mask(self, msg):
+            if (msg.encoding != 'mono8' or min(msg.width, msg.height) <= 0
+                    or msg.step < msg.width or len(msg.data) < msg.step*msg.height):
+                return
+            mask = np.frombuffer(msg.data, dtype=np.uint8, count=msg.height*msg.step).reshape(msg.height, msg.step)[:, :msg.width]
+            if self.web is not None:
+                self.web.set_lane_mask(mask, time.monotonic())
+            # The mask is display-only. Lane perception belongs to lane_deep.
 
         def tick(self):
             now = time.monotonic()
-            ros_now = self.get_clock().now().nanoseconds * 1e-9
+            ros_now = self.get_clock().now().nanoseconds*1e-9
             if self.last_ros is not None and ros_now < self.last_ros:
                 self.scan = self.lane = None
-                self.odom = None
-                self.road_tracker.reset()
-                self.scan_error = 'clock reset; waiting for new scan'
-                self.memory.reset()
-                self.gap.reset()
-                self.direction_scores = {1: None, -1: None}
+                self.clusters = ()
+                self.start_gate.reset()
+                self.plan_key = None
+                self.primary_box = None
+                self.last_angle = 0.
             self.last_ros = ros_now
-            self.current_road, road_error = self.road_context(ros_now, now)
-            speed = steering = 0.
-            self.path_config = self.c
-            control_scan = self.scan
+            # Atomically take just the newest input. The scan used below stays
+            # unchanged for this whole plan, even as reception continues.
+            self.consume_scan()
             if not self.get_parameter('manual_active').value:
-                self.memory.reset()
-                self.gap.reset()
-                self.log_status('IDLE', 0., 0.)
-                self.publish_visual('IDLE', 0., 0., now)
+                self.start_gate.reset()
+                self.plan_key = None
+                self.primary_box = None
+                self.last_angle = 0.
+                self.path_config = self.c
+                self.publish_web('IDLE', 0., 0., now)
                 return
-            if self.scan is None:
-                self.memory.reset()
-                self.gap.reset()
-                state = f'WAIT_SCAN ({self.scan_error})'
-            elif not scan_fresh(self.scan, self.c, ros_now, now):
-                self.memory.reset()
-                self.gap.reset()
-                state = 'STOP_SCAN_EXPIRED'
-            elif road_error is not None:
-                self.memory.reset()
-                self.gap.reset()
-                state = road_error
+            fresh = scan_fresh(self.scan, self.c, ros_now, now)
+            groups = compact_clusters(self.clusters, self.c) if fresh else ()
+            count = self.start_gate.count(groups, self.c)
+            if not self.start_gate.update(count, fresh, ros_now, now, self.c.future_tolerance):
+                self.get_logger().info(f'WAIT_START objects={count} white={self.start_gate.white_hit}',
+                                       throttle_duration_sec=2.)
+                self.publish_web('WAIT_START', 0., 0., now)
+                return
+            lane_fresh = self.lane is not None and 0 <= now-self.lane[1] < self.c.lane_timeout
+            lane_data = self.lane[0] if lane_fresh else None
+            road = None
+            lane_ok = lane_fresh
+            angle = lane_hint(lane_data,self.c) if lane_fresh else 0.
+            previous_config = self.path_config
+            if fresh:
+                # Replan for new scans or meaningful lane geometry changes, not
+                # every 25Hz mask timestamp while the 10Hz scan is unchanged.
+                reference_key=tuple(round(v,3) for v in lane_data) if lane_data is not None else None
+                key = (self.scan.stamp,reference_key,lane_ok)
+                if key != self.plan_key:
+                    started = time.perf_counter()
+                    scan = replace(self.object_scan,road=road)
+                    targets = nearest_objects(scan,self.c,self.primary_box)
+                    self.primary_box = targets[0] if targets else None
+                    self.plan_result = plan_in_lane(scan,self.c,lane_data,self.primary_box,
+                        self.last_angle if self.plan_result is not None and path_is_valid(self.plan_result[0]) else None)
+                    self.plan_ms = (time.perf_counter()-started)*1000
+                    self.plan_key = key
+                state,speed,angle,self.path_config = self.plan_result
             else:
-                hint = lane_guidance(self.lane, self.current_road, self.c, now)
-                control_scan = object_sectors(self.scan, self.clusters, self.c)
-                control_scan = replace(control_scan, road=self.current_road)
-                self.direction_scores = cluster_direction_scores(control_scan, self.c)
-                pose = self.odom if odom_fresh(self.odom, self.c, ros_now, now) else None
-                if self.memory.side == 0 and pose is not None:
-                    self.memory.entry_yaw, self.memory.frame = pose.yaw, pose.frame
-                heading_error = None
-                if self.current_road is not None:
-                    heading_error = math.atan2(-self.current_road.nx, self.current_road.ny)
-                elif pose is not None and self.memory.entry_yaw is not None and pose.frame == self.memory.frame:
-                    delta = self.memory.entry_yaw - pose.yaw
-                    heading_error = math.atan2(math.sin(delta), math.cos(delta))
-                elif self.lane is not None and 0 <= now - self.lane[1] < self.c.lane_timeout:
-                    data = self.lane[2]
-                    heading_error = data[9] if data[10] > 0 else data[2]
-                if self.gap.active:
-                    result = ('GAP_ACTIVE', 0., 0., 0)
-                else:
-                    result, self.path_config = control_command(
-                        control_scan, self.c, self.memory, hint, heading_error, self.direction_scores, pose)
-                base_state, speed, steering, _ = result
-                state = ('CREEP/' + base_state if speed > 0
-                         and self.path_config.preview_distance < self.c.preview_distance else base_state)
-                # Final gate: the published command and the blue RViz arc use
-                # this same steering and must pass the same swept-body check.
-                if speed > 0 and not path_clear(control_scan, steering, self.path_config):
-                    state, speed, steering = 'STOP_PATH_BLOCKED', 0., 0.
-                if self.current_road is not None and self.current_road.body_gap(
-                        0., 0., 0., self.c.vehicle_length / 2 + self.c.clearance_margin,
-                        self.c.vehicle_width / 2 + self.c.clearance_margin) <= 0:
-                    state, speed, steering = 'STOP_ROAD_BOUNDARY', 0., 0.
-                if state == 'STOP_FRONT_UNKNOWN':
-                    self.memory.reset()
-                    self.gap.reset()
-                if not scan_fresh(self.scan, self.c,
-                                  self.get_clock().now().nanoseconds * 1e-9, time.monotonic()):
-                    state, speed, steering = 'STOP_SCAN_EXPIRED', 0., 0.
-                # Observe only the command after the existing safety gates.
-                was_gap = self.gap.active
-                primary = (state, speed, steering, result[3])
-                fallback, fallback_config = self.gap.update(
-                    primary, self.path_config, control_scan, self.c, pose)
-                if fallback != primary or self.gap.active:
-                    base_state, speed, steering, _ = fallback
-                    self.path_config = fallback_config
-                    state = ('CREEP/' + base_state if speed > 0
-                             and fallback_config.preview_distance < self.c.preview_distance else base_state)
-                    if speed > 0 and not path_clear(control_scan, steering, self.path_config):
-                        state, speed, steering = 'STOP_GAP_BLOCKED', 0., 0.
-                        self.gap.reset()
-                if was_gap and not self.gap.active:
-                    self.memory.reset()
-                    self.gap.reset()
-                    if state == 'GAP_DONE':
-                        self.memory.phase = 'LANE'
-                # A scan can expire during an expensive search, too. Never
-                # publish motion based only on the freshness check at entry.
-                finished = time.monotonic()
-                if not scan_fresh(self.scan, self.c,
-                                  self.get_clock().now().nanoseconds * 1e-9, finished):
-                    state, speed, steering = 'STOP_SCAN_EXPIRED', 0., 0.
-                    self.memory.reset()
-                    self.gap.reset()
-            self.log_status(state, speed, steering)
+                # Keep the previous command curve visible, explicitly stale.
+                # Do not pretend it has been rechecked against missing scans.
+                angle = self.last_angle
+                state,speed,angle = 'SCAN_UNAVAILABLE',.2,0.
+            finished = time.monotonic()
+            if not scan_fresh(self.scan,self.c,self.get_clock().now().nanoseconds*1e-9,finished):
+                state,speed,angle = 'SCAN_UNAVAILABLE',.2,0.
+                self.path_config = previous_config
+            if self.lane is None or not 0 <= finished-self.lane[1] < self.c.lane_timeout:
+                state,speed,angle = 'LANE_UNAVAILABLE',.2,0.
+                lane_ok=False
+                road=None
+                self.path_config=previous_config
+            if not lane_ok:
+                state += '/LANE_UNCONFIRMED'
+            self.last_angle = angle
+            if state != self.last_state:
+                self.get_logger().info(f'{state} speed={speed:.2f} steering={angle:.3f}')
+                self.last_state = state
             msg = AckermannDriveStamped()
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = 'base_link'
-            msg.drive.speed, msg.drive.steering_angle = float(speed), float(steering)
+            msg.drive.speed, msg.drive.steering_angle = float(speed), float(angle)
             self.pub.publish(msg)
-            self.publish_visual(state, speed, steering, now)
+            self.publish_web(state, speed, angle, now, road, lane_ok)
+            if self.visualizer.due(state, now):
+                self.visualizer.publish(state, speed, angle, now, self.path_config,
+                    lane_reference(self.lane[0]) if lane_fresh else (), road,
+                    self.clusters if fresh else (), self.scan.frame_id if self.scan else 'laser_link')
 
-    rclpy.init(args=args)
+    import sys
+    from pathlib import Path
+    from ament_index_python.packages import get_package_share_directory
+    config_path = Path(get_package_share_directory('autorace_objavoid'))/'config'/'objavoid.yaml'
+    rclpy.init(args=default_config_args(sys.argv if args is None else args, config_path))
     node = None
+    executor = None
     try:
         node = ObjavoidNode()
-        rclpy.spin(node)
+        executor = MultiThreadedExecutor(num_threads=2)
+        executor.add_node(node)
+        executor.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        if executor is not None:
+            executor.shutdown()
         if node is not None:
-            if rclpy.ok():
-                msg = AckermannDriveStamped()
-                msg.header.stamp = node.get_clock().now().to_msg()
-                msg.header.frame_id = 'base_link'
-                node.pub.publish(msg)
+            if node.web is not None:
+                node.web.close()
             node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

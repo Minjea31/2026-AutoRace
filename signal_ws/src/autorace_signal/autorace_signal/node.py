@@ -15,7 +15,7 @@ from std_msgs.msg import Bool
 from .core import SignalState
 
 # Tune here; launch does not override these defaults. Restart after changes.
-CONFIRM_FRAMES = 5
+CONFIRM_FRAMES = 2
 MAX_RED_WAIT_SEC = 10.0  # Restarted by every red received while stopping.
 SIGNAL_GAP_TIMEOUT_SEC = 0.5
 PUBLISH_RATE_HZ = 30.0

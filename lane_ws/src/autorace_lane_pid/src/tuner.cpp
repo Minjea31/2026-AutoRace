@@ -137,7 +137,7 @@ public:
     auto monitor = new QWidget;
     auto mon = new QVBoxLayout(monitor);
     auto formula = new QLabel(
-        "<b>오차</b> e = lateral_weight·가까운 횡오차 + heading_weight·가까운 헤딩 + lookahead_weight·목표점 횡오차<br>"
+        "<b>오차</b> e = lateral_weight·가까운 횡오차 + heading_weight·가까운 헤딩 + lookahead_weight·목표점 횡오차 + far_heading_weight·목표점 선 각도<br>"
         "<b>조향</b> δ = kp·e + ki·∫e dt + kd·de/dt + curvature_ff·atan(L·κ)<br>"
         "<span style='color:#888'>좌측 +, 조향은 ±max_steering·steering_rate로 제한</span>");
     formula->setWordWrap(true);

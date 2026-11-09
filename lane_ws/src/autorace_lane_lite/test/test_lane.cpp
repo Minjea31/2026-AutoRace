@@ -55,6 +55,26 @@ TEST(LaneLite, ShortDropoutIsHeldThenLost) {
   EXPECT_EQ(p.process(empty, .1).state, "held");
   EXPECT_FALSE(p.process(empty, .7).valid);
 }
+TEST(LaneLite, HeldPathMovesWithOdometry) {
+  lane_lite::Pipeline p(identity());
+  const auto a = p.process(scene(170, 300), 0);
+  ASSERT_TRUE(a.valid);
+  cv::Mat empty(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+  p.move(.1, 0); // 10 cm forward along a straight lane: same lateral offset
+  auto r = p.process(empty, .1);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.state, "held");
+  EXPECT_NEAR(r.lateral_m, a.lateral_m, .02);
+  EXPECT_GT(r.center_path.back().y, a.center_path.back().y + 40); // far end slid toward the car
+  p.move(0, .1); // turned left: the held path now lies to the right
+  r = p.process(empty, .2);
+  ASSERT_TRUE(r.valid);
+  EXPECT_LT(r.lateral_m, a.lateral_m - .04);
+  // Reacquisition blends with the held path instead of jumping.
+  const auto back = p.process(scene(170, 300), .25);
+  ASSERT_TRUE(back.valid);
+  EXPECT_LT(back.lateral_m, a.lateral_m - .005);
+}
 TEST(LaneLite, OneFrameJumpIsRejected) {
   lane_lite::Pipeline p(identity());
   for (int i = 0; i < 5; ++i)
@@ -173,6 +193,21 @@ TEST(LaneLite, YellowPairSkipsAngleLimitWhitePairDoesNot) {
       r = p.process(img, i * .05);
     ASSERT_TRUE(r.valid) << white;
     EXPECT_EQ(r.state, white ? "left only" : "both") << white;
+  }
+}
+TEST(LaneLite, NoViewsGivesSameResult) {
+  // The driving node skips display images; the measurement must not change.
+  lane_lite::Pipeline a(identity()), b(identity());
+  for (int i = 0; i < 5; ++i) {
+    const auto img = scene(170 + 4 * i, 300);
+    const auto ra = a.process(img, i * .05), rb = b.process(img, i * .05, false);
+    ASSERT_EQ(ra.valid, rb.valid) << i;
+    EXPECT_EQ(ra.state, rb.state) << i;
+    EXPECT_DOUBLE_EQ(ra.lateral_m, rb.lateral_m) << i;
+    EXPECT_DOUBLE_EQ(ra.heading, rb.heading) << i;
+    EXPECT_DOUBLE_EQ(ra.near_lateral_m, rb.near_lateral_m) << i;
+    EXPECT_TRUE(rb.path_view.empty() && rb.overlay.empty()) << i;
+    EXPECT_FALSE(ra.path_view.empty()) << i;
   }
 }
 TEST(LaneLite, ConfigRoundTrip) {

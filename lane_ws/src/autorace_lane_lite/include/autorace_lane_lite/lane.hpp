@@ -69,7 +69,13 @@ public:
   explicit Pipeline(const Config &config = {});
   void configure(const Config &config);
   void reset();
-  Result process(const cv::Mat &bgr, double time);
+  // views=false skips every display image (search/path/overlay/masks); the
+  // driving node uses it when nobody needs the debug picture.
+  Result process(const cv::Mat &bgr, double time, bool views = true);
+  // Vehicle motion (odometry) since the previous call: forward distance (m)
+  // and yaw change (rad, left +). Accumulated and applied only to a HELD
+  // centre path, so a short dropout keeps the path on the road.
+  void move(double forward_m, double yaw_rad);
 
 private:
   struct Track {
@@ -81,5 +87,6 @@ private:
   Track tracks_[2];
   Path center_;
   double center_seen_ = -1, center_confidence_ = 0, last_time_ = -1, width_ = 0;
+  double motion_[3] = {0, 0, 0}; // x fwd (m), y left (m), yaw since center_ was last placed
 };
 } // namespace lane_lite

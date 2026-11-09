@@ -470,9 +470,18 @@ void Pipeline::reset() {
   center_.clear();
   center_seen_ = last_time_ = -1;
   center_confidence_ = 0;
+  motion_[0] = motion_[1] = motion_[2] = 0;
   width_ = config_["lane_width_px"];
 }
-Result Pipeline::process(const cv::Mat &bgr, double time) {
+void Pipeline::move(double forward_m, double yaw_rad) {
+  if (!std::isfinite(forward_m) || !std::isfinite(yaw_rad))
+    return;
+  const double mid = motion_[2] + yaw_rad / 2; // arc: chord along the mid heading
+  motion_[0] += forward_m * std::cos(mid);
+  motion_[1] += forward_m * std::sin(mid);
+  motion_[2] += yaw_rad;
+}
+Result Pipeline::process(const cv::Mat &bgr, double time, bool views) {
   const auto start_clock = std::chrono::steady_clock::now();
   if (bgr.empty() || bgr.type() != CV_8UC3 || !std::isfinite(time))
     throw std::invalid_argument("Expected a BGR8 image and finite time");
@@ -868,17 +877,50 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
     }
     confidence = dl && dr ? (r.left.quality + r.right.quality) / 2 : .7 * base.quality;
     r.state = dl && dr ? "both" : dl ? "left only" : "right only";
-    if (!center_.empty() && time - center_seen_ <= c["track_memory"])
+  }
+  // A fresh centre too short to give a target (stop line, one short dash)
+  // does not replace a recent path: it is treated like a dropout.
+  auto usable = [&](const Path &p) {
+    double s = 0;
+    for (size_t i = 1; i < p.size(); ++i)
+      s += length(p[i] - p[i - 1]);
+    return p.size() >= 3 && s >= .1 * h;
+  };
+  const bool recent = !center_.empty() && time - center_seen_ <= c["track_memory"];
+  if ((dl || dr) && (usable(center) || !recent)) {
+    // Reacquisition blends with the (motion-compensated) held path: no jump.
+    if (recent)
       center = blend(center, center_, alpha, c["track_jump_px"]);
     center_ = center;
     center_seen_ = time;
     center_confidence_ = confidence;
-  } else if (!center_.empty() && time - center_seen_ <= c["track_memory"]) {
+    motion_[0] = motion_[1] = motion_[2] = 0;
+  } else if (recent) {
+    if (dl || dr)
+      r.notes.push_back("중앙 경로가 너무 짧아 이전 경로 유지");
+    // Move the held path into the current vehicle frame (odometry since it
+    // was placed), dropping points that are now behind the BEV bottom row.
+    if (motion_[0] != 0 || motion_[1] != 0 || motion_[2] != 0) {
+      const double m_px = c["lane_width_m"] / c["lane_width_px"];
+      const double m_row = (c["bev_far_m"] - c["bev_near_m"]) / (h - 1);
+      const double cs = std::cos(motion_[2]), sn = std::sin(motion_[2]);
+      Path moved;
+      for (const auto &p : center_) {
+        const double f = c["bev_near_m"] + (h - 1 - p.y) * m_row - motion_[0];
+        const double l = (cu - p.x) * m_px - motion_[1];
+        const double y = h - 1 - (cs * f + sn * l - c["bev_near_m"]) / m_row;
+        if (y <= h - 1)
+          moved.emplace_back(float(cu - (-sn * f + cs * l) / m_px), float(y));
+      }
+      center_ = moved;
+      motion_[0] = motion_[1] = motion_[2] = 0;
+    }
     center = center_;
     confidence = center_confidence_ *
                  (1 - (time - center_seen_) / std::max(.01, c["track_memory"]));
     r.state = "held";
   } else {
+    center.clear();
     center_.clear();
     r.state = "lost";
   }
@@ -930,6 +972,11 @@ Result Pipeline::process(const cv::Mat &bgr, double time) {
       r.notes.push_back(std::string(line == &r.left ? "왼쪽: " : "오른쪽: ") + line->note);
 
   // 9. Views: BEV search trace, BEV path, and the path projected back.
+  if (!views) {
+    r.processing_ms = std::chrono::duration<double, std::milli>(
+                          std::chrono::steady_clock::now() - start_clock).count();
+    return r;
+  }
   r.search_view = r.bev * .45;
   r.search_view.setTo(cv::Scalar(230, 230, 230), mask & ~yellow);
   r.search_view.setTo(cv::Scalar(0, 210, 255), yellow);

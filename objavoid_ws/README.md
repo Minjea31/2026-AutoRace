@@ -1,242 +1,73 @@
 # objavoid_ws
 
-LiDAR 정적 장애물 회피용 ROS 2 Humble 패키지다. **실행 노드는 하나**이며,
-기존 제어·센서 처리는 `node.py`, 보조 통로 탐색은 `gap_planner.py`,
-RViz 발행은 `visualization.py`에 있다. 별도 launch는 없다.
+ROS 2 Humble 기반 LiDAR 장애물 회피 노드. 차선 유도는 `/lane_deep/target`을 사용하고 장애물은 LiDAR 클러스터로 판단한다.
 
-## 실행 명령어
-
-시뮬레이터와 lane을 먼저 켠다. 기본 시작 차선은 **중앙 2차선**이다.
-필수 입력은 `/scan`, `/odom`, 유효한 `/lane_lite/target`이다.
-
-### 1. 빌드 — 코드 변경 후 한 번
+## 실행
 
 ```bash
 cd ~/2026-AutoRace/objavoid_ws
 source /opt/ros/humble/setup.bash
-PYTHONNOUSERSITE=1 /usr/bin/python3 /usr/bin/colcon build \
-  --symlink-install --packages-select autorace_objavoid
-```
-
-### 2. objavoid 실행 — 빌드 성공 후
-
-기존 objavoid는 `Ctrl+C`로 종료하고 실행한다.
-
-```bash
-cd ~/2026-AutoRace/objavoid_ws
-source ../simul/ros_env.sh
+PYTHONNOUSERSITE=1 /usr/bin/python3 /usr/bin/colcon build --symlink-install --packages-select autorace_objavoid
 source install/setup.bash
-ros2 run autorace_objavoid objavoid_node --ros-args \
-  --params-file src/autorace_objavoid/config/objavoid.yaml -p use_sim_time:=true
+ros2 run autorace_objavoid objavoid_node
 ```
 
-1차선/3차선에서 시작하면 마지막에 `-p initial_lane:=1` 또는 `-p initial_lane:=3`을 추가한다.
+카메라·LiDAR·lane_deep 입력을 먼저 실행한다. 노드 이름은 `objavoid_node`, 출력은 `/mission/objavoid/command_05` (`AckermannDriveStamped`)다. 기본 설정 파일은 `config/objavoid.yaml`이다. 실행 인자로 지정한 파라미터는 기본 설정을 덮어쓴다.
 
-### 3. RViz2 — 별도 터미널, 선택
+## 입력 및 제어
 
-```bash
-cd ~/2026-AutoRace/objavoid_ws
-source ../simul/ros_env.sh
-source install/setup.bash
-rviz2 -d src/autorace_objavoid/config/objavoid.rviz --ros-args -p use_sim_time:=true
-```
+- `/scan`: 점과 클러스터로 차량 통과 폭의 충돌을 검사한다. 색상은 사용하지 않는다. 큰 클러스터도 장애물 박스로 검사한다.
+- `/lane_deep/target`: 유효한 중심 위치·방향을 유도 및 복귀 기준으로 사용한다. 근거리 기준점과 목표점의 전방 거리가 같아도 정상 입력으로 수용한다.
+- `/lane_fusion/deep_mask`: 웹 표시용이다. objavoid에서 노란 픽셀을 도로 경계로 재판정하지 않는다.
+- `/camera/color/image_raw/compressed`: 웹 영상과 시작 흰선 ROI 판정에 사용한다.
 
-### lane 또는 제어 전달이 아직 실행되지 않았다면
+시작 ROI에서 흰선과 compact 클러스터 2개 이상이 함께 확인되면 회피가 활성화된다. 시작 전과 `manual_active=false`에서는 주행 명령을 발행하지 않는다.
 
-각각 별도 터미널에서 실행한다. 이미 실행 중이면 중복 실행하지 않는다.
+스캔 수신은 별도 콜백 그룹과 2스레드 executor에서 처리한다. 입력은 최신 한 개로 교체하고, 경로 계산은 고정된 스냅샷을 사용한다. 기본 `scan_timeout: 0.0`에서는 마지막 정상 스캔을 시간 만료시키지 않는다. 잘못된 프레임은 마지막 정상 데이터를 지우지 않는다.
 
-**lane** — lane_ws가 먼저 빌드되어 있어야 한다.
+## 경로 설정
 
-```bash
-source ~/2026-AutoRace/simul/ros_env.sh
-source ~/2026-AutoRace/lane_ws/install/setup.bash
-ros2 launch autorace_lane_lite lane_lite.launch.py profile:=sim
-```
-
-**시뮬 명령 전달** — 기존 mux 없이 objavoid만 시험할 때 사용한다.
-
-```bash
-cd ~/2026-AutoRace
-./simul/adapter.sh --no-gui --topic /mission/objavoid/command_05
-```
-
-### 실차
-
-실차 센서·위치 추정·lane·기존 mux를 먼저 실행한다. 시뮬 환경 파일과 시뮬 어댑터는 쓰지 않는다.
-
-```bash
-cd ~/2026-AutoRace/objavoid_ws
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-ros2 run autorace_objavoid objavoid_node --ros-args \
-  --params-file src/autorace_objavoid/config/objavoid.yaml -p use_sim_time:=false
-```
-
-차량 치수·LiDAR 장착 위치·차선 폭·시작 차선은 실제 환경에 맞게 설정한다.
-
-## 회피 로직
-
-| 단계 | 조건과 동작 |
+| 항목 | 기본값 |
 | --- | --- |
-| `STRAIGHT` | 직진 통로가 안전하면 조향 0으로 진행한다. 기본 앞보기는 1.0m다. |
-| 방향 선택 | 정면 장애물을 먼저 피한다. 그 뒤에 검출된 클러스터 중 가까운 장애물의 반대편을 선호한다. |
-| `TURN` | 기존 방향에 안전한 후보가 있으면 유지한다. 해당 방향의 후보가 막히면 반대편도 평가한다. |
-| 통과 확인 | 진입 때 관측 외곽을 odom 기준으로 기억한다. 장애물 가까운 면이 차체 앞쪽을 지나 옆으로 넘어가고 차체 여유가 확보되면 방향 잠금을 해제한다. |
-| `ALIGN` | 차선 중심의 횡오차 없이 도로 방향으로 정렬한다. 새 전방 장애물이 있으면 즉시 방향을 다시 선택한다. |
-| `LANE` | 헤딩 오차 5도 이내로 정렬되면 최신 lane 중심을 따른다. lane이 만료되면 odom 추정 중심을 보조로 쓴다. |
-
-### 뒤 클러스터로 방향을 고르는 방법
-
-1. 정면 차체 통로를 막는 가까운 클러스터를 찾는다.
-2. 그보다 앞쪽, 즉 정면 장애물의 뒤에 검출된 클러스터를 비교한다.
-3. 차체 기준 거리가 가장 가까운 클러스터가 **오른쪽이면 왼쪽, 왼쪽이면 오른쪽**을 선호한다.
-4. 뒤 클러스터가 없거나 중앙에 있거나 좌우 거리가 같으면 가까운 패스의 여유로 결정한다.
-
-회피 중인 기존 방향이 우선이며, 실제 패스가 막힌 경우에만 다른 방향을 평가한다.
-선호 방향이라도 충돌 검사를 통과하지 못하면 선택하지 않는다.
-
-### 실제 패스 선택
-
-- **0.7m 후보 우선**, 모두 막히면 **최소 0.15m까지** 가능한 긴 구간을 8회 이분 탐색한다.
-- 같은 길이에서 기존 방향 → 뒤 클러스터 선호 방향 → 차체 여유 순으로 후보를 좁힌다.
-- 여유가 비슷하면 작은 조향을 우선한다. 짧은 패스라고 자동으로 크게 꺾지는 않는다.
-- 안전한 최소 구간도 없으면 정지한다. 가변 길이 진행 속도는 최대 0.2m/s다.
-
-**정렬 후 2m 직진 가능 조건이나 출구 연결 검사는 없다.** 뒤 클러스터는 방향 선택에 사용한다.
-`visual_road_distance=2.0`은 RViz 참고선 표시 길이이며 제어 조건이 아니다.
-
-## 보조 통로 탐색 — 연속 5스캔 정지 때만
-
-기존 회피 로직이 먼저 동작한다. 전방 0.25m 이내에서는 기본 주행을
-`STOP_PATH_BLOCKED`로 정지시키며, 0.05m 이내의 긴급 정지는 보조 기능도 우회하지 않는다. 정상 명령은 그대로 사용하며, **서로 다른 유효 LiDAR
-스캔 5개에서 연속으로 `STOP_PATH_BLOCKED`가 나온 경우에만** 보조 탐색을 시작한다.
-같은 스캔으로 명령을 여러 번 발행해도 한 프레임이다. 정상 명령·다른 정지·입력 이상·
-비활성화·시계 초기화가 끼면 횟수를 초기화한다. 기본 10Hz 스캔에서는 약 0.5초에 해당한다.
-
-1. 관측 장애물 사이 또는 장애물과 추정 도로 외곽 사이의 빈 통로를 찾는다.
-2. 관측 통로 폭이 **차량 폭 0.22m + 총 추가 여유 0.10m = 0.32m** 이상인 후보를 찾는다.
-   0.1m는 양쪽 합계다. 실제 회전과 차체 표본 여유 때문에 더 넓은 공간이 필요할 수 있다.
-3. 통로 중앙을 임시 목표로 삼아 전진 진입 곡선 → 정렬 곡선 → 장애물 옆 통과를 검사한다.
-   기존 차체/박스/도로 검사를 그대로 사용하며 추가 여유는 보조 경로에만 적용한다.
-4. 안전한 경로가 있으면 `GAP_FOLLOW`로 최대 **0.1m/s**에서 추종한다.
-   시작한 경로는 odom 기준으로 유지하고 새 스캔마다 남은 경로를 재검사한다.
-5. 통과하면 `GAP_DONE` 후 기존 `LANE` 주행으로 복귀한다. 새 장애물·odom 이상·경로 이탈이면 정지한다.
-
-후진은 없다. 입력 만료·미관측 정면·최소 정지 거리·도로 이탈 조건으로는 탐색을 켜지 않는다.
-탐색 실패 시 기존 정지를 유지하고 연속 횟수를 보존한다. 5·10·15번째 새 정지 스캔마다
-자동 재탐색하며 시작 시 `mode=GAP_SEARCH`를 출력한다.
-별도 노드/런치/추가 실행 명령은 없으며 다음 설정으로 제어한다.
-
-| 설정 | 기본값 | 의미 |
-| --- | --- | --- |
-| `gap_fallback_enabled` | true | 5스캔 정지 시 보조 탐색 허용. false이면 기존 제어만 사용. |
-| `gap_extra_width` | 0.1m | 차량 폭에 더하는 총 통로 여유. |
-
-보조 경로의 목표는 관측 장애물을 통과하는 위치이며, 임의의 2m 직진을 요구하지 않는다.
-두 곡선으로 구성한 제한된 전진 경로 후보이므로 모든 배치에서 통과를 보장하지 않는다.
-최소 안전 패스도 없으면 그대로 정지한다. 실행 중인 노드를 재시작하면 설정이 적용된다.
-
-## 충돌 검사와 도로 보호
-
-- 차체: 길이 **0.322m**, 폭 **0.220m**, 주변 여유 **0.02m**.
-- LiDAR 장착 위치·각도를 적용한 모든 유효 스캔 점과 작은 군집의 채워진 박스를 검사한다.
-- 현재 위치를 포함한 25개 차체 표본과 표본 사이 이동·회전 여유를 반영한다.
-- 추가 도로 외곽 여유 0.1m는 사용하지 않는다. 차체 전체가 추정 도로 안에 있어야 한다.
-- 내부 차선 이동은 허용한다. 도로 외곽은 최초 lane/odom 기준의 직선 3차로 추정이다.
-- 외곽 기준은 최신 차선 경계로 계속 갱신하지 않는다. 차선 중심 보정과는 별개다.
-- 스캔 만료·정면 미관측·최소 정지 거리·odom 이상 조건은 유지한다.
-
-밀집 점군은 NumPy로 일괄 검사하며 점을 생략하지 않는다. 스캔은 최신 1개만 보관하고,
-계산 전후에 입력 만료를 확인한다. 최종 발행 명령도 같은 충돌 검사를 다시 통과해야 한다.
-
-## 주요 설정
-
-YAML: `src/autorace_objavoid/config/objavoid.yaml`. YAML이 코드 기본값보다 우선한다.
-
-| 항목 | 현재 기본값 |
-| --- | --- |
-| 일반 주행 `cruise_speed` | 0.4m/s |
-| 회피·정렬·차선 보정 `avoid_speed` | 0.25m/s |
-| 근접·가변 길이 `near_speed` | 0.2m/s |
-| 일반 / 근접 최대 조향 | 0.30 / 0.32rad ≈ 17.2 / 18.3도 |
-| 정렬·차선 보정 최대 조향 | 0.15rad ≈ 8.6도 |
-| 최대 / 최소 패스 | 0.7 / 0.15m |
-| 앞보기 / 근접 거리 | 1.0 / 0.5m |
-| 기본 주행 정지 `blocked_distance` | 0.25m, STOP_PATH_BLOCKED로 보조 탐색 연속 횟수 계산 |
-| 최소 긴급 정지 `stop_distance` | 0.05m, 보조 이동도 금지 |
-| 스캔 / lane / odom 만료 | 0.25 / 0.5 / 0.5초 |
+| 센서 ROI | 전방 2.5m, 좌우 각 0.75m |
+| 우선 장애물 각도 | 정면 좌우 각 35° |
+| 기본 / 최대 검사 길이 | 0.5m / 1.0m |
+| 차량 길이 / 폭 | 0.322m / 0.22m |
+| 차체 여유 | 전후·좌우 각 0.05m |
+| 최대 회피 조향 | ±40° |
 | 제어 주기 | 20Hz |
-| 차선 폭 / 시작 차선 | 0.52m / 2 |
-| 군집 연결 간격 / 최소 점 수 / 최대 거리 | 0.12m / 3개 / 3.0m |
-| 작은 군집 최대 외곽 대각 | 1.0m |
 
-## 로그와 정지 원인
+장애물 중심이 정면 ±35°를 벗어나면 다음 전방 위협으로 우선 대상을 전환한다. 우선순위에서 제외된 물체도 충돌 검사에는 남는다. 초기 조향과 후속 조향을 연결한 후보를 검사하고, 통과 여유가 비슷한 후보는 희망 조향과 이전 유효 조향의 차이를 비교한다. 후속 경로는 lane_deep 기준선의 위치·방향에 가까운 후보를 우선한다.
 
-로그는 `mode=... direction=LEFT/RIGHT/FORWARD/NONE`만 표시하며 바뀔 때만 출력한다.
-이동 중 direction은 실제 조향 방향이고, 정지 중에는 기억 중인 회피 방향이다.
-`mode=GAP_SEARCH`는 같은 노드 안에서 보조 탐색을 자동 시작했다는 뜻이며 추가 실행은 필요 없다.
+통과 후보가 없으면 검사 길이를 75%·50%·25%로 줄인다. 5cm 여유로도 후보가 없으면 동일 조건에서 차체 실치수로 재검사하고, 통과하면 `BODY_WIDTH` 상태로 0.2m/s를 발행한다. 이동·회전 중 샘플 사이 보정은 유지한다.
 
-| 로그 | 의미 |
-| --- | --- |
-| `WAIT_SCAN` / `STOP_SCAN_EXPIRED` | 스캔 없음 / stamp 또는 수신 경과 만료. |
-| `WAIT_ODOM` / `STOP_ODOM_EXPIRED` | odom 없음 / 만료. |
-| `WAIT_ROAD_REFERENCE` | 신선한 초기 lane 기준을 받지 못했거나 초기화 조건 미충족. |
-| `STOP_PATH_BLOCKED` | 안전한 기본 패스 없음 또는 전방 0.25m 이내의 기본 주행 정지. |
-| `GAP_SEARCH` / `GAP` / `GAP_DONE` | 자동 탐색 시작 / 보조 통로 추종 / 통과 완료. |
-| `GAP_NO_WIDE_GAP` | 차량 폭 + 총 여유에 맞는 관측 통로 없음. |
-| `GAP_NO_ENTRY_CURVE` | 통로는 있지만 생성한 전진 곡선이 목표 중앙에 연결되지 않음. |
-| `GAP_ENTRY_BLOCKED` | 생성된 후보의 첫 진입 곡선들이 충돌 검사에 탈락. |
-| `GAP_ROUTE_BLOCKED` | 정렬/통과 구간 후보 또는 추종 중 남은 경로가 막힘. |
-| `GAP_COMMAND_BLOCKED` | 경로는 생성했지만 현재 추종 조향의 최소 패스가 막힘. |
-| `GAP_SIDE_UNKNOWN` / `GAP_SEARCH_TIMEOUT` / `GAP_INVALID_CONFIG` | 측면 미관측 / 탐색 예산 초과 / 보조 여유 설정 부적합. |
-| `STOP_GAP_BLOCKED` | 새 장애물 또는 명령 패스 차단으로 보조 경로 중단. |
-| `STOP_GAP_ODOM` / `STOP_GAP_DEVIATED` | 보조 경로 위치 기준 없음·불일치 / 경로에서 0.15m 초과 이탈. |
-| `STOP_ROAD_BOUNDARY` | 현재 차체가 추정 도로 외곽을 벗어남. |
-| `STOP_ALIGNMENT_REFERENCE` | 도로 방향을 맞출 기준 없음. |
-| `STOP_FRONT_UNKNOWN` / `STOP_TOO_CLOSE` | 정면 미관측 / 최소 정지 거리 이내. |
-| `CREEP/...` | 0.7m보다 짧은 가변 길이로 저속 진행. |
+흰 점선을 넘어 옆 차로로 회피할 수 있다. 현재 차로 폭 0.52m를 도로 외곽으로 강제하지 않는다. `/lane_deep/target`에는 노란 도로 외곽 좌표가 없으므로 이 입력만으로 외곽 침범을 판정하지 못한다. 한쪽 경계에서 반대쪽 도로 폭을 추정하지 않는다.
 
-실행 중 비활성화: `ros2 param set /objavoid_node manual_active false`.
-비활성화하면 제어 발행을 멈추므로 mux/어댑터의 timeout 처리를 따른다.
+검사를 모두 실패하거나 차선·스캔을 확인하지 못하면 유효 패스는 비우고 0.2m/s·조향 0 명령을 유지한다. 이 상태는 통과가 검증된 경로가 아니다.
 
-## RViz와 입출력
+## 웹 및 RViz
 
-| 토픽 | 용도 |
-| --- | --- |
-| `/scan` | LiDAR 입력, Best Effort·최신 1개 |
-| `/lane_lite/target` | 초기 도로 기준 및 최신 차선 중심 입력 |
-| `/odom` | 차량 위치·정렬 기준 입력 |
-| `/mission/objavoid/command_05` | Ackermann 속도·조향 출력. `/cmd_vel` 직접 발행 없음. |
-| `/objavoid/path` | 최종 명령의 실제 검사 길이 궤적 |
-| `/objavoid/markers` | 청록 패스·노란 차선 중심 참고선·흰 추정 도로 외곽·차선 번호 |
-| `/objavoid/clusters` | 작은 장애물 군집의 관측 외곽 박스 |
+웹 주소는 `http://127.0.0.1:8085`다. 다른 PC에서 접속하려면 `-p web_host:=0.0.0.0`을 지정한다.
 
-정지하면 패스를 지운다. 사라진 군집도 삭제한다. RViz Fixed Frame은 `base_link`이며
-마커/Path는 Reliable·Transient Local이다. `/lane_lite/debug`는 lane 노드의 검출 영상이다.
-부채꼴·화살표·차체·거리/상태 라벨·군집 점/라벨은 제거했다.
+- 하늘색: 현재 유효 패스
+- 흰색: 딥 마스크 검출 차선
+- 빨강: 장애물 외곽
+- 초록: 시작 및 흰선 검출 ROI
 
-## 이번 커밋의 정리 내용
+카메라의 패스와 장애물은 바닥 평면 투영이다. 투영 보정은 `config/camera_projection.yaml`을 사용하며 `web_lane_config`로 변경할 수 있다. 카메라 외삽 구간은 실제 영상과 오차가 생길 수 있다.
 
-- RViz 발행을 `visualization.py`로 분리하고 사용하지 않는 표시를 삭제.
-- 미사용 `rays`, `objects`, `turning`, 버려지는 헤딩 계산·인자 제거.
-- 실행 명령과 회피 단계, 설정, 정지 원인을 README에 통합.
-- 현재 사용 중인 제어·충돌·입력 만료 조건은 유지.
+`/state`에는 `path_valid`, `scan_receiving`과 계획 시간·입력 경과·수신 개수·건너뛴 스캔 수가 포함된다. 건너뛴 스캔 수는 통신 유실 개수가 아니다. 경로 검사 실패 시 웹 패스와 `/objavoid/path`를 비우고 RViz 패스 마커를 삭제한다.
 
-## 현재 한계와 검증
+```bash
+rviz2 -d src/autorace_objavoid/config/objavoid.rviz
+```
 
-- 가까운 거리에서 시작하면 약한 조향으로 진행하다 회피 공간을 잃을 수 있다.
-- 긴 패스 우선·작은 조향 우선·후보 차단 시 반대 방향 평가가 현재 동작이다.
-  근접 시 조향 강화나 방향 전환 억제는 아직 반영하지 않았다.
-- 관측된 정적 장애물 기준의 로컬 회피이며 후진·전역 경로 계획은 없다.
-- 초기 lane 중심 오차가 0.26m를 넘으면 도로 기준 초기화를 기다린다.
-- F5 초기화 감지는 없다. 반복 시험은 objavoid 종료 → 시뮬 초기화 → objavoid 재실행 순서다.
-- 테스트는 로컬 `test/`에 보관하며 `.gitignore`로 업로드하지 않는다.
+## 검증
 
-시각화 분리 전후 핵심 제어·안전 함수 17개 코드 구조와 스캔/군집 입력 40건의 결과를
-비교했다. 기존 제어 검증 외에 5스캔 트리거·동일 스캔 중복 방지·안전 중단·전진 통로 추종을 검증한다. 전체 GUI 배치와 실차 주행 검증은 별도다.
-[코드 구성 설명](docs/code_review.md)도 참고한다.
+저장소 루트에서 ROS 환경을 적용한 뒤 실행한다.
 
-보조 실패 사유 모드는 진단 로그만 추가한 것으로, 기존 정지/이동 명령과 트리거 횟수를
-바꾸지 않는다. 5프레임은 영상이나 장애물 좌표의 동일성이 아니라 서로 다른 스캔에서
-STOP_PATH_BLOCKED 상태가 연속된 횟수다. 전방 거리는 LiDAR 기준 ±25도 유효 거리의
-최솟값이며 차체 앞 범퍼 기준 거리가 아니다.
+```bash
+PYTHONPATH="objavoid_ws/src/autorace_objavoid:$PYTHONPATH" /usr/bin/python3 -m pytest objavoid_ws/tests -q
+```
+
+설정·코드 변경은 objavoid 재시작 후 적용된다.

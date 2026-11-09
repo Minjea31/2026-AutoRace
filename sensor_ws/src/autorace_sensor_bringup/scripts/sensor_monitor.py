@@ -7,6 +7,7 @@ from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from rosidl_runtime_py.utilities import get_message
 
@@ -25,6 +26,9 @@ class SensorMonitor(Node):
         root = Path(self.declare_parameter('log_dir', str(Path.home() / '.ros/log')).value)
         root.mkdir(parents=True, exist_ok=True)
         self.event_file = root / 'sensor_events.jsonl'
+        self.expected_nodes = self.declare_parameter('expected_nodes', Parameter.Type.STRING_ARRAY).value or []
+        self.startup_status = None
+        self.startup_stable_since = None
         self.started = time.monotonic()
         self.streams = {topic: {'last': None, 'state': 'WAITING'} for topic in topics}
         self.subscriptions_ = []
@@ -64,6 +68,33 @@ class SensorMonitor(Node):
             elif now - stream['last'] >= self.stale_timeout and stream['state'] != 'STALE':
                 self.emit(topic, 'STALE')
                 stream['state'] = 'STALE'
+        self.report_startup(now)
+
+    def report_startup(self, now):
+        if self.startup_status == 'READY':
+            return
+        names = {f"{namespace.rstrip('/')}/{name}"
+                 for name, namespace in self.get_node_names_and_namespaces()}
+        missing_nodes = sorted(set(self.expected_nodes) - names)
+        missing_topics = [topic for topic, stream in self.streams.items() if stream['state'] != 'READY']
+        if not missing_nodes and not missing_topics:
+            if self.startup_stable_since is None:
+                self.startup_stable_since = now
+            if now - self.startup_stable_since < 1.0:
+                return
+            self.startup_status = 'READY'
+            self.get_logger().info(
+                f'[sensor bringup 결과] 전체 노드 {len(self.expected_nodes)}/{len(self.expected_nodes)} 실행 확인 완료; '
+                f'센서 토픽 {len(self.streams)}/{len(self.streams)} 정상 수신.')
+        else:
+            self.startup_stable_since = None
+            if now - self.started < self.startup_timeout or self.startup_status == 'FAILED':
+                return
+            self.startup_status = 'FAILED'
+            self.get_logger().error(
+                '[sensor bringup 결과] 시작 확인 실패 | 미실행 노드: '
+                + (', '.join(missing_nodes) or '없음') + ' | 미수신·지연 토픽: '
+                + (', '.join(missing_topics) or '없음'))
 
 
 def main():

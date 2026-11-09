@@ -2,6 +2,7 @@
 #include "autorace_lane_lite/lane.hpp"
 #include <condition_variable>
 #include <cv_bridge/cv_bridge.h>
+#include <nav_msgs/msg/odometry.hpp>
 #include <mutex>
 #include <opencv2/imgcodecs.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -27,10 +28,26 @@ public:
     const auto topic = declare_parameter<std::string>(
         "image_topic", "/camera/color/image_raw/compressed");
     timeout_ = declare_parameter<double>("image_timeout", .3);
+    // Wheel odometry moves a held centre path with the car during a short
+    // dropout. Empty topic or no messages: the path is held in place.
+    const auto odom = declare_parameter<std::string>("odom_topic", "/odom");
+    if (!odom.empty())
+      odom_ = create_subscription<nav_msgs::msg::Odometry>(
+          odom, rclcpp::QoS(10), [this](nav_msgs::msg::Odometry::ConstSharedPtr m) {
+            const double t = steady();
+            std::lock_guard<std::mutex> lock(mutex_);
+            const double dt = odom_time_ > 0 ? std::clamp(t - odom_time_, 0., .1) : 0.;
+            odom_time_ = t;
+            forward_ += m->twist.twist.linear.x * dt;
+            yaw_ += m->twist.twist.angular.z * dt;
+          });
     target_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_lite/target",
                                                                 rclcpp::QoS(1));
-    debug_ = create_publisher<sensor_msgs::msg::Image>(
-        "/lane_lite/debug", rclcpp::SensorDataQoS().keep_last(1));
+    // Debug picture (/lane_lite/debug) only on request: off, the node neither
+    // advertises the topic nor builds any display image (saves CPU on the car).
+    if (declare_parameter<bool>("debug", false))
+      debug_ = create_publisher<sensor_msgs::msg::Image>(
+          "/lane_lite/debug", rclcpp::SensorDataQoS().keep_last(1));
     // Team camera input is JPEG CompressedImage only (real Orbbec and simulator).
     compressed_ = create_subscription<sensor_msgs::msg::CompressedImage>(
         topic, rclcpp::SensorDataQoS().keep_last(1),
@@ -100,6 +117,7 @@ private:
       sensor_msgs::msg::CompressedImage::ConstSharedPtr compressed;
       lane_lite::Config config;
       size_t revision;
+      double forward, yaw;
       {
         std::unique_lock<std::mutex> lock(mutex_);
         cv_.wait(lock, [this] { return stop_ || compressed_image_; });
@@ -108,6 +126,9 @@ private:
         compressed = std::move(compressed_image_);
         config = config_;
         revision = revision_;
+        forward = forward_;
+        yaw = yaw_;
+        forward_ = yaw_ = 0;
       }
       try {
         if (revision != applied) {
@@ -121,11 +142,13 @@ private:
         const cv::Mat bgr = cv::imdecode(compressed->data, cv::IMREAD_COLOR);
         if (bgr.empty())
           throw std::runtime_error("cannot decode image");
-        const auto r = pipeline.process(bgr, stamp);
+        pipeline.move(forward, yaw);
+        const bool views = debug_ && debug_->get_subscription_count() > 0;
+        const auto r = pipeline.process(bgr, stamp, views);
         std::lock_guard<std::mutex> lock(mutex_);
         publish(&r);
         processed_ = steady();
-        if (debug_->get_subscription_count()) {
+        if (views) {
           auto h = header;
           h.frame_id = "lane_lite_bev";
           debug_->publish(*cv_bridge::CvImage(h, "bgr8", r.path_view).toImageMsg());
@@ -143,8 +166,10 @@ private:
   bool stop_ = false;
   size_t revision_ = 0;
   double timeout_ = .3, processed_ = 0;
+  double odom_time_ = 0, forward_ = 0, yaw_ = 0; // odometry since the last frame
   sensor_msgs::msg::CompressedImage::ConstSharedPtr compressed_image_;
   rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr compressed_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr target_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_;
   rclcpp::TimerBase::SharedPtr watchdog_;

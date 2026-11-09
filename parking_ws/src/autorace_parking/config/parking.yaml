@@ -1,6 +1,20 @@
 parking_node:
   ros__parameters:
-    recognition_frames: 3
+    recognition_frames: 2
+    exit_on_lane_reacquired: true
+    exit_lane_timeout_sec: 0.25
+    exit_lane_min_confidence: 0.10
+    white_roi_enabled: true
+    white_roi_left: 0.20
+    white_roi_right: 0.80
+    white_roi_top: 0.86
+    white_roi_bottom: 0.92
+    white_roi_minimum_ratio: 0.08
+    white_image_topic: /camera/color/image_raw/compressed
+    white_image_timeout_sec: 0.30
+    white_image_hz: 10.0
+    lane_white_config: ''
+    lane_white_node: /lane_fusion_node
     sign_timeout: 0.5
     scan_timeout: 0.5
     base_frame: base_link
