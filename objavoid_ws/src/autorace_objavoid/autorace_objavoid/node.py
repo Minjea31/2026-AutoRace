@@ -3,6 +3,7 @@ from dataclasses import dataclass, replace
 import math
 import time
 import numpy as np
+from .gap_planner import GapFallback
 
 DISTANCE_EPS = 1e-6  # LaserScan float32 rounding at inclusive distance thresholds.
 
@@ -14,6 +15,7 @@ class Config:
     far_distance: float = 1.0
     near_distance: float = 0.5
     stop_distance: float = 0.05
+    blocked_distance: float = 0.25
     cruise_speed: float = 0.4
     avoid_speed: float = 0.25
     near_speed: float = 0.2
@@ -56,6 +58,8 @@ class Config:
             raise ValueError('invalid sector angles')
         if not 0 < self.stop_distance < self.near_distance < self.far_distance:
             raise ValueError('require stop_distance < near_distance < far_distance')
+        if not self.stop_distance < self.blocked_distance <= self.near_distance:
+            raise ValueError('require stop_distance < blocked_distance <= near_distance')
         if not 0 < self.near_speed <= self.avoid_speed <= self.cruise_speed <= .5:
             raise ValueError('invalid speed limits')
         if not 0 < self.far_steering <= self.near_steering <= .4886921906:
@@ -572,6 +576,8 @@ def control_command(scan, c, memory, lane_steering=None, heading_error=None, sco
         return ('STOP_FRONT_UNKNOWN', 0., 0., memory.side), c
     if scan.front.distance <= c.stop_distance + DISTANCE_EPS:
         return ('STOP_TOO_CLOSE', 0., 0., memory.side), c
+    if scan.front.distance <= c.blocked_distance + DISTANCE_EPS:
+        return ('STOP_PATH_BLOCKED', 0., 0., memory.side), c
     forward = forward_entry_clear(scan, c)
     obstacle_forward = forward_entry_clear(replace(scan, road=None), c)
     if memory.phase == 'TURN':
@@ -610,16 +616,6 @@ def control_command(scan, c, memory, lane_steering=None, heading_error=None, sco
         speed = c.avoid_speed if abs(angle) > 1e-6 else c.cruise_speed
         return checked_command(scan, c, (angle, angle / 2, 0.), 'LANE_FOLLOW', speed)
     return ('PATH_FORWARD', c.cruise_speed, 0., 0), c
-
-
-def path_rejections(s, c):
-    limit = c.near_steering if s.front.distance <= c.near_distance else c.far_steering
-    angles = (0., c.side_steering, (limit + c.side_steering) / 2, limit)
-    angles += tuple(-a for a in angles[1:])
-    obstacles = replace(s, road=None)
-    road = replace(s, points=(), boxes=())
-    return (sum(not path_clear(obstacles, a, c) for a in angles),
-            sum(not path_clear(road, a, c) for a in angles), len(angles))
 
 
 def lane_hint(data, c):
@@ -663,6 +659,19 @@ def preview_points(steering, c):
     return points
 
 
+def command_status(state, speed, steering, held_side=0):
+    """Only mode and current steering/remembered avoidance direction."""
+    mode = state.removeprefix('CREEP/').split(' (')[0]
+    mode = {'AVOID_LEFT': 'AVOID', 'AVOID_RIGHT': 'AVOID',
+            'PATH_FORWARD': 'STRAIGHT', 'LANE_FOLLOW': 'LANE',
+            'GAP_FOLLOW': 'GAP'}.get(mode, mode)
+    if speed > 0:
+        direction = 'LEFT' if steering > 1e-6 else 'RIGHT' if steering < -1e-6 else 'FORWARD'
+    else:
+        direction = {1: 'LEFT', -1: 'RIGHT'}.get(held_side, 'NONE')
+    return f'mode={mode} direction={direction}'
+
+
 def main(args=None):
     import rclpy
     from rclpy.clock import Clock, ClockType
@@ -698,11 +707,15 @@ def main(args=None):
             self.road_tracker = RoadTracker()
             self.current_road = None
             self.memory = AvoidanceMemory()
+            self.gap = GapFallback(
+                path_clear,
+                enabled=self.declare_parameter('gap_fallback_enabled', True, ro).value,
+                extra_width=self.declare_parameter('gap_extra_width', .1, ro).value,
+                on_search=lambda: self.log_status('GAP_SEARCH', 0., 0.),
+                on_failure=lambda reason: self.log_status(reason, 0., 0.))
             self.direction_scores = {1: None, -1: None}
             self.last_ros = None
-            self.last_state = None
-            self.last_lane = None
-            self.last_log = -math.inf
+            self.last_status = None
             self.path_config = self.c
             self.pub = self.create_publisher(AckermannDriveStamped, command_topic, QoSProfile(depth=1))
             from .visualization import Visualizer
@@ -716,16 +729,11 @@ def main(args=None):
             self.add_on_set_parameters_callback(self.on_parameters)
             self.steady = Clock(clock_type=ClockType.STEADY_TIME)
             self.timer = self.create_timer(1 / self.c.publish_rate, self.tick, clock=self.steady)
-            self.get_logger().info('LiDAR avoidance; road guard requires odometry and an initial lane reference')
-            self.get_logger().info('RViz MarkerArray: /objavoid/markers (fixed frame: base_link)')
-            self.get_logger().info('RViz Path: /objavoid/path (command projection)')
-            self.get_logger().info('Compact obstacle clusters: side selection + /objavoid/clusters')
-            self.get_logger().info(f'Applied distances: far={self.c.far_distance:.2f} '
-                                   f'near={self.c.near_distance:.2f} stop={self.c.stop_distance:.2f}m')
-            self.get_logger().info('Direction choice: opposite the nearest cluster behind the front obstacle')
-            self.get_logger().info(f'Road guard={self.c.road_guard_enabled}: '
-                                   f'initial lane={self.c.initial_lane}, lane width={self.c.lane_width:.2f}m, '
-                                   f'odometry={odom_topic}; waiting for entry lane reference')
+        def log_status(self, state, speed, steering):
+            message = command_status(state, speed, steering, self.memory.side)
+            if message != self.last_status:
+                self.get_logger().info(message)
+                self.last_status = message
 
         def publish_visual(self, state, speed, steering, now):
             if not self.visualizer.due(state, now):
@@ -758,6 +766,7 @@ def main(args=None):
                 self.clusters = ()
                 self.direction_scores = {1: None, -1: None}
                 self.memory.reset()
+                self.gap.reset()
                 self.scan_error = str(error)
 
         def on_lane(self, msg):
@@ -784,8 +793,6 @@ def main(args=None):
                 if (not self.lane or not 0 <= now - self.lane[1] < self.c.lane_timeout
                         or not self.road_tracker.initialize(self.odom, self.lane[2], self.c)):
                     return None, 'WAIT_ROAD_REFERENCE'
-                self.get_logger().info('Road reference initialized from entry lane + odometry; '
-                                       'later lane detections do not shift the road band')
             road = self.road_tracker.band(self.odom, self.c)
             return (road, None) if road is not None else (None, 'STOP_ODOM_FRAME_CHANGED')
 
@@ -798,6 +805,7 @@ def main(args=None):
                 self.road_tracker.reset()
                 self.scan_error = 'clock reset; waiting for new scan'
                 self.memory.reset()
+                self.gap.reset()
                 self.direction_scores = {1: None, -1: None}
             self.last_ros = ros_now
             self.current_road, road_error = self.road_context(ros_now, now)
@@ -806,17 +814,21 @@ def main(args=None):
             control_scan = self.scan
             if not self.get_parameter('manual_active').value:
                 self.memory.reset()
-                self.last_state = 'IDLE'
+                self.gap.reset()
+                self.log_status('IDLE', 0., 0.)
                 self.publish_visual('IDLE', 0., 0., now)
                 return
             if self.scan is None:
                 self.memory.reset()
+                self.gap.reset()
                 state = f'WAIT_SCAN ({self.scan_error})'
             elif not scan_fresh(self.scan, self.c, ros_now, now):
                 self.memory.reset()
+                self.gap.reset()
                 state = 'STOP_SCAN_EXPIRED'
             elif road_error is not None:
                 self.memory.reset()
+                self.gap.reset()
                 state = road_error
             else:
                 hint = lane_guidance(self.lane, self.current_road, self.c, now)
@@ -835,8 +847,11 @@ def main(args=None):
                 elif self.lane is not None and 0 <= now - self.lane[1] < self.c.lane_timeout:
                     data = self.lane[2]
                     heading_error = data[9] if data[10] > 0 else data[2]
-                result, self.path_config = control_command(
-                    control_scan, self.c, self.memory, hint, heading_error, self.direction_scores, pose)
+                if self.gap.active:
+                    result = ('GAP_ACTIVE', 0., 0., 0)
+                else:
+                    result, self.path_config = control_command(
+                        control_scan, self.c, self.memory, hint, heading_error, self.direction_scores, pose)
                 base_state, speed, steering, _ = result
                 state = ('CREEP/' + base_state if speed > 0
                          and self.path_config.preview_distance < self.c.preview_distance else base_state)
@@ -850,6 +865,28 @@ def main(args=None):
                     state, speed, steering = 'STOP_ROAD_BOUNDARY', 0., 0.
                 if state == 'STOP_FRONT_UNKNOWN':
                     self.memory.reset()
+                    self.gap.reset()
+                if not scan_fresh(self.scan, self.c,
+                                  self.get_clock().now().nanoseconds * 1e-9, time.monotonic()):
+                    state, speed, steering = 'STOP_SCAN_EXPIRED', 0., 0.
+                # Observe only the command after the existing safety gates.
+                was_gap = self.gap.active
+                primary = (state, speed, steering, result[3])
+                fallback, fallback_config = self.gap.update(
+                    primary, self.path_config, control_scan, self.c, pose)
+                if fallback != primary or self.gap.active:
+                    base_state, speed, steering, _ = fallback
+                    self.path_config = fallback_config
+                    state = ('CREEP/' + base_state if speed > 0
+                             and fallback_config.preview_distance < self.c.preview_distance else base_state)
+                    if speed > 0 and not path_clear(control_scan, steering, self.path_config):
+                        state, speed, steering = 'STOP_GAP_BLOCKED', 0., 0.
+                        self.gap.reset()
+                if was_gap and not self.gap.active:
+                    self.memory.reset()
+                    self.gap.reset()
+                    if state == 'GAP_DONE':
+                        self.memory.phase = 'LANE'
                 # A scan can expire during an expensive search, too. Never
                 # publish motion based only on the freshness check at entry.
                 finished = time.monotonic()
@@ -857,32 +894,8 @@ def main(args=None):
                                   self.get_clock().now().nanoseconds * 1e-9, finished):
                     state, speed, steering = 'STOP_SCAN_EXPIRED', 0., 0.
                     self.memory.reset()
-            current_lane = self.current_road.lane if self.current_road is not None else None
-            if state != self.last_state or current_lane != self.last_lane or now - self.last_log >= 2.:
-                distances = ''
-                if self.scan is not None:
-                    def value(sector):
-                        return ('clear' if math.isinf(sector.distance) else f'{sector.distance:.2f}m') if sector.known(self.c) else 'unknown'
-                    distances = (f' left={value(control_scan.left)} front={value(control_scan.front)}'
-                                 f' right={value(control_scan.right)}')
-                    def score(side):
-                        v = self.direction_scores[side]
-                        return 'unknown' if v is None or state.startswith(('WAIT_', 'STOP_SCAN_')) else f'{v:.2f}'
-                    hold = {1: 'LEFT', -1: 'RIGHT', 0: 'NONE'}[self.memory.side]
-                    phase = self.memory.phase
-                    distances += f' prefer_left={score(1)} prefer_right={score(-1)} hold={hold} phase={phase}'
-                    if self.current_road is not None:
-                        distances += f' lane={self.current_road.lane} road_offset={self.current_road.offset:+.2f}m'
-                    distances += f' path={self.path_config.preview_distance:.2f}m'
-                    if state == 'STOP_SCAN_EXPIRED':
-                        distances += (f' scan_age={ros_now-self.scan.stamp:.3f}s'
-                                      f' receive_age={time.monotonic()-self.scan.received:.3f}s')
-                    if state == 'STOP_PATH_BLOCKED' or state.startswith('CREEP/'):
-                        obstacles, road, total = path_rejections(control_scan, self.c)
-                        distances += f' long_rejected_obstacles={obstacles}/{total} long_rejected_road={road}/{total}'
-                self.get_logger().info(f'{state}:{distances} speed={speed:.2f} steer={steering:.2f}')
-                self.last_state, self.last_log = state, now
-                self.last_lane = current_lane
+                    self.gap.reset()
+            self.log_status(state, speed, steering)
             msg = AckermannDriveStamped()
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = 'base_link'

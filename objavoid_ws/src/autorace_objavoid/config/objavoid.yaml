@@ -2,6 +2,8 @@ objavoid_node:
   ros__parameters:
     use_sim_time: false
     manual_active: true
+    gap_fallback_enabled: true
+    gap_extra_width: 0.1
     scan_topic: /scan
     lane_target_topic: /lane_lite/target
     odom_topic: /odom
@@ -11,6 +13,7 @@ objavoid_node:
     far_distance: 1.0
     near_distance: 0.5
     stop_distance: 0.05
+    blocked_distance: 0.25
     cruise_speed: 0.4
     avoid_speed: 0.25
     near_speed: 0.2

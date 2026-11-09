@@ -1,7 +1,8 @@
 # objavoid_ws
 
 LiDAR 정적 장애물 회피용 ROS 2 Humble 패키지다. **실행 노드는 하나**이며,
-제어·센서 처리는 `node.py`, RViz 발행은 `visualization.py`에 있다. 별도 launch는 없다.
+기존 제어·센서 처리는 `node.py`, 보조 통로 탐색은 `gap_planner.py`,
+RViz 발행은 `visualization.py`에 있다. 별도 launch는 없다.
 
 ## 실행 명령어
 
@@ -104,6 +105,37 @@ ros2 run autorace_objavoid objavoid_node --ros-args \
 **정렬 후 2m 직진 가능 조건이나 출구 연결 검사는 없다.** 뒤 클러스터는 방향 선택에 사용한다.
 `visual_road_distance=2.0`은 RViz 참고선 표시 길이이며 제어 조건이 아니다.
 
+## 보조 통로 탐색 — 연속 5스캔 정지 때만
+
+기존 회피 로직이 먼저 동작한다. 전방 0.25m 이내에서는 기본 주행을
+`STOP_PATH_BLOCKED`로 정지시키며, 0.05m 이내의 긴급 정지는 보조 기능도 우회하지 않는다. 정상 명령은 그대로 사용하며, **서로 다른 유효 LiDAR
+스캔 5개에서 연속으로 `STOP_PATH_BLOCKED`가 나온 경우에만** 보조 탐색을 시작한다.
+같은 스캔으로 명령을 여러 번 발행해도 한 프레임이다. 정상 명령·다른 정지·입력 이상·
+비활성화·시계 초기화가 끼면 횟수를 초기화한다. 기본 10Hz 스캔에서는 약 0.5초에 해당한다.
+
+1. 관측 장애물 사이 또는 장애물과 추정 도로 외곽 사이의 빈 통로를 찾는다.
+2. 관측 통로 폭이 **차량 폭 0.22m + 총 추가 여유 0.10m = 0.32m** 이상인 후보를 찾는다.
+   0.1m는 양쪽 합계다. 실제 회전과 차체 표본 여유 때문에 더 넓은 공간이 필요할 수 있다.
+3. 통로 중앙을 임시 목표로 삼아 전진 진입 곡선 → 정렬 곡선 → 장애물 옆 통과를 검사한다.
+   기존 차체/박스/도로 검사를 그대로 사용하며 추가 여유는 보조 경로에만 적용한다.
+4. 안전한 경로가 있으면 `GAP_FOLLOW`로 최대 **0.1m/s**에서 추종한다.
+   시작한 경로는 odom 기준으로 유지하고 새 스캔마다 남은 경로를 재검사한다.
+5. 통과하면 `GAP_DONE` 후 기존 `LANE` 주행으로 복귀한다. 새 장애물·odom 이상·경로 이탈이면 정지한다.
+
+후진은 없다. 입력 만료·미관측 정면·최소 정지 거리·도로 이탈 조건으로는 탐색을 켜지 않는다.
+탐색 실패 시 기존 정지를 유지하고 연속 횟수를 보존한다. 5·10·15번째 새 정지 스캔마다
+자동 재탐색하며 시작 시 `mode=GAP_SEARCH`를 출력한다.
+별도 노드/런치/추가 실행 명령은 없으며 다음 설정으로 제어한다.
+
+| 설정 | 기본값 | 의미 |
+| --- | --- | --- |
+| `gap_fallback_enabled` | true | 5스캔 정지 시 보조 탐색 허용. false이면 기존 제어만 사용. |
+| `gap_extra_width` | 0.1m | 차량 폭에 더하는 총 통로 여유. |
+
+보조 경로의 목표는 관측 장애물을 통과하는 위치이며, 임의의 2m 직진을 요구하지 않는다.
+두 곡선으로 구성한 제한된 전진 경로 후보이므로 모든 배치에서 통과를 보장하지 않는다.
+최소 안전 패스도 없으면 그대로 정지한다. 실행 중인 노드를 재시작하면 설정이 적용된다.
+
 ## 충돌 검사와 도로 보호
 
 - 차체: 길이 **0.322m**, 폭 **0.220m**, 주변 여유 **0.02m**.
@@ -129,7 +161,9 @@ YAML: `src/autorace_objavoid/config/objavoid.yaml`. YAML이 코드 기본값보�
 | 일반 / 근접 최대 조향 | 0.30 / 0.32rad ≈ 17.2 / 18.3도 |
 | 정렬·차선 보정 최대 조향 | 0.15rad ≈ 8.6도 |
 | 최대 / 최소 패스 | 0.7 / 0.15m |
-| 앞보기 / 근접 / 정지 거리 | 1.0 / 0.5 / 0.05m |
+| 앞보기 / 근접 거리 | 1.0 / 0.5m |
+| 기본 주행 정지 `blocked_distance` | 0.25m, STOP_PATH_BLOCKED로 보조 탐색 연속 횟수 계산 |
+| 최소 긴급 정지 `stop_distance` | 0.05m, 보조 이동도 금지 |
 | 스캔 / lane / odom 만료 | 0.25 / 0.5 / 0.5초 |
 | 제어 주기 | 20Hz |
 | 차선 폭 / 시작 차선 | 0.52m / 2 |
@@ -138,15 +172,25 @@ YAML: `src/autorace_objavoid/config/objavoid.yaml`. YAML이 코드 기본값보�
 
 ## 로그와 정지 원인
 
-`hold=LEFT/RIGHT/NONE`은 기억 방향, `phase`는 현재 단계, `path`는 선택한 검사 길이다.
-`prefer_left/right`는 뒤 클러스터에 따른 방향 선호를 뜻한다.
+로그는 `mode=... direction=LEFT/RIGHT/FORWARD/NONE`만 표시하며 바뀔 때만 출력한다.
+이동 중 direction은 실제 조향 방향이고, 정지 중에는 기억 중인 회피 방향이다.
+`mode=GAP_SEARCH`는 같은 노드 안에서 보조 탐색을 자동 시작했다는 뜻이며 추가 실행은 필요 없다.
 
 | 로그 | 의미 |
 | --- | --- |
-| `WAIT_SCAN` / `STOP_SCAN_EXPIRED` | 스캔 없음 / stamp 또는 수신 경과 만료. `scan_age`, `receive_age` 확인. |
+| `WAIT_SCAN` / `STOP_SCAN_EXPIRED` | 스캔 없음 / stamp 또는 수신 경과 만료. |
 | `WAIT_ODOM` / `STOP_ODOM_EXPIRED` | odom 없음 / 만료. |
 | `WAIT_ROAD_REFERENCE` | 신선한 초기 lane 기준을 받지 못했거나 초기화 조건 미충족. |
-| `STOP_PATH_BLOCKED` | 안전한 패스 없음. `long_rejected_obstacles/road`는 긴 후보의 탈락 이유. |
+| `STOP_PATH_BLOCKED` | 안전한 기본 패스 없음 또는 전방 0.25m 이내의 기본 주행 정지. |
+| `GAP_SEARCH` / `GAP` / `GAP_DONE` | 자동 탐색 시작 / 보조 통로 추종 / 통과 완료. |
+| `GAP_NO_WIDE_GAP` | 차량 폭 + 총 여유에 맞는 관측 통로 없음. |
+| `GAP_NO_ENTRY_CURVE` | 통로는 있지만 생성한 전진 곡선이 목표 중앙에 연결되지 않음. |
+| `GAP_ENTRY_BLOCKED` | 생성된 후보의 첫 진입 곡선들이 충돌 검사에 탈락. |
+| `GAP_ROUTE_BLOCKED` | 정렬/통과 구간 후보 또는 추종 중 남은 경로가 막힘. |
+| `GAP_COMMAND_BLOCKED` | 경로는 생성했지만 현재 추종 조향의 최소 패스가 막힘. |
+| `GAP_SIDE_UNKNOWN` / `GAP_SEARCH_TIMEOUT` / `GAP_INVALID_CONFIG` | 측면 미관측 / 탐색 예산 초과 / 보조 여유 설정 부적합. |
+| `STOP_GAP_BLOCKED` | 새 장애물 또는 명령 패스 차단으로 보조 경로 중단. |
+| `STOP_GAP_ODOM` / `STOP_GAP_DEVIATED` | 보조 경로 위치 기준 없음·불일치 / 경로에서 0.15m 초과 이탈. |
 | `STOP_ROAD_BOUNDARY` | 현재 차체가 추정 도로 외곽을 벗어남. |
 | `STOP_ALIGNMENT_REFERENCE` | 도로 방향을 맞출 기준 없음. |
 | `STOP_FRONT_UNKNOWN` / `STOP_TOO_CLOSE` | 정면 미관측 / 최소 정지 거리 이내. |
@@ -189,5 +233,10 @@ YAML: `src/autorace_objavoid/config/objavoid.yaml`. YAML이 코드 기본값보�
 - 테스트는 로컬 `test/`에 보관하며 `.gitignore`로 업로드하지 않는다.
 
 시각화 분리 전후 핵심 제어·안전 함수 17개 코드 구조와 스캔/군집 입력 40건의 결과를
-비교했다. 로컬 테스트 30개와 빌드는 통과했다. 전체 GUI 배치와 실차 주행 검증은 별도다.
+비교했다. 기존 제어 검증 외에 5스캔 트리거·동일 스캔 중복 방지·안전 중단·전진 통로 추종을 검증한다. 전체 GUI 배치와 실차 주행 검증은 별도다.
 [코드 구성 설명](docs/code_review.md)도 참고한다.
+
+보조 실패 사유 모드는 진단 로그만 추가한 것으로, 기존 정지/이동 명령과 트리거 횟수를
+바꾸지 않는다. 5프레임은 영상이나 장애물 좌표의 동일성이 아니라 서로 다른 스캔에서
+STOP_PATH_BLOCKED 상태가 연속된 횟수다. 전방 거리는 LiDAR 기준 ±25도 유효 거리의
+최솟값이며 차체 앞 범퍼 기준 거리가 아니다.
