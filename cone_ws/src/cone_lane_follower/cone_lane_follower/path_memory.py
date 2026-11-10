@@ -22,6 +22,28 @@ class PathMemory:
         self.finished = False
         self.update_reason = 'empty'
 
+    def refresh(self, points, validate):
+        """Latest observation owns the prefix; preserve only an aligned old tail."""
+        points = list(points)
+        if not validate(points):
+            return False
+        old = self.points[self.index:] if not self.finished else []
+        candidates = []
+        for i, (a, b) in enumerate(zip(old, old[1:])):
+            hit = projection(points[-1], a, b)
+            dx, dy = points[-1][0]-points[-2][0], points[-1][1]-points[-2][1]
+            vx, vy = b[0]-a[0], b[1]-a[1]
+            if hit and hit[0] <= .10 and dx*vx+dy*vy > 0:
+                tail = old[i+1:]
+                while tail and math.dist(points[-1], tail[0]) < 1e-8:
+                    tail = tail[1:]
+                if tail and validate(points+tail):
+                    candidates.append((hit[0], points+tail))
+        self.points = min(candidates, key=lambda item: item[0])[1] if candidates else points
+        self.index, self.finished = 0, False
+        self.update_reason = 'refreshed_with_tail' if candidates else 'refreshed'
+        return True
+
     def store(self, points):
         """Initialize once; subsequently append only an aligned extension of the goal.
 
@@ -34,7 +56,7 @@ class PathMemory:
             self.update_reason = 'invalid_observation'
             return False
         if not self.points:
-            self.points, self.index, self.finished = points[:1000], 0, False
+            self.points, self.index, self.finished = points[:], 0, False
             self.update_reason = 'stored'
             return True
         old = self.points[self.index:]
@@ -66,7 +88,7 @@ class PathMemory:
             return False
         while tail and math.dist(old[-1][:2], tail[0][:2]) <= 1e-8:
             tail = tail[1:]
-        if not tail or len(old)+len(tail) > 1000:
+        if not tail:
             self.update_reason = 'kept_capacity_limit'
             return False
         tx, ty = tail[0][0]-old[-1][0], tail[0][1]-old[-1][1]

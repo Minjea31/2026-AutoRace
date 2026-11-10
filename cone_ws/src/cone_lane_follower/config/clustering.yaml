@@ -5,6 +5,8 @@ cone_lane_roi:
     max_cluster_width: 0.28
     cluster_point_size: 0.05
     cone_center_size: 0.08
+    # wheelbase 0.20 m / tan(mux steering limit 0.65 rad)
+    center_min_turn_radius: 0.2630871384
     center_sample_step: 0.05
     center_min_width: 0.10
     center_max_width: 1.50
