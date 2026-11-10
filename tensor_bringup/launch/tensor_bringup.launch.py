@@ -17,55 +17,33 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
-# lane_mode: which lane-keeping stack publishes /mission/lane.
-#   fusion: lane_fusion_ws  deep mask + HSV fusion  -> fusion PID   (default)
-#   opencv: lane_ws         lane_lite (HSV/OpenCV)  -> lane PID     (source lane_ws too)
-#   deep:   lane_fusion_ws  deep mask -> deep_lite (no HSV) -> fusion PID
+# lane_mode: which detector(s) lane_fusion_node runs; one pipeline (fork A/B,
+# IMU/odometry, tuners) and the fusion PID (same gains as lane_ws) for all:
+#   fusion: deep mask + HSV (default)
+#   opencv: HSV only (no deep node)
+#   deep:   deep mask only (HSV detector off)
 LANE_NODES = {
     'fusion': ('/lane_fusion_deep_mask', '/lane_fusion_node', '/lane_fusion_pid_controller'),
-    'opencv': ('/lane_lite_node', '/lane_pid_controller'),
-    'deep': ('/lane_fusion_deep_mask', '/lane_deep_lite_node', '/lane_fusion_pid_controller'),
+    'opencv': ('/lane_fusion_node', '/lane_fusion_pid_controller'),
+    'deep': ('/lane_fusion_deep_mask', '/lane_fusion_node', '/lane_fusion_pid_controller'),
 }
 
 
 def _lane(mode, speed_text, model):
-    real = {'use_sim_time': False, 'enable_vehicle_output': True}
-    speed = {}
     if speed_text.strip():
         value = float(speed_text)
         if not math.isfinite(value) or not 0.0 <= value <= 1.0:
             raise ValueError('lane_speed must be a finite speed between 0 and 1 m/s')
-        speed = {'speed': value}
-    if mode == 'fusion':
-        return [IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(share('autorace_lane_fusion_pid') + '/launch/lane_fusion_pid.launch.py'),
-            launch_arguments={
-                'profile': 'real', 'use_sim_time': 'false', 'deep': 'true',
-                'model_path': model, 'debug': 'true', 'gui': 'false', 'lane_gui': 'false',
-                'lane_speed': speed_text,
-            }.items(),
-        )]
-    if mode == 'opencv':
-        lite, pid = share('autorace_lane_lite'), share('autorace_lane_pid')
-        return [
-            Node(package='autorace_lane_lite', executable='lane_lite_node', output='screen',
-                 parameters=[{'config_file': lite + '/config/real/lane.yaml', 'use_sim_time': False,
-                              'debug': True}]),
-            Node(package='autorace_lane_pid', executable='lane_pid_controller', output='screen',
-                 parameters=[pid + '/config/real/pid.yaml', real, speed]),
-        ]
-    deep_lite, pid = share('autorace_lane_deep_lite'), share('autorace_lane_fusion_pid')
-    return [
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(share('autorace_lane_fusion_deep') + '/launch/deep_mask.launch.py'),
-            launch_arguments={'model_path': model, 'use_sim_time': 'false'}.items(),
-        ),
-        Node(package='autorace_lane_deep_lite', executable='lane_deep_lite_node', output='screen',
-             parameters=[{'config_file': deep_lite + '/config/real/lane.yaml', 'use_sim_time': False,
-                          'debug': True}]),
-        Node(package='autorace_lane_fusion_pid', executable='lane_fusion_pid_controller', output='screen',
-             parameters=[pid + '/config/real/pid.yaml', real, speed, {'target_topic': '/lane_deep/target'}]),
-    ]
+    return [IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(share('autorace_lane_fusion_pid') + '/launch/lane_fusion_pid.launch.py'),
+        launch_arguments={
+            'profile': 'real', 'use_sim_time': 'false',
+            'deep': 'false' if mode == 'opencv' else 'true',
+            'hsv': 'false' if mode == 'deep' else 'true',
+            'model_path': model, 'debug': 'true', 'gui': 'false', 'lane_gui': 'false',
+            'lane_speed': speed_text,
+        }.items(),
+    )]
 
 
 def _setup(context):
@@ -76,8 +54,8 @@ def _setup(context):
     try:
         lane = _lane(mode, C('lane_speed').perform(context), C('lane_model').perform(context))
     except PackageNotFoundError as error:
-        raise RuntimeError(f'lane_mode:={mode}: lane package not found, source its workspace '
-                           '(opencv: source ~/2026-AutoRace/lane_ws/install/setup.bash)') from error
+        raise RuntimeError(f'lane_mode:={mode}: lane package not found, '
+                           'source ~/2026-AutoRace/lane_fusion_ws/install/setup.bash') from error
     node_count = 4 + len(LANE_NODES[mode]) + 1  # parking, slow, crosswalk, YOLO, lane, mux
 
     def include(package, filename, arguments):

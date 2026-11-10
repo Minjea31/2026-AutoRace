@@ -5,7 +5,7 @@ separately) and the use_sim_time default (true for sim). Steering/speed come fro
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -28,10 +28,22 @@ def generate_launch_description():
         DeclareLaunchArgument('gui', default_value='false', description='true opens lane_fusion_tuner'),
         DeclareLaunchArgument('debug', default_value='false',
                               description='true publishes /lane_fusion/debug (BEV picture, built only while subscribed)'),
-        Node(package='autorace_lane_fusion', executable='lane_fusion_node', output='screen',
+        DeclareLaunchArgument('hsv', default_value='true',
+                              description='false: HSV detector off (deep mask only, e.g. tensor_bringup lane_mode:=deep)'),
+        DeclareLaunchArgument('max_rate', default_value='0.0',
+                              description='processing cap (Hz) on the newest camera frame; 0 = every frame'),
+        Node(package='autorace_lane_fusion', executable='lane_fusion_node', output='screen', condition=IfCondition(arg('hsv')),
              parameters=[{'config_file': arg('config_file'), 'image_topic': arg('image_topic'),
                           'use_sim_time': sim_time,
-                          'debug': ParameterValue(arg('debug'), value_type=bool)}]),
+                          'debug': ParameterValue(arg('debug'), value_type=bool),
+                          'max_rate': ParameterValue(arg('max_rate'), value_type=float)}]),
+        Node(package='autorace_lane_fusion', executable='lane_fusion_node', output='screen', condition=UnlessCondition(arg('hsv')),
+             parameters=[{'config_file': arg('config_file'), 'image_topic': arg('image_topic'),
+                          'use_sim_time': sim_time,
+                          'debug': ParameterValue(arg('debug'), value_type=bool),
+                          'max_rate': ParameterValue(arg('max_rate'), value_type=float),
+                          # deep only: the same pipeline with the HSV detector off
+                          'yellow_enabled': 0.0, 'white_enabled': 0.0}]),
         Node(package='autorace_lane_fusion', executable='lane_fusion_tuner', output='screen',
              condition=IfCondition(arg('gui')),
              arguments=['--config', arg('config_file'), '--topic', arg('image_topic')],

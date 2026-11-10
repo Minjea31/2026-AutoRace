@@ -261,6 +261,20 @@ TEST(Pid, YamlRoundTripKeepsDoubles) {
   EXPECT_NE(std::string(buffer, n).find("active: 1.0"), std::string::npos);
 }
 
+TEST(Pid, RealYamlNodeOptionsAreKept) {
+  // config/real/pid.yaml carries parking_calibration_stop (a node option, not
+  // a gain): loading must not fail and saving must write it back unchanged.
+  const auto path = testing::TempDir() + "/pid_options.yaml";
+  {
+    lane_pid::Config c;
+    c.options["parking_calibration_stop"] = "true";
+    c.save(path);
+  }
+  const auto c = lane_pid::Config::load(path);
+  ASSERT_EQ(c.options.count("parking_calibration_stop"), 1u);
+  EXPECT_EQ(c.options.at("parking_calibration_stop"), "true");
+  EXPECT_DOUBLE_EQ(c["kp"], lane_pid::Config()["kp"]);
+}
 TEST(Pid, RejectsInconsistentConfig) {
   Config c;
   c.values["confidence_stop"] = .6;

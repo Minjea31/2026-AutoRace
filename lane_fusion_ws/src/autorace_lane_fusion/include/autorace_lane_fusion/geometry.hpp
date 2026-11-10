@@ -33,10 +33,6 @@ cv::Point2f closestPoint(const Path &p, cv::Point2f q);
 bool transverse(const Path &p);
 // Centre between `base` and the boundary on its `sign` side (+1 right, -1 left).
 Path centreLine(const Path &base, const Path &other, float sign, float width, float tol);
-// Parametric polynomial fit x(t), y(t) over arc length, weighted; drops the
-// worst point once, then trims the far end until rms <= max_residual.
-bool fitPath(const Path &points, const std::vector<float> &weights, double max_residual, Path &out,
-             double &rms);
 // Signed curvature (1/m, left +) of metric points (x forward, y left).
 double circleCurvature(const std::vector<cv::Point2d> &p);
 void drawPath(cv::Mat &image, const Path &p, cv::Scalar color, int thickness, bool dashed = false);

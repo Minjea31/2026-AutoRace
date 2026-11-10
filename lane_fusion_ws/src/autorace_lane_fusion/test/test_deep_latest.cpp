@@ -58,3 +58,28 @@ TEST(DeepLatest, MalformedMaskIgnored) {
   m->encoding = "rgb8";
   EXPECT_FALSE(d.addMask(m, 0));
 }
+#include "autorace_lane_fusion/odometry.hpp"
+TEST(Odometry, MotionBetweenTwoTimes) {
+  lane_lite::Odometry o;
+  for (int i = 0; i <= 20; ++i)
+    o.add(i * .05, .8, 0); // 0.8 m/s straight for 1 s
+  double dx, dy, dyaw;
+  ASSERT_TRUE(o.between(.2, .3, dx, dy, dyaw));
+  EXPECT_NEAR(dx, .08, 1e-6);
+  EXPECT_NEAR(dy, 0, 1e-9);
+  ASSERT_TRUE(o.between(.9, 1.05, dx, dy, dyaw)); // short extrapolation past the last sample
+  EXPECT_NEAR(dx, .12, 1e-6);
+  EXPECT_FALSE(o.between(-.1, .2, dx, dy, dyaw)); // before the history
+  EXPECT_FALSE(o.between(.5, 1.5, dx, dy, dyaw)); // too far past it
+  lane_lite::Odometry broken; // diverged EKF: -1.6 m/s is not a LIMO motion
+  for (int i = 0; i <= 20; ++i)
+    broken.add(i * .05, -1.6, 0);
+  EXPECT_FALSE(broken.between(.2, .3, dx, dy, dyaw));
+  lane_lite::Odometry turn;
+  for (int i = 0; i <= 80; ++i)
+    turn.add(i * .025, .5, 1.); // left arc, radius 0.5 m
+  ASSERT_TRUE(turn.between(0, M_PI / 2, dx, dy, dyaw)); // quarter circle
+  EXPECT_NEAR(dyaw, M_PI / 2, 1e-6);
+  EXPECT_NEAR(dx, .5, 1e-3);
+  EXPECT_NEAR(dy, .5, 1e-3);
+}

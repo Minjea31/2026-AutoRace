@@ -83,24 +83,6 @@ TEST(LaneLite, OneFrameJumpIsRejected) {
   auto r = p.process(scene(260, 300), .25); // both lines jump 90 px at once
   EXPECT_LT(std::abs(r.target_x - 330), 25);
 }
-TEST(LaneLite, OdometryKeepsBoundaryTracksThroughAShift) {
-  // The car slid 0.165 m left (= 90 px at 0.55 m / 300 px): with odometry the
-  // remembered left/right tracks move too, so the shifted lines continue the
-  // same tracks at once instead of being rejected as a jump.
-  lane_lite::Pipeline p(identity());
-  for (int i = 0; i < 5; ++i)
-    p.process(scene(170, 300), i * .05);
-  const double d = .165;
-  p.move(0, M_PI / 2);
-  p.move(d, 0);
-  p.move(0, -M_PI / 2);
-  auto r = p.process(scene(260, 300), .25);
-  ASSERT_TRUE(r.valid);
-  EXPECT_EQ(r.state, "both");
-  EXPECT_NEAR(r.target_x, 420, 12);
-  EXPECT_EQ(r.left.frames, 6);
-  EXPECT_EQ(r.right.frames, 6);
-}
 TEST(LaneLite, TransverseBendIsFollowed) {
   // Only the outer boundary of a right-hand hairpin: it starts vertical on
   // the left and turns horizontal ahead (the x(y)-only failure case).
@@ -243,49 +225,74 @@ TEST(LaneLite, TrackedBoundaryKeepsItsRoleAcrossTheCarCentre) {
     EXPECT_NEAR(r.target_x, x + 10 + 150, 35) << i; // smoothing lags a moving line
   }
 }
-TEST(LaneLite, DeepFirstFillsTheMissedSideFromHsv) {
-  // The network sees only the yellow line; HSV also sees the white one and a
-  // white blob far left. The white line becomes the right boundary (HSV
-  // candidate at the lane width); the blob is never chosen. With HSV off the
-  // result stays deep only.
-  cv::Mat img = scene(170, 300);
-  cv::rectangle(img, {20, 300}, {40, 470}, cv::Scalar(240, 240, 240), cv::FILLED);
+TEST(LaneLite, EitherSourceAloneGivesItsBoundary) {
+  // HSV sees only the yellow left line (the white one is too dim for it);
+  // the network sees only the white right line. Each detector's correct
+  // boundary is used: both sides, and the source is never forced.
+  cv::Mat img = scene(170, 300, true, false);
+  cv::line(img, {470, 479}, {490, 0}, cv::Scalar(90, 90, 90), 14); // below white_v_min
   cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
-  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
-  for (const bool hsv : {true, false}) {
-    auto c = identity();
-    c.values["yellow_enabled"] = c.values["white_enabled"] = hsv;
-    lane_lite::Pipeline p(c);
-    lane_lite::Result r;
-    for (int i = 0; i < 4; ++i)
-      r = p.process(img, i * .05, true, deep);
-    ASSERT_TRUE(r.valid) << hsv;
-    EXPECT_EQ(r.state, hsv ? "both" : "left only") << hsv;
-    EXPECT_EQ(r.source, hsv ? "deep+hsv" : "deep") << hsv;
-    EXPECT_EQ(r.left.source & lane_lite::kDeep, lane_lite::kDeep) << hsv;
-    EXPECT_NEAR(r.target_x, 330, 12) << hsv;
-  }
-}
-TEST(LaneLite, ConfidentDeepSkipsHsvAndTheImage) {
-  // Both boundaries from the network: HSV is not computed and the frame is
-  // never decoded (no views).
-  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
-  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
-  cv::line(deep, {470, 479}, {490, 0}, 1, 14);
+  cv::line(deep, {470, 479}, {490, 0}, 2, 14);
   lane_lite::Pipeline p(identity());
-  int decoded = 0;
   lane_lite::Result r;
   for (int i = 0; i < 4; ++i)
-    r = p.process(lane_lite::Pipeline::Image([&] {
-                    ++decoded;
-                    return scene(170, 300);
-                  }),
-                  i * .05, false, deep);
+    r = p.process(img, i * .05, true, deep);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.state, "both");
+  EXPECT_EQ(r.left.source, lane_lite::kHsv);
+  EXPECT_EQ(r.right.source, lane_lite::kDeep);
+  EXPECT_NEAR(r.target_x, 330, 12);
+}
+TEST(LaneLite, DeepAloneKeepsTheLaneWhenHsvSeesNothing) {
+  cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
+  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
+  cv::line(deep, {470, 479}, {490, 0}, 2, 14);
+  lane_lite::Pipeline p(identity());
+  lane_lite::Result r;
+  for (int i = 0; i < 4; ++i)
+    r = p.process(img, i * .05, false, deep);
   ASSERT_TRUE(r.valid);
   EXPECT_EQ(r.state, "both");
   EXPECT_EQ(r.source, "deep");
-  EXPECT_FALSE(r.hsv_used);
-  EXPECT_EQ(decoded, 0);
+  EXPECT_TRUE(r.hsv_used); // HSV always runs; it just found nothing
+}
+TEST(LaneLite, AgreeingSourcesConfirmEachOther) {
+  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
+  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
+  cv::line(deep, {470, 479}, {490, 0}, 2, 14);
+  lane_lite::Pipeline p(identity());
+  const auto r = p.process(scene(170, 300), 0, true, deep);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.left.source, lane_lite::kDeep | lane_lite::kHsv);
+  EXPECT_EQ(r.right.source, lane_lite::kDeep | lane_lite::kHsv);
+  EXPECT_EQ(r.candidates.size(), 2u);
+}
+TEST(LaneLite, OlderDeepMaskIsAlignedWithOdometryOrDropped) {
+  // The mask was captured 0.1 s earlier; since then the car moved 5 cm left,
+  // so the lines lay 27 px further left in the mask (0.05 m / (0.55/300)).
+  // With the motion the mask lines up with this frame (both sources confirm
+  // each line); without it a mask that old is not used at all.
+  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
+  cv::line(deep, {143, 479}, {163, 0}, 1, 14);
+  cv::line(deep, {443, 479}, {463, 0}, 2, 14);
+  for (const bool moved : {true, false}) {
+    lane_lite::Pipeline p(identity());
+    lane_lite::DeepInput in(deep);
+    in.age = .1;
+    in.moved = moved;
+    in.dy = .05;
+    const auto r = p.process(scene(170, 300), 0, false, in);
+    ASSERT_TRUE(r.valid) << moved;
+    EXPECT_EQ(r.deep_used, moved);
+    EXPECT_EQ(r.source, moved ? "deep+hsv" : "hsv") << moved;
+    EXPECT_EQ(r.left.source, moved ? lane_lite::kDeep | lane_lite::kHsv : lane_lite::kHsv) << moved;
+  }
+  lane_lite::Pipeline p(identity());
+  lane_lite::DeepInput stale(deep);
+  stale.age = .5; // beyond deep_max_age even with odometry
+  stale.moved = true;
+  EXPECT_FALSE(p.process(scene(170, 300), 0, false, stale).deep_used);
 }
 TEST(LaneLite, HsvSolidWhiteDoesNotReplaceDeepBoundary) {
   // Deep sees the yellow line and only a short piece of the white right one
@@ -314,23 +321,19 @@ TEST(LaneLite, UncertainSingleSideGivesNoNewCentre) {
   const auto r = p.process(img, 0);
   EXPECT_FALSE(r.valid);
 }
-TEST(LaneLite, TargetJumpIsGatedThenConfirmed) {
-  // The whole lane jumps sideways by 0.2 m at once (beyond max_target_jump_m):
-  // the old target is held for two frames, the third confirms the new one.
+TEST(LaneLite, LaneShiftReachesTheOutputWithoutAnExtraGate) {
+  // Accepted boundaries go straight to the centre path (no output hold):
+  // with tracking unfiltered, a confirmed sideways shift shows up at once.
   auto c = identity();
-  c.values["track_jump_px"] = 400; // let the boundaries follow at once
-  c.values["smoothing"] = 1;       // no filter: the jump reaches the output in one frame
+  c.values["track_jump_px"] = 400;
+  c.values["smoothing"] = 1;
   lane_lite::Pipeline p(c);
   lane_lite::Result r;
   for (int i = 0; i < 4; ++i)
     r = p.process(scene(170, 300), i * .05);
   const double before = r.lateral_m;
-  for (int i = 4; i < 7; ++i) {
-    r = p.process(scene(280, 300), i * .05);
-    if (i < 6)
-      EXPECT_NEAR(r.lateral_m, before, .03) << i;
-  }
-  EXPECT_LT(r.lateral_m, before - .1);
+  r = p.process(scene(280, 300), .2);
+  EXPECT_LT(r.lateral_m, before - .15);
 }
 TEST(LaneLite, CentreFollowsTheMiddleOfABend) {
   // Concentric arcs (right-hand bend), radii 650 / 350 around (820, 479):
@@ -348,10 +351,146 @@ TEST(LaneLite, CentreFollowsTheMiddleOfABend) {
     EXPECT_NEAR(std::hypot(q.x - 820, q.y - 479), 500, 15) << q;
   EXPECT_LT(r.heading, -.1); // turns right
 }
+// 3-lane road, lane 200 px: yellow road edges and white lane lines at x (BEV
+// bottom), each leaning 20 px to the right at the top like scene().
+cv::Mat road(std::vector<std::pair<int, bool>> lines, bool island = false) {
+  cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+  for (auto [x, yellow] : lines)
+    cv::line(img, {x, 479}, {x + 20, 0}, yellow ? cv::Scalar(0, 200, 230) : cv::Scalar(240, 240, 240), 14);
+  if (island) // the island tip straight ahead
+    cv::fillConvexPoly(img, std::vector<cv::Point>{{330, 200}, {390, 120}, {390, 0}, {270, 0}, {270, 120}},
+                       cv::Scalar(0, 200, 230));
+  return img;
+}
+lane_lite::Config threeLanes() {
+  auto c = identity();
+  c.values["lane_width_px"] = 200;
+  return c;
+}
+lane_lite::Result runFork(lane_lite::Pipeline &p, const cv::Mat &img, int sign, int frames = 10) {
+  lane_lite::Result r;
+  for (int i = 0; i < 4; ++i)
+    r = p.process(img, i * .05);
+  if (sign)
+    p.forkSign(sign);
+  for (int i = 4; i < 4 + frames; ++i)
+    r = p.process(img, i * .05);
+  return r;
+}
+TEST(LaneLite, ForkFromTheMiddleLaneMovesOneLaneToTheSign) {
+  const auto img = road({{20, true}, {220, false}, {420, false}, {620, true}});
+  for (const int sign : {-1, 1}) {
+    lane_lite::Pipeline p(threeLanes());
+    const auto r = runFork(p, img, sign);
+    ASSERT_TRUE(r.valid) << sign;
+    EXPECT_EQ(r.fork, sign);
+    // A: left lane centre (x 130 at mid height), B: right lane centre (530).
+    EXPECT_NEAR(r.target_x, sign < 0 ? 130 : 530, 30) << sign << " " << r.fork_state;
+  }
+}
+TEST(LaneLite, ForkInTheOuterLaneOfTheSignKeepsTheLane) {
+  // Already in the left lane (yellow road edge half a lane to the left): A keeps it.
+  const auto img = road({{220, true}, {420, false}, {620, false}});
+  lane_lite::Pipeline p(threeLanes());
+  const auto r = runFork(p, img, -1);
+  ASSERT_TRUE(r.valid);
+  EXPECT_NEAR(r.target_x, 330, 25) << r.fork_state;
+}
+TEST(LaneLite, ForkWithoutSignTakesTheDefaultAtTheIsland) {
+  lane_lite::Pipeline p(threeLanes()); // fork_default 1 = B
+  const auto lanes = road({{20, true}, {220, false}, {420, false}, {620, true}});
+  auto r = runFork(p, lanes, 0, 2);
+  EXPECT_EQ(r.fork, 0); // no island, no sign: plain lane keeping
+  EXPECT_NEAR(r.target_x, 330, 25);
+  const auto island = road({{20, true}, {220, false}, {420, false}, {620, true}}, true);
+  for (int i = 6; i < 18; ++i) // island seen: waits fork_default_wait (0.8 s) for a sign
+    r = p.process(island, i * .05);
+  EXPECT_EQ(r.fork, 0);
+  for (int i = 18; i < 45; ++i)
+    r = p.process(island, i * .05);
+  EXPECT_EQ(r.fork, 1);
+  EXPECT_NEAR(r.target_x, 530, 30) << r.fork_state;
+}
+TEST(LaneLite, ASignDuringTheIslandWaitWins) {
+  lane_lite::Pipeline p(threeLanes());
+  const auto island = road({{20, true}, {220, false}, {420, false}, {620, true}}, true);
+  auto r = runFork(p, island, 0, 6); // island seen, default not yet taken
+  EXPECT_EQ(r.fork, 0);
+  p.forkSign(-1);
+  for (int i = 10; i < 45; ++i)
+    r = p.process(island, i * .05);
+  EXPECT_EQ(r.fork, -1);
+}
+TEST(LaneLite, ForkLateSignAtTheIslandStillChangesLanes) {
+  // Middle lane; the B sign comes only when the right dashes have ended and
+  // the island tip (yellow) sits half a lane to the right: the right boundary
+  // was tracked as WHITE, so this is not the B lane and the car must change.
+  lane_lite::Pipeline p(threeLanes());
+  const auto lanes = road({{20, true}, {220, false}, {420, false}, {620, true}});
+  auto r = runFork(p, lanes, 0, 2);
+  auto late = road({{20, true}, {220, false}, {620, true}});
+  cv::line(late, {400, 479}, {430, 0}, cv::Scalar(0, 200, 230), 14); // island edge where the dash was
+  p.forkSign(1);
+  for (int i = 6; i < 18; ++i)
+    r = p.process(late, i * .05);
+  EXPECT_EQ(r.fork, 1);
+  EXPECT_EQ(r.fork_state.find("바깥 차로 유지"), std::string::npos) << r.fork_state;
+}
+TEST(LaneLite, ForkMiddleLaneWithTheIslandEdgeAsRightBoundaryStillGoesB) {
+  // 11-10 car: middle lane, road edges outside the view, the right dash had
+  // already turned into the yellow island edge when the B sign came; the old
+  // logic took that for the B lane and steered to A. The right boundary was
+  // white a moment ago, so B means: put that line on the car's LEFT.
+  lane_lite::Pipeline p(threeLanes());
+  auto r = runFork(p, road({{220, false}, {420, false}}), 0, 2);
+  const auto island = road({{220, false}, {420, true}});
+  for (int i = 6; i < 12; ++i) // the dash becomes the island edge (tracked as right)
+    r = p.process(island, i * .05);
+  p.forkSign(1);
+  for (int i = 12; i < 24; ++i)
+    r = p.process(island, i * .05);
+  EXPECT_EQ(r.fork, 1);
+  EXPECT_NEAR(r.target_x, 530, 30) << r.fork_state;
+}
+TEST(LaneLite, ForkSteeringHandsOverToLaneKeepingAfterTheSideStep) {
+  // B from the middle lane: a synthetic target one lane to the right, held on
+  // the ground by odometry; once the car has moved most of a lane sideways,
+  // lane keeping in the branch takes over.
+  lane_lite::Pipeline p(threeLanes());
+  const auto img = road({{20, true}, {220, false}, {420, false}, {620, true}});
+  auto r = runFork(p, img, 1, 2);
+  EXPECT_EQ(r.state, "fork steer");
+  EXPECT_NE(r.fork_state.find("조향"), std::string::npos) << r.fork_state;
+  EXPECT_LT(r.lateral_m, -.4); // one lane (0.55 m) to the right
+  p.move(.2, -.25, 0.); // half way: the target is closer now
+  r = p.process(img, .35);
+  EXPECT_EQ(r.state, "fork steer");
+  EXPECT_NEAR(r.lateral_m, -.3, .06);
+  p.move(.2, -.25, 0.); // 0.5 m sideways >= 85 % of a lane
+  r = p.process(img, .4);
+  EXPECT_NE(r.fork_state.find("분기 주행"), std::string::npos) << r.fork_state;
+  EXPECT_NE(r.state, "fork steer");
+}
+TEST(LaneLite, ForkFromTheFarLaneSteersTwoLanes) {
+  // Left lane (yellow road edge on the left), sign B: two lanes to the right.
+  lane_lite::Pipeline p(threeLanes());
+  const auto r = runFork(p, road({{220, true}, {420, false}, {620, false}}), 1, 3);
+  EXPECT_NE(r.fork_state.find("2차로"), std::string::npos) << r.fork_state;
+  EXPECT_LT(r.lateral_m, -.9);
+}
+TEST(LaneLite, ForkEndsAfterTheConfiguredDistance) {
+  const auto img = road({{20, true}, {220, false}, {420, false}, {620, true}});
+  lane_lite::Pipeline p(threeLanes());
+  auto r = runFork(p, img, 1, 3);
+  EXPECT_EQ(r.fork, 1);
+  p.move(3.5, 0.); // beyond fork_length (3 m)
+  r = p.process(img, 1.);
+  EXPECT_EQ(r.fork, 0);
+}
 TEST(LaneLite, ConfigRoundTrip) {
   auto c = identity();
-  c.values["cell"] = 12;
+  c.values["merge_px"] = 12;
   const auto path = testing::TempDir() + "/lane_lite.yaml";
   c.save(path);
-  EXPECT_EQ(lane_lite::Config::load(path)["cell"], 12);
+  EXPECT_EQ(lane_lite::Config::load(path)["merge_px"], 12);
 }
