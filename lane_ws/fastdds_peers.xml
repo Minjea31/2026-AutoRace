@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- ROS 2 (Fast DDS) discovery by explicit IP, for networks that block multicast.
+     Same file on both PCs. Enable with:
+       export FASTRTPS_DEFAULT_PROFILES_FILE=~/fastdds_peers.xml
+     maxInitialPeersRange: how many processes per IP are probed (Fast DDS
+     default is only 4, which hides every node started after the first few).
+     Edit the addresses if an IP changes. -->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>autorace_udp</transport_id>
+      <type>UDPv4</type>
+      <maxInitialPeersRange>100</maxInitialPeersRange>
+    </transport_descriptor>
+    <transport_descriptor>
+      <transport_id>autorace_shm</transport_id>
+      <type>SHM</type>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="autorace_peers" is_default_profile="true">
+    <rtps>
+      <userTransports>
+        <transport_id>autorace_udp</transport_id>
+        <transport_id>autorace_shm</transport_id>
+      </userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+      <builtin>
+        <initialPeersList>
+          <locator><udpv4><address>192.168.50.97</address></udpv4></locator>   <!-- car (wego) -->
+          <locator><udpv4><address>192.168.50.170</address></udpv4></locator>  <!-- laptop -->
+          <locator><udpv4><address>127.0.0.1</address></udpv4></locator>       <!-- same-PC nodes -->
+        </initialPeersList>
+      </builtin>
+    </rtps>
+  </participant>
+</profiles>

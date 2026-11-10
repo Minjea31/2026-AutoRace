@@ -41,7 +41,6 @@ sign:
   pose: [6.20, 4.52, 3.141592653589793]  # beside the y=4.570 white line
 signs:
   - {name: speed_bump_sign, asset: speed-bump.png, pose: [2.50, 5.89, 3.141592653589793]}
-  - {name: slow_sign, asset: slow.png, pose: [3.05, 5.89, 3.141592653589793]}
   - {name: zigzag_slow_sign, asset: slow.png, pose: [9.27, 4.46, 1.5707963267948966]}
   - {name: pedestrian_sign, asset: pedestrian.png, pose: [9.27, 2.54, 1.5707963267948966]}
 fork:
@@ -71,9 +70,13 @@ speed_bump:
   height: 0.018  # below the LIMO Pro's 24 mm chassis clearance
 traffic_light:
   pose: [3.17, 4.49, 3.141592653589793]
-  width: 0.10
-  height: 0.27
-  center_height: 0.53
+  width: 0.12  # Overall width including the side brackets, as in the reference.
+  height: 0.205  # Signal body only; the stand adds another 50 mm.
+  center_height: 0.1525  # Body bottom 0.05 m, top 0.255 m above the mat.
+  housing_width: 0.08
+  thickness: 0.035
+  lens_diameter: 0.054
+  base_size: [0.08, 0.10, 0.006]
   default: red
 advertisement:
   pose: [3.17, 4.28, 3.141592653589793]

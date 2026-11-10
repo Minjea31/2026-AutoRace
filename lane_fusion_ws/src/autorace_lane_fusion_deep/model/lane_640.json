@@ -1,0 +1,36 @@
+{
+  "architecture": "mobilenet_v3_small_unet",
+  "classes": [
+    "background",
+    "orange_lane",
+    "white_dashed_lane"
+  ],
+  "input": [
+    1,
+    3,
+    480,
+    640
+  ],
+  "input_dtype": "float32",
+  "color": "RGB",
+  "resize": "stretch",
+  "mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "std": [
+    0.229,
+    0.224,
+    0.225
+  ],
+  "training_size": [
+    640,
+    480
+  ],
+  "output": "unnormalized logits [1,3,H,W]",
+  "verification": {
+    "max_absolute_error": 1.621246337890625e-05,
+    "mask_agreement": 1.0
+  }
+}

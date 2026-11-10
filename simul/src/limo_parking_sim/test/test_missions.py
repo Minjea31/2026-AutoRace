@@ -115,7 +115,7 @@ def test_cone_height_aware_scan_and_circle_collision(cfg):
 def test_mission_signs_and_spawn_locations(cfg):
     assets=share_directory()/'assets'
     items=signs(cfg['world'])
-    assert {s['name'] for s in items}=={'parking_sign','speed_bump_sign','slow_sign',
+    assert {s['name'] for s in items}=={'parking_sign','speed_bump_sign',
              'zigzag_slow_sign','pedestrian_sign','fork_sign'}
     for s in items:
         assert (assets/s['asset']).is_file()

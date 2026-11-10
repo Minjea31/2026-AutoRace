@@ -56,6 +56,8 @@
 #include "limo_base/serial_port.h"
 #include "limo_base/limo_protocol.h"
 
+#include "limo_base/steering_command_model.hpp"
+
 namespace AgileX {
 
 class LimoDriver : public rclcpp::Node{
@@ -125,7 +127,9 @@ private:
     ImuData imu_data_;
     std::atomic<int> motion_mode_{-1}; // -1 until the first system-state frame  // current motion type
 
-    static constexpr double max_inner_angle_ = 0.48869;  // 28 degree
+    bool steering_limit_enabled_ = false;
+    SteeringCommandModel steering_command_model_;
+    double max_inner_angle_ = 0.80;
     static constexpr double track_ = 0.172;           // m (left right wheel distance)
     static constexpr double wheelbase_ = 0.2;         // m (front rear wheel distance)
     static constexpr double left_angle_scale_ = 2.47;

@@ -1,0 +1,4 @@
+[console_scripts]
+parking_node = autorace_parking.node:main
+parking_robot_visual = autorace_parking.robot_visual:main
+

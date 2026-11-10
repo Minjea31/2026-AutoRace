@@ -1,0 +1,10 @@
+/build/
+/install/
+/log/
+/captures/
+/dist/
+.eggs/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/

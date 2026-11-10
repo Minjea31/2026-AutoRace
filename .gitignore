@@ -1,3 +1,17 @@
+/yolo_ws/train/dataset/
+/yolo_ws/train/checkpoints/
+/parking_ws/.ros-deps/
+/parking_ws/build/
+/parking_ws/install/
+/parking_ws/log/
+/parking_ws/**/__pycache__/
+/parking_ws/.pytest_cache/
+/parking_ws/captures/
 # Local agent instructions
 AGENTS.md
 Agent.md
+
+
+# Sensor SDK runtime logs
+/sensor_ws/Log/
+/mux_ws/Log/

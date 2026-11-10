@@ -21,14 +21,14 @@ from autorace_mux.node import MuxNode
 
 
 class Harness:
-    def __init__(self, max_wait=3.):
+    def __init__(self, max_wait=None):
         self.context = Context()
         rclpy.init(context=self.context, domain_id=180+os.getpid()%20,
                    signal_handler_options=SignalHandlerOptions.NO)
         prefix = '/signal_test_'+uuid4().hex
         self.topics = {key: prefix+'/'+key for key, _ in INPUTS}
-        self.signal = SignalNode(context=self.context, parameter_overrides=[
-            Parameter('max_red_wait_sec', value=max_wait)],
+        overrides = [] if max_wait is None else [Parameter('max_red_wait_sec', value=max_wait)]
+        self.signal = SignalNode(context=self.context, parameter_overrides=overrides,
             cli_args=['--ros-args', '-r', '/yolo/signal:='+prefix+'/yolo',
                       '-r', '/mission/lane:='+self.topics['lane'],
                       '-r', '/mission/signal/command_02:='+self.topics['signal']])
@@ -84,10 +84,12 @@ class Harness:
 def test_dds_confirmation_preserves_fields_and_mux_returns_to_lane():
     h = Harness()
     try:
+        assert h.signal.confirm_frames == 2
+        assert h.signal.max_red_wait_sec == 5.0
         h.lane_enabled = True
         h.pump(.3)
         assert h.outputs[-1].linear.x == pytest.approx(.3)
-        h.light(False, 4)
+        h.light(False, 1)
         assert not h.commands
         h.light(False, 1)
         h.pump(.1)
@@ -96,7 +98,7 @@ def test_dds_confirmation_preserves_fields_and_mux_returns_to_lane():
         assert msg.drive.speed == 0. and msg.drive.steering_angle == pytest.approx(.12)
         assert (msg.drive.steering_angle_velocity, msg.drive.acceleration, msg.drive.jerk) == pytest.approx((.2, .4, .6))
         assert msg.header.frame_id == 'base_link'
-        h.light(True, 4)
+        h.light(True, 1)
         assert h.signal.state.stopping
         h.light(True, 1)
         h.pump(.12)
@@ -112,7 +114,7 @@ def test_dds_confirmation_preserves_fields_and_mux_returns_to_lane():
 def test_missing_stale_and_invalid_lane_use_neutral_stop():
     h = Harness()
     try:
-        h.light(False, 5)
+        h.light(False, 2)
         h.pump(.1)
         assert h.commands[-1].drive.steering_angle == 0.
         valid = h.lane_message()
@@ -144,17 +146,17 @@ def test_missing_stale_and_invalid_lane_use_neutral_stop():
         h.close()
 
 
-def test_timeout_stops_publishing_and_requires_five_new_reds():
+def test_timeout_stops_publishing_and_requires_two_new_reds():
     h = Harness(max_wait=.35)
     try:
-        h.light(False, 5)
+        h.light(False, 2)
         h.pump(.1)
         assert h.commands and h.signal.state.stopping
         h.pump(.4)
         count = len(h.commands)
         h.pump(.1)
         assert not h.signal.state.stopping and len(h.commands) == count
-        h.light(False, 4)
+        h.light(False, 1)
         assert not h.signal.state.stopping
         h.light(False, 1)
         assert h.signal.state.stopping
@@ -168,7 +170,7 @@ def test_single_red_extends_stop_past_original_timeout_and_mux_returns_to_lane()
         h.lane_enabled = True
         h.pump(.3)
         assert h.outputs[-1].linear.x == pytest.approx(.3)
-        h.light(False, 5)
+        h.light(False, 2)
         first_stop = h.signal.state.started_at
         h.pump(.3)
         h.light(False, 1)

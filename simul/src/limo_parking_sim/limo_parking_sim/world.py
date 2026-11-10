@@ -4,6 +4,32 @@ import math
 import numpy as np
 
 
+def traffic_light_parts(spec):
+    """Local boxes shared by the signal renderer, collision and laser scan.
+
+    The quoted width includes the side brackets; height excludes the stand.
+    """
+    bottom = spec['center_height']-spec['height']/2
+    thickness = spec.get('thickness', .035)
+    width = spec.get('housing_width', spec['width'])
+    parts = [
+        ('post', (0, 0, bottom/2), (.018, .018, bottom)),
+        ('housing', (0, 0, spec['center_height']), (thickness, width, spec['height'])),
+    ]
+    if spec.get('base_size'):
+        length, base_width, height = spec['base_size']
+        parts.append(('base', (0, 0, height/2), (length, base_width, height)))
+    extension = (spec['width']-width)/2
+    if extension > 0:
+        for level in (-1, 1):
+            for side in (-1, 1):
+                parts.append((f'bracket_{level}_{side}',
+                              (0, side*(width/2+extension/2),
+                               spec['center_height']+level*spec['height']/6),
+                              (thickness, extension, .012)))
+    return parts
+
+
 def boundary_walls(world):
     """Four solid walls outside the mat, shared by sensors and collision."""
     spec = world.get('boundary_wall')

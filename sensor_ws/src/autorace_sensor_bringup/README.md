@@ -10,6 +10,10 @@ cd /home/wego/2026-AutoRace/sensor_ws
 ./build_standalone.sh
 source install/setup.bash
 ros2 launch autorace_sensor_bringup sensors.launch.py
+# 04번 차량: 조향 중립 보정 사용
+ros2 launch autorace_sensor_bringup sensors.launch.py vehicle:=04
+# 06번 차량: 보정 없음 (인자를 생략한 기본 실행과 동일)
+ros2 launch autorace_sensor_bringup sensors.launch.py vehicle:=06
 ```
 
 종료는 실행 터미널에서 Ctrl+C. 다른 터미널도 같은 순서로 source한다.
@@ -21,9 +25,14 @@ ros2 launch autorace_sensor_bringup sensors.launch.py
 
 | 인자 | 기본값 | 의미 |
 |---|---|---|
+| vehicle | 06 | 실제 차량 번호. 04: 조향 중립 보정 +0.04 rad, 06: 보정 없음 |
 | enable_base | true | limo_base: IMU, Odometry, 상태 |
 | enable_lidar | true | YDLIDAR |
-| enable_camera | true | Orbbec Astra |
+| enable_camera | true | Orbbec Astra RGB |
+| enable_depth | false | 깊이 스트림 |
+| enable_ir | false | 적외선 스트림 |
+| enable_point_cloud | false | 일반 포인트클라우드 (depth 활성 시에만) |
+| enable_colored_point_cloud | false | 컬러 포인트클라우드 (depth 활성 시에만) |
 | enable_description | true | Ackermann 모델·레이저·IMU TF |
 | enable_camera_tf | true | 카메라 장착 TF, 카메라 드라이버와 독립 제어 |
 | enable_ekf | true | robot_localization EKF |
@@ -37,6 +46,24 @@ ros2 launch autorace_sensor_bringup sensors.launch.py
 | tf_profile | wego_limo_pro | 공식 기본 장착 위치. existing은 이전 로컬 보정 |
 | startup_timeout | 15.0 | 첫 메시지 제한 시간(초) |
 | stale_timeout | 5.0 | 수신 중단 제한 시간(초), 확인 간격 1초 |
+
+차량 번호는 IP 주소와 독립적이다. `vehicle:=04`는 limo_base의
+`steering_command_offset`을 +0.04 rad로 설정하고, 기본 `06`은 0으로 설정한다.
+04의 값은 리모컨으로 실제 직진을 맞춘 구간에서 얻은 초기 시험값이며 실제 바퀴 각도가 아닌
+차량 내부 명령 단위이다. ROS 주행 명령의 아커만 조향에만 적용되고 정지 명령은 그대로 정지한다.
+중립 보정은 기존 `steering_command_calibration`의 gain/deadband 보정과 별개이다.
+04의 보정 후 명령은 `steering_command_limit`(기본 ±0.35 rad) 이내로 제한한다.
+06은 기존 명령 변환과 제한 동작을 그대로 사용한다. 조향 피드백 및 오도메트리 계산은 변경하지 않는다.
+외부 `autorace_calibration` 실행 파일은 사용하지 않는다. 기존 센서를 종료한 뒤 이 패키지의
+launch 하나만 실행한다. 빌드가 필요한 변경이므로 두 차량에서 다음 명령을 먼저 실행한다.
+
+```bash
+cd ~/2026-AutoRace/sensor_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+colcon build --packages-select limo_base autorace_sensor_bringup --symlink-install
+source install/setup.bash
+```
 
 ```bash
 # 하드웨어 접근 없이 모델/TF/EKF만 실행
@@ -67,6 +94,12 @@ Orbbec 해상도와 내부 보정은 기존 Astra launch 및 장치 보정을 �
 
 ## 로그
 
+기본 실행에서 base·IMU 전처리·EKF를 허용된 CPU의 마지막 코어에 배치하고,
+카메라는 나머지 코어에서 4초 뒤 시작합니다. 카메라 nice는 5로 낮추고 수학 라이브러리
+스레드는 1개로 제한합니다. 허용 코어가 4개 미만이면 CPU를 분할하지 않습니다.
+OS의 전용 코어 예약이나 전역 클럭 변경은 하지 않으며, EKF 설정의 30Hz는 유지합니다.
+추가 실행 인자는 없습니다.
+
 매 실행 ROS launch 고유 로그 폴더를 사용한다(기본 ~/.ros/log/<시간-호스트-PID>).
 ROS_LOG_DIR을 실행 전에 지정하면 그 루트 아래 생성한다.
 화면의 `Sensor session logs:` 경로를 확인한다.
@@ -79,10 +112,14 @@ ROS_LOG_DIR을 실행 전에 지정하면 그 루트 아래 생성한다.
 
 PROCESS_START는 센서 데이터 수신 성공이 아니다. READY를 별도로 확인한다.
 활성 기능에 따라 /imu, /odom, /limo_status, /scan, /camera/color/image_raw,
-/camera/depth/image_raw, /odometry/filtered를 best-effort/volatile QoS로 구독한다.
+/odometry/filtered를 best-effort/volatile QoS로 구독한다.
+깊이·IR 스트림은 기본 OFF이며 켠 경우에만 해당 image_raw 토픽을 감시한다.
+RGB만 사용할 때는 depth·IR 획득과 일반/컬러 포인트클라우드 생성을 실행하지 않는다.
 압축 컬러 영상 토픽은 `/camera/color/image_raw/compressed` (`sensor_msgs/msg/CompressedImage`)이며,
 image_transport의 compressed 플러그인이 필요하다. 현재 PC에는 설치되어 있다.
-센서 모니터는 압축 영상이 아니라 원본 컬러·깊이 영상의 수신을 확인한다.
+센서 모니터는 압축 영상이 아니라 활성화된 원본 영상의 수신을 확인한다.
+시작 시 `[sensor bringup 결과]`로 활성 기능의 예상 노드 수와 센서 토픽 수신 결과를 요약한다.
+`startup_timeout`까지 준비되지 않으면 미실행 노드·미수신 토픽을 나열하고, 나중에 준비되면 정상 결과를 출력한다.
 카메라 component들은 container PID와 출력 파일을 공유한다.
 다른 camera_launch를 선택하면 영상 토픽 계약을 확인해야 한다.
 LAUNCH_SHUTDOWN은 종료 요청 시각이며 그 이후 PROCESS_EXIT가 기록될 수 있다.
