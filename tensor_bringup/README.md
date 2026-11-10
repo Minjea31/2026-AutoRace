@@ -52,17 +52,17 @@ source install/setup.bash
 ros2 launch tensor_bringup tensor_bringup.launch.py
 # Override lane speed when needed (default: 0.5 m/s).
 ros2 launch tensor_bringup tensor_bringup.launch.py lane_speed:=0.5
-# Lane code (default fusion):
-ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=fusion   # deep mask + HSV fusion (lane_fusion_ws)
-ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=deep     # deep mask only, deep_lite (lane_fusion_ws)
-source ~/2026-AutoRace/lane_ws/install/setup.bash                       # opencv needs lane_ws too
-ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=opencv   # lane_lite HSV/OpenCV (lane_ws)
+# Lane mode (default fusion). All three run lane_fusion_node (fork A/B, IMU/odometry, tuners) + fusion PID:
+ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=fusion   # deep mask + HSV
+ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=opencv   # HSV only (no deep node)
+ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=deep     # deep mask only (HSV detector off)
 ```
-`lane_mode` picks the stack that publishes `/mission/lane`; readiness checks that mode's nodes
-(fusion/deep: 3 lane nodes + `/lane_fusion/deep_mask`, opencv: `lane_lite_node`, `lane_pid_controller`).
-PID configs: fusion/deep use `autorace_lane_fusion_pid/config/real/pid.yaml`, opencv uses
-`autorace_lane_pid/config/real/pid.yaml`. `lane_speed` applies to all three.
-Mux starts after inputs are ready and the car can move immediately.
+`lane_mode` picks which detectors `lane_fusion_node` runs; readiness checks that mode's nodes
+(fusion/deep: `lane_fusion_deep_mask`, `lane_fusion_node`, `lane_fusion_pid_controller` + `/lane_fusion/deep_mask`,
+opencv: `lane_fusion_node`, `lane_fusion_pid_controller`). PID: `autorace_lane_fusion_pid/config/real/pid.yaml`
+(same values as lane_ws `autorace_lane_pid`). lane_ws (`lane_lite`) and `deep_lite` are no longer launched here.
+In deep mode the lane tuner's Apply sends `yellow_enabled`/`white_enabled` too: keep them 0 there.
+`lane_speed` applies to all three.
 After mux starts, readiness checks all mission nodes (8 with fusion/deep, 7 with opencv) and fresh input topics for two seconds.
 The final startup line is `[bringup 결과] 전체 노드 8/8 실행 확인 완료` on success;
 timeouts list missing nodes and missing/stale input topics before reporting failure.

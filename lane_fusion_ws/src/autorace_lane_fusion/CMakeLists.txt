@@ -28,7 +28,7 @@ if(Qt5_FOUND AND rosbag2_cpp_FOUND AND rosbag2_storage_FOUND)
   add_library(lane_fusion_bag STATIC src/bag.cpp)
   set_target_properties(lane_fusion_bag PROPERTIES POSITION_INDEPENDENT_CODE ON)
   target_link_libraries(lane_fusion_bag PUBLIC lane_fusion_core)
-  ament_target_dependencies(lane_fusion_bag PUBLIC rclcpp sensor_msgs cv_bridge rosbag2_cpp rosbag2_storage)
+  ament_target_dependencies(lane_fusion_bag PUBLIC rclcpp sensor_msgs nav_msgs cv_bridge rosbag2_cpp rosbag2_storage)
 
   add_library(lane_fusion_roi_view STATIC src/roi_view.cpp)
   set_target_properties(lane_fusion_roi_view PROPERTIES POSITION_INDEPENDENT_CODE ON)

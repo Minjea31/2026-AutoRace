@@ -31,125 +31,58 @@ cv::Mat thinBands(const cv::Mat &mask, int max_width) {
   return rows(mask) | columns;
 }
 
-struct Point {
-  cv::Point2f p;
-  float weight;
-  int cls;
-  bool used = false;
+struct Peak {
+  int x;
+  bool yellow;
 };
-std::vector<Point> cellCentroids(const cv::Mat &classes, int cell, int min_pixels) {
-  const int gx = (classes.cols + cell - 1) / cell, gy = (classes.rows + cell - 1) / cell;
-  std::vector<cv::Vec3f> acc(size_t(gx) * gy * 2, cv::Vec3f(0, 0, 0));
-  for (int y = 0; y < classes.rows; ++y) {
-    const uchar *row = classes.ptr<uchar>(y);
-    const int cy = y / cell;
-    for (int x = 0; x < classes.cols; ++x)
-      if (const uchar k = row[x]; k == 1 || k == 2) {
-        auto &a = acc[(size_t(cy) * gx + x / cell) * 2 + (k - 1)];
-        a[0] += x, a[1] += y, a[2] += 1;
-      }
+// Column histogram peaks of the lower BEV, strongest first.
+std::vector<Peak> findPeaks(const cv::Mat &mask, const cv::Mat &yellow, int y0, int minimum, int separation_px) {
+  cv::Mat hist, yhist;
+  cv::reduce(mask.rowRange(y0, mask.rows) / 255, hist, 0, cv::REDUCE_SUM, CV_32F);
+  cv::reduce(yellow.rowRange(y0, mask.rows) / 255, yhist, 0, cv::REDUCE_SUM, CV_32F);
+  cv::blur(hist, hist, {9, 1});
+  cv::blur(yhist, yhist, {9, 1});
+  std::vector<Peak> out;
+  for (int n = 0; n < 6; ++n) {
+    double best;
+    cv::Point at;
+    cv::minMaxLoc(hist, nullptr, &best, nullptr, &at);
+    if (best < minimum)
+      break;
+    out.push_back({at.x, yhist.at<float>(at.x) * 2 > hist.at<float>(at.x)});
+    hist.colRange(std::max(0, at.x - separation_px), std::min(hist.cols, at.x + separation_px + 1)).setTo(0);
   }
-  std::vector<Point> out;
-  for (size_t i = 0; i < acc.size(); ++i)
-    if (acc[i][2] >= min_pixels)
-      out.push_back({{acc[i][0] / acc[i][2], acc[i][1] / acc[i][2]}, acc[i][2], int(i % 2) + 1});
   return out;
 }
-// From the unused centroid nearest the vehicle, step to the nearest same-class
-// centroid within max_gap that keeps the direction (|turn| <= max_turn), both
-// ways. Neighbours within 1.25 cells (a thick band is two cells wide) are
-// absorbed into the same chain.
-std::vector<std::vector<int>> chainPoints(std::vector<Point> &pts, cv::Point2f vehicle, float cell,
-                                          float max_gap, float max_turn_deg) {
-  const float cos_turn = std::cos(max_turn_deg * float(CV_PI / 180));
-  std::vector<int> order(pts.size());
-  for (size_t i = 0; i < pts.size(); ++i)
-    order[i] = int(i);
-  std::sort(order.begin(), order.end(), [&](int a, int b) {
-    return length(pts[a].p - vehicle) < length(pts[b].p - vehicle);
-  });
-  auto absorb = [&](int k) {
-    for (auto &q : pts)
-      if (!q.used && q.cls == pts[k].cls && length(q.p - pts[k].p) < 1.25f * cell)
-        q.used = true;
-  };
-  auto extend = [&](std::vector<int> &seq) {
-    while (true) {
-      const int n = int(seq.size());
-      const cv::Point2f last = pts[seq.back()].p;
-      cv::Point2f dir(0, 0); // over the last ~2 cells (single steps jitter by a cell)
-      for (int k = n - 2; k >= 0; --k)
-        if (length(last - pts[seq[k]].p) >= 1.5f * cell || k == 0) {
-          dir = unit(last - pts[seq[k]].p, {0, 0});
-          break;
-        }
-      int best = -1;
-      float best_score = 1e9f;
-      for (size_t j = 0; j < pts.size(); ++j) {
-        const auto &q = pts[j];
-        if (q.used || q.cls != pts[seq.back()].cls)
-          continue;
-        const float d = length(q.p - last);
-        if (d > max_gap || d < 1e-3f)
-          continue;
-        float score = d;
-        if (dir.x != 0 || dir.y != 0) {
-          const float c = unit(q.p - last).dot(dir);
-          if (c < cos_turn)
-            continue;
-          score = d * (1 + 3 * (1 - c));
-        }
-        if (score < best_score)
-          best_score = score, best = int(j);
-      }
-      if (best < 0)
-        return;
-      pts[best].used = true;
-      absorb(best);
-      seq.push_back(best);
-    }
-  };
-  std::vector<std::vector<int>> chains;
-  for (int start : order) {
-    if (pts[start].used)
-      continue;
-    pts[start].used = true;
-    absorb(start);
-    std::vector<int> seq = {start};
-    extend(seq);
-    std::reverse(seq.begin(), seq.end());
-    extend(seq);
-    chains.push_back(seq);
-  }
-  return chains;
-}
-// Windows that step along the marking's own direction from a chain seed.
-// The window is wider than a zigzag's teeth, so its centre follows the mean
-// line; only observed centres are kept, missed windows are never fitted.
+
 struct Search {
   Path centers;
-  std::vector<float> weights;
+  std::vector<double> weights;
+  std::vector<cv::Point> pixels;
 };
-Search slide(const cv::Mat &mask, cv::Point2f start, cv::Point2f dir, const Path &guide, const Config &c) {
+// Windows that step along the marking's own direction, so a boundary that
+// bends from vertical to transverse is followed without a second model.
+// Only observed window centres are kept; missed windows are never fitted.
+// (lane_ws autorace_lane_lite, unchanged apart from the display trace.)
+Search slide(const cv::Mat &mask, cv::Point2f start, cv::Point2f dir, const Path &prior, const Config &c) {
   const int w = mask.cols, h = mask.rows;
   const float step = std::max(4, h / int(c["windows"])), margin = c["margin"];
   const float band = c["line_width_max"];
   const size_t min_pixels = c["min_pixels"];
-  const float max_turn = float(std::cos(c["max_turn_deg"] * CV_PI / 180));
   Search s;
   cv::Point2f p = start - dir * (step * .5f);
   int misses = 0;
-  std::vector<cv::Point> found, inside;
+  std::vector<cv::Point> found, inside, chosen;
   std::vector<float> offsets;
   for (int i = 0; i < 2 * int(c["windows"]); ++i) {
-    if (!guide.empty())
-      dir = unit(dir + tangent(guide, nearest(guide, p)), dir);
+    if (!prior.empty())
+      dir = unit(dir + tangent(prior, nearest(prior, p)), dir);
     const cv::Point2f q = p + dir * step, across = rightOf(dir);
     if (q.x < -margin || q.x > w - 1 + margin || q.y < -step || q.y > h - 1 + step)
       break; // the boundary left the BEV
     const cv::RotatedRect box(q, {2 * margin, step}, float(std::atan2(across.y, across.x) * 180 / CV_PI));
     const cv::Rect bounds = box.boundingRect() & cv::Rect(0, 0, w, h);
-    found.clear(), inside.clear(), offsets.clear();
+    found.clear(), inside.clear(), offsets.clear(), chosen.clear();
     if (!bounds.empty())
       cv::findNonZero(mask(bounds), found);
     cv::Mat hist = cv::Mat::zeros(1, 2 * int(margin) + 1, CV_32F), smooth;
@@ -163,7 +96,8 @@ Search slide(const cv::Mat &mask, cv::Point2f start, cv::Point2f dir, const Path
         hist.at<float>(cvRound(o + margin)) += 1;
       }
     }
-    // The cross-track peak closest to the prediction picks one marking.
+    // The cross-track peak closest to the prediction picks one marking; a
+    // stop line or a second marking in the window is not averaged in.
     cv::blur(hist, smooth, {5, 1});
     double largest;
     cv::minMaxLoc(smooth, nullptr, &largest);
@@ -174,31 +108,111 @@ Search slide(const cv::Mat &mask, cv::Point2f start, cv::Point2f dir, const Path
     bool hit = false;
     if (peak >= 0) {
       cv::Point2d sum;
-      size_t chosen = 0;
       for (size_t k = 0; k < inside.size(); ++k)
-        if (std::abs(offsets[k] - (peak - margin)) <= band)
-          sum += cv::Point2d(inside[k]), ++chosen;
-      const cv::Point2f center(chosen ? sum * (1. / chosen) : cv::Point2d());
-      const cv::Point2f turn = s.centers.empty() ? dir : unit(center - s.centers.back(), dir);
-      const size_t n = s.centers.size();
-      const cv::Point2f before = n >= 2 ? unit(s.centers[n - 1] - s.centers[n - 2], dir) : dir;
-      if (chosen >= min_pixels && turn.dot(dir) > .5f && turn.dot(before) >= max_turn) {
-        dir = unit(dir + turn, dir);
-        s.centers.push_back(center);
-        s.weights.push_back(float(chosen));
-        p = center;
-        hit = true;
+        if (std::abs(offsets[k] - (peak - margin)) <= band) {
+          chosen.push_back(inside[k]);
+          sum += cv::Point2d(inside[k]);
+        }
+      if (chosen.size() >= min_pixels) {
+        const cv::Point2f center(sum * (1. / chosen.size()));
+        const cv::Point2f turn = s.centers.empty() ? dir : unit(center - s.centers.back(), dir);
+        if (turn.dot(dir) > .5f) { // at most 60 deg per window: no jump to another line
+          dir = unit(dir + turn, dir);
+          s.centers.push_back(center);
+          s.weights.push_back(double(chosen.size()));
+          s.pixels.insert(s.pixels.end(), chosen.begin(), chosen.end());
+          p = center;
+          hit = true;
+        }
       }
     }
     if (!hit) {
       p = q;
-      if (++misses >= c["max_misses"])
+      // With a track, keep looking for a boundary that starts later (inner
+      // side of a bend, dashed line); otherwise stop after a gap.
+      if (++misses >= c["max_misses"] && !(!prior.empty() && s.centers.empty()))
         break;
     } else {
       misses = 0;
     }
   }
   return s;
+}
+// Cubic s(t) across the chord first->last centre (any orientation), with a
+// ridge on the bend terms that is strong only for short observations. If it
+// still does not fit, one outlier window is dropped, then the far end is
+// trimmed: the near part matters most for control. Never extrapolates.
+bool fitLine(const Search &s, const Config &c, int h, Candidate &out, std::string &note) {
+  out.observed = int(s.centers.size());
+  if (out.observed < c["min_windows"]) {
+    note = "관측 윈도우 " + std::to_string(out.observed) + "개 < min_windows";
+    return false;
+  }
+  Path pts = s.centers;
+  auto weights = s.weights;
+  cv::Mat coef;
+  cv::Point2f origin, along, across;
+  float chord = 0;
+  double rms = 1e9;
+  for (int attempt = 0; pts.size() >= size_t(c["min_windows"]); ++attempt) {
+    origin = pts.front();
+    chord = length(pts.back() - origin);
+    if (chord < 8)
+      break;
+    along = unit(pts.back() - origin);
+    across = rightOf(along);
+    const int n = int(pts.size());
+    double total = 0;
+    for (double wgt : weights)
+      total += wgt;
+    const double ridge = std::sqrt(.005 * total * std::pow(h / chord, 4));
+    cv::Mat a = cv::Mat::zeros(n + 2, 4, CV_64F), b = cv::Mat::zeros(n + 2, 1, CV_64F);
+    for (int i = 0; i < n; ++i) {
+      const double t = (pts[i] - origin).dot(along) / chord, wgt = std::sqrt(weights[i]);
+      for (int k = 0; k < 4; ++k)
+        a.at<double>(i, k) = wgt * std::pow(t, 3 - k);
+      b.at<double>(i) = wgt * (pts[i] - origin).dot(across);
+    }
+    a.at<double>(n, 0) = a.at<double>(n + 1, 1) = ridge;
+    if (!cv::solve(a, b, coef, cv::DECOMP_SVD) || !cv::checkRange(coef))
+      break;
+    size_t worst = 0;
+    double worst_error = -1, sum = 0;
+    for (int i = 0; i < n; ++i) {
+      const double t = (pts[i] - origin).dot(along) / chord;
+      double model = 0;
+      for (int k = 0; k < 4; ++k)
+        model += coef.at<double>(k) * std::pow(t, 3 - k);
+      const double e = std::abs((pts[i] - origin).dot(across) - model);
+      sum += e * e;
+      if (e > worst_error)
+        worst_error = e, worst = size_t(i);
+    }
+    rms = std::sqrt(sum / n);
+    if (rms <= c["max_residual"])
+      break;
+    const size_t drop = attempt == 0 ? worst : pts.size() - 1;
+    pts.erase(pts.begin() + long(drop));
+    weights.erase(weights.begin() + long(drop));
+  }
+  out.residual = rms;
+  if (rms > c["max_residual"] || coef.empty()) {
+    note = chord < 8 ? "관측 길이 부족" : "윈도우 중심이 곡선에 맞지 않음";
+    return false;
+  }
+  out.path.clear();
+  for (int k = 0; k <= 32; ++k) {
+    const double t = k / 32.;
+    double model = 0;
+    for (int j = 0; j < 4; ++j)
+      model += coef.at<double>(j) * std::pow(t, 3 - j);
+    out.path.push_back(origin + along * float(t * chord) + across * float(model));
+  }
+  out.observed = int(pts.size());
+  out.points = pts;
+  // Full quality at twice the minimum: a short, real bend is not a weak one.
+  out.quality = std::min(1., out.observed / (2 * c["min_windows"]));
+  return true;
 }
 } // namespace
 
@@ -267,103 +281,162 @@ cv::Mat hsvClasses(const cv::Mat &bev, const cv::Mat &valid, const Config &c, cv
   return classes;
 }
 
-std::vector<Candidate> buildCandidates(const cv::Mat &classes, int source, cv::Point2f vehicle,
-                                       const Config &c) {
-  const float cell = float(c["cell"]);
-  auto pts = cellCentroids(classes, int(cell), int(c["min_cell_pixels"]));
-  struct Seq {
-    Path p;
-    std::vector<float> w;
-    int cls;
-  };
-  std::vector<Seq> seqs;
-  for (const auto &ids : chainPoints(pts, vehicle, cell, float(c["max_gap"]), float(c["max_turn_deg"]))) {
-    Seq q{{}, {}, pts[ids.front()].cls};
-    for (int k : ids)
-      q.p.push_back(pts[k].p), q.w.push_back(pts[k].weight);
-    if (length(q.p.back() - vehicle) < length(q.p.front() - vehicle)) { // near -> far
-      std::reverse(q.p.begin(), q.p.end());
-      std::reverse(q.w.begin(), q.w.end());
+Detection detect(const cv::Mat &classes, int source, const Path prior_in[2], double width, const Config &c,
+                 bool keep_roles) {
+  Detection out;
+  out.source = source;
+  const int w = classes.cols, h = classes.rows;
+  const cv::Mat mask = classes > 0, yellow = classes == 1;
+  const double cu = c["vehicle_center_u"] * (w - 1), tol = c["width_tolerance"];
+  const float band = c["line_width_max"];
+  const cv::Point2f vehicle(float(cu), float(h - 1));
+  Path prior[2] = {prior_in[0], prior_in[1]};
+
+  // 1. Seeds: a recent track starts from its own near end; otherwise the
+  // histogram peaks that best form one corridor of the expected width.
+  std::vector<Peak> peaks;
+  bool peaks_found = false;
+  auto histogram = [&]() -> const std::vector<Peak> & {
+    if (!peaks_found) {
+      peaks_found = true;
+      const int min_peak = std::max(5, int(c["min_pixels"]) / 2);
+      peaks = findPeaks(mask, yellow, int(c["histogram_start"] * (h - 1)), min_peak, int(c["margin"]));
+      if (peaks.empty())
+        peaks = findPeaks(mask, yellow, 0, min_peak, int(c["margin"]));
     }
-    seqs.push_back(q);
-  }
-  // A ragged spot or a sharp track corner can split one line: join a far end
-  // to another chain's near end. Ends that touch (< 2 cells) may meet at up to
-  // 75 deg; across a real gap both directions must agree within max_turn.
-  const float join_cos = std::cos(c["max_turn_deg"] * CV_PI / 180);
-  const float corner_cos = std::cos(75 * CV_PI / 180);
-  auto endDir = [](const Path &p, bool far) {
-    const size_t n = p.size(), k = std::min<size_t>(3, n - 1);
-    return far ? unit(p[n - 1] - p[n - 1 - k]) : unit(p[k] - p[0]);
+    return peaks;
   };
-  for (bool merged = true; merged;) {
-    merged = false;
-    for (size_t a = 0; a < seqs.size() && !merged; ++a)
-      for (size_t b = 0; b < seqs.size() && !merged; ++b) {
-        if (a == b || seqs[a].cls != seqs[b].cls || seqs[a].p.size() < 2 || seqs[b].p.size() < 2)
+  auto nearestPeak = [&](double expected, double radius, double exclude) {
+    double best = NAN, distance = radius;
+    for (const auto &p : histogram())
+      if (std::abs(p.x - expected) < distance && p.x != exclude)
+        distance = std::abs(p.x - expected), best = p.x;
+    return best;
+  };
+  double seed[2] = {NAN, NAN};
+  for (int side = 0; side < 2; ++side)
+    if (!prior[side].empty())
+      seed[side] = prior[side].front().x;
+  if (prior[0].empty() && prior[1].empty()) {
+    double best = 1e9;
+    for (const auto &a : histogram())
+      for (const auto &b : histogram()) {
+        const double sep = b.x - a.x;
+        if (sep <= 0 || std::abs(sep - width) > tol * width)
           continue;
-        const cv::Point2f gap = seqs[b].p.front() - seqs[a].p.back();
-        const cv::Point2f da = endDir(seqs[a].p, true), db = endDir(seqs[b].p, false);
-        const bool touching = length(gap) < 2 * cell;
-        if (length(gap) > c["max_gap"] || da.dot(db) < (touching ? corner_cos : join_cos) ||
-            (!touching && (unit(gap).dot(da) < join_cos || unit(gap).dot(db) < join_cos)))
-          continue;
-        seqs[a].p.insert(seqs[a].p.end(), seqs[b].p.begin(), seqs[b].p.end());
-        seqs[a].w.insert(seqs[a].w.end(), seqs[b].w.begin(), seqs[b].w.end());
-        seqs.erase(seqs.begin() + long(b));
-        merged = true;
+        const double score = std::abs(sep - width) / width + std::abs((a.x + b.x) / 2. - cu) / width;
+        if (score < best)
+          best = score, seed[0] = a.x, seed[1] = b.x;
       }
   }
-  // Each chain (also a short one: a zigzag breaks into teeth) seeds sliding
-  // windows on its own class, forward along the chain and back toward the
-  // vehicle; the window centres are fitted. A chain the windows cannot follow
-  // keeps its own fit if it is long enough.
-  cv::Mat class_mask[3];
-  for (int k = 1; k <= 2; ++k)
-    class_mask[k] = classes == k;
-  std::vector<Candidate> out;
-  for (const auto &q : seqs) {
-    if (q.p.size() < 2)
-      continue;
-    Candidate cand;
-    cand.cls = q.cls;
-    cand.source = source;
-    const cv::Point2f dir = unit(q.p[std::min<size_t>(2, q.p.size() - 1)] - q.p[0]);
-    auto ahead = slide(class_mask[q.cls], q.p.front(), dir, q.p, c);
-    const auto back = slide(class_mask[q.cls], q.p.front(), -dir, {}, c);
-    Path centers(back.centers.rbegin(), back.centers.rend());
-    std::vector<float> weights(back.weights.rbegin(), back.weights.rend());
-    centers.insert(centers.end(), ahead.centers.begin(), ahead.centers.end());
-    weights.insert(weights.end(), ahead.weights.begin(), ahead.weights.end());
-    bool ok = centers.size() >= size_t(c["min_windows"]) &&
-              fitPath(centers, weights, c["max_residual"], cand.path, cand.residual);
-    if (ok) {
-      cand.points = centers;
-    } else if (pathLength(q.p) >= c["min_length"] && q.p.size() >= 3 &&
-               fitPath(q.p, q.w, c["max_residual"], cand.path, cand.residual)) {
-      cand.points = q.p;
-      ok = true;
+  for (int side = 0; side < 2; ++side)
+    if (std::isnan(seed[side])) {
+      const double sign = side == 0 ? -1 : 1, other = seed[1 - side];
+      const double expected = std::isnan(other) ? cu + sign * width / 2 : other + sign * width;
+      seed[side] = nearestPeak(expected, std::isnan(other) ? width * .75 : tol * width * 1.5, other);
+      // A lone peak must lie on its own side of the car.
+      if (!std::isnan(seed[side]) && std::isnan(other) && (seed[side] - cu) * sign < 0)
+        seed[side] = NAN;
     }
-    if (!ok)
-      continue;
-    if (length(cand.path.back() - vehicle) < length(cand.path.front() - vehicle))
-      std::reverse(cand.path.begin(), cand.path.end()); // near -> far
+
+  // 2. Direction-following sliding windows and per-line fit. A track whose
+  // own windows find nothing (the line moved more than `margin`) gets one
+  // more try from the histogram peak nearest to it; the tracker's jump
+  // confirmation still guards the switch.
+  auto run = [&](int side, cv::Point2f start, cv::Point2f dir, const Path &guide) {
+    // Both ways from the start: a seed in the middle of a bend must still
+    // collect the part nearer the vehicle. Near -> far order is kept.
+    auto search = slide(mask, start, dir, guide, c);
+    const auto back = slide(mask, start, -dir, {}, c);
+    search.centers.insert(search.centers.begin(), back.centers.rbegin(), back.centers.rend());
+    search.weights.insert(search.weights.begin(), back.weights.rbegin(), back.weights.rend());
+    search.pixels.insert(search.pixels.end(), back.pixels.begin(), back.pixels.end());
+    auto &cand = out.side[side];
+    if (!fitLine(search, c, h, cand, out.note[side])) {
+      cand = {};
+      return false;
+    }
+    // Paths run near -> far; the search order can invert that (a seed in a
+    // bend, a dash gap at the start), which would flip heading and side.
+    if (length(cand.path.front() - vehicle) > length(cand.path.back() - vehicle) + .05f * h)
+      std::reverse(cand.path.begin(), cand.path.end());
+    size_t yellow_pixels = 0;
+    for (const auto &p : search.pixels)
+      yellow_pixels += yellow.at<uchar>(p) != 0;
+    cand.cls = 2 * yellow_pixels > search.pixels.size() ? 1 : 2;
+    cand.source = source;
     cand.length = pathLength(cand.path);
-    if (cand.length < c["min_length"])
+    out.note[side].clear();
+    return true;
+  };
+  // Lowest marking pixel under a histogram seed: a bend entry often begins
+  // mid-BEV and must not end the search by bottom misses.
+  auto lowest = [&](double x) {
+    const int x0 = std::clamp(cvRound(x - band), 0, w - 1), x1 = std::clamp(cvRound(x + band), x0 + 1, w);
+    cv::Mat column;
+    cv::reduce(mask.colRange(x0, x1), column, 1, cv::REDUCE_MAX);
+    int y = h - 1;
+    while (y > 0 && !column.at<uchar>(y))
+      --y;
+    return cv::Point2f(float(x), float(y));
+  };
+  for (int side = 0; side < 2; ++side) {
+    if (std::isnan(seed[side])) {
+      out.note[side] = "시작점 없음";
       continue;
-    cand.quality = std::min(1., cand.length / (.5 * classes.rows));
-    out.push_back(cand);
+    }
+    if (prior[side].empty()) {
+      run(side, lowest(seed[side]), {0, -1}, {});
+      continue;
+    }
+    // Start a little nearer than the old near end: the car moved forward.
+    const cv::Point2f dir = tangent(prior[side], 0);
+    if (run(side, prior[side].front() - dir * float(h / c["windows"]), dir, prior[side]))
+      continue;
+    const double x = nearestPeak(prior[side].front().x, tol * width * 1.5, seed[1 - side]);
+    if (!std::isnan(x) && std::abs(x - prior[side].front().x) > .5 * band)
+      run(side, lowest(x), {0, -1}, {});
   }
-  // A second chain along the same band (thick paint) is a duplicate.
-  std::sort(out.begin(), out.end(), [](const Candidate &a, const Candidate &b) { return a.length > b.length; });
-  std::vector<Candidate> kept;
-  for (const auto &cand : out) {
-    bool duplicate = false;
-    for (const auto &k : kept)
-      duplicate |= distanceTo(cand.path, k.path) < 1.5f * cell;
-    if (!duplicate)
-      kept.push_back(cand);
+
+  // 3. A white boundary whose near part lies across the road is a stop line
+  // or crosswalk edge, unless the other boundary turns the same way (a bend).
+  // Colour of the near third only: a search that starts on a yellow bend and
+  // runs onto a stop line is mostly yellow but its path is the line.
+  auto crossing = [&](int side) {
+    const auto &p = out.side[side].path;
+    if (p.empty() || !transverse(p))
+      return false;
+    int yellow_count = 0, all = 0;
+    for (size_t i = 0; i <= p.size() / 3; ++i) {
+      const cv::Rect box = cv::Rect(cvRound(p[i].x) - 4, cvRound(p[i].y) - 4, 9, 9) & cv::Rect(0, 0, w, h);
+      yellow_count += cv::countNonZero(yellow(box));
+      all += cv::countNonZero(mask(box));
+    }
+    return 2 * yellow_count <= all;
+  };
+  for (int side = 0; side < 2; ++side) {
+    const auto &other = !out.side[1 - side].path.empty() ? out.side[1 - side].path : prior[1 - side];
+    if (crossing(side) && !(other.size() > 1 && transverse(other))) {
+      out.side[side] = {};
+      out.note[side] = "가로 흰 선(정지선·횡단보도)으로 보고 제외";
+      out.forget[side] = true;
+      prior[side].clear();
+    }
   }
-  return kept;
+  // 4. A boundary well past the vehicle centre cannot be that side's
+  // boundary (e.g. a track locked onto the wrong line): it changes side.
+  for (int side = 0; side < 2 && !keep_roles; ++side) {
+    const double sign = side == 0 ? 1 : -1;
+    auto &cand = out.side[side];
+    if (cand.path.empty() || !out.side[1 - side].path.empty() || sign * (cand.path.front().x - cu) < .25 * width)
+      continue;
+    out.side[1 - side] = cand;
+    out.note[1 - side] = std::string(side ? "오른쪽" : "왼쪽") + " 후보가 차량 반대편에 있어 역할 교정";
+    cand = {};
+    out.note[side] = "역할 교정으로 비움";
+    out.forget[side] = true;
+    break;
+  }
+  return out;
 }
 } // namespace lane_lite

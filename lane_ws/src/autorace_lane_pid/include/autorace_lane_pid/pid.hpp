@@ -26,11 +26,15 @@ const Spec &spec(const std::string &name);
 
 struct Config {
   std::map<std::string, double> values;
+  // Node options in the same file that are not tuner gains (e.g.
+  // parking_calibration_stop): kept as written and saved back unchanged.
+  std::map<std::string, std::string> options;
   Config(); // defaults from specs()
   double operator[](const std::string &key) const { return values.at(key); }
   // Throws std::invalid_argument for out-of-range or inconsistent values.
   void validate() const;
-  // ROS 2 parameter file: <node>: ros__parameters: {...}. Unknown keys throw.
+  // ROS 2 parameter file: <node>: ros__parameters: {...}. Numeric keys must be
+  // specs; other scalars (bool / string node options) go to `options`.
   static Config load(const std::string &path, const std::string &node = "lane_pid_controller");
   void save(const std::string &path, const std::string &node = "lane_pid_controller") const;
 };

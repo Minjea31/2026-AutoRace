@@ -2,10 +2,10 @@
 // Latest deep masks (/lane_fusion/deep_mask, mono8 class ids). The deep node
 // copies the CAMERA header, so a mask's stamp is the capture time of the frame
 // it was computed from. Frames never wait for the network: each frame takes
-// its own mask if it is already there, else the newest earlier one, and only
-// if that capture time is at most `max_age` older than the frame's. A mask
-// from the future (stamp > frame) is never used. Not thread-safe: the caller
-// holds its own mutex. Shared by lane_fusion_node and the tuner.
+// the newest mask captured at or before it, at most `max_age` older (the
+// pipeline then moves it into the frame with the odometry). A mask from the
+// future (stamp > frame) is never used. Not thread-safe: the caller holds its
+// own mutex. Shared by lane_fusion_node and the tuner.
 #include <deque>
 #include <sensor_msgs/msg/image.hpp>
 
@@ -36,7 +36,6 @@ public:
     masks_.push_back(m);
     while (masks_.size() > 8)
       masks_.pop_front();
-    seen_ = now;
     return true;
   }
   // Mask for the frame captured at `stamp` (null: none usable). age: capture
@@ -54,11 +53,10 @@ public:
     return nullptr;
   }
   double latency() const { return latency_; }
-  bool alive(double now, double timeout) const { return now - seen_ < timeout; }
 
 private:
   std::deque<std::pair<int64_t, double>> arrivals_;
   std::deque<Mask> masks_;
-  double seen_ = -1e9, latency_ = -1;
+  double latency_ = -1;
 };
 } // namespace lane_lite

@@ -109,8 +109,14 @@ Config Config::load(const std::string &path, const std::string &node) {
     const auto key = kv.first.as<std::string>();
     if (key == "use_sim_time" || key == "enable_vehicle_output")
       continue; // node launch options, not gains
-    if (!c.values.count(key))
+    if (!c.values.count(key)) {
+      double number;
+      if (kv.second.IsScalar() && !YAML::convert<double>::decode(kv.second, number)) {
+        c.options[key] = kv.second.Scalar(); // bool / string node option
+        continue;
+      }
       throw std::invalid_argument("Unknown PID parameter: " + key);
+    }
     c.values[key] = kv.second.as<double>();
   }
   c.validate();
@@ -134,6 +140,8 @@ void Config::save(const std::string &path, const std::string &node) const {
     else
       e << v;
   }
+  for (const auto &[key, text] : options)
+    e << YAML::Key << key << YAML::Value << text;
   e << YAML::EndMap << YAML::EndMap << YAML::EndMap;
   // yaml-cpp prints integral doubles as "1"; ROS would then declare an
   // integer. Force a decimal point on every scalar value.
