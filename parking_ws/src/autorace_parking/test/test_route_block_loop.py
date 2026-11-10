@@ -2,6 +2,9 @@
 from concurrent.futures import Future
 from dataclasses import replace
 import math
+from unittest.mock import Mock
+
+import pytest
 
 from autorace_parking.core import Gap,Scan
 from autorace_parking.control import Follower
@@ -87,3 +90,20 @@ def test_full_sweep_rejects_obstacle_between_sparse_path_samples():
     assert checker.free((0.,0.,0.)) and checker.free((1.,0.,0.))
     collision=first_path_collision(checker,[(0.,0.,0.),(1.,0.,0.)],.02)
     assert collision['kind']=='obstacle'
+
+
+@pytest.mark.parametrize('blocked',[False,True])
+def test_real_replan_policy_skips_safe_confirmed_entry_but_replans_on_new_obstacle(node,blocked):
+    goal,path=prepare_node(node,[(.39,0.)] if blocked else [])
+    node.cfg=replace(node.cfg,replan_while_following=False)
+    node.follower.cfg=node.cfg
+    node.follower.accept(replace(goal,confirmed=True),path,True,(0.,0.,0.))
+    node.state='PARKING';node.pending=None;node.last_plan_wall=-math.inf
+    node.localization_ready=lambda now:True
+    node.steering_model_ready=lambda:True
+    node.worker.shutdown(wait=True)
+    future=Future();node.worker=Mock();node.worker.submit.return_value=future
+    node.tick()
+    assert node.worker.submit.call_count==int(blocked)
+    assert node.state==('ROUTE_BLOCKED' if blocked else 'PARKING')
+    future.cancel()

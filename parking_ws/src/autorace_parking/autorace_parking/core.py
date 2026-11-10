@@ -75,6 +75,8 @@ class Settings:
     rear_axle_offset_x: float = -0.10
     rear_axle_offset_y: float = 0.0
     slot_map_enabled: bool = False
+    fixed_parking_slot_id: int = -1  # front/near-lane row, middle column is 4 in a 3x2 grid
+    fixed_slot_empty_known: bool = False
     slot_initial_right_only: bool = True
     slot_columns: int = 3
     slot_rows: int = 2
@@ -87,6 +89,24 @@ class Settings:
     automatic_target_selection: bool = False
     pair_fallback_enabled: bool = True
     path_tracking_margin: float = 0.0
+    path_preferred_clearance: float = 0.0
+    path_clearance_weight: float = 0.0
+    path_clearance_candidates: int = 8
+    terminal_recovery_guard_distance: float = 0.0
+    terminal_approach_distance: float = 0.0
+    terminal_approach_speed: float = 0.0
+    respect_steering_settle_speed: bool = False
+    entry_obstacle_slowdown: bool = False
+    replan_while_following: bool = True
+    exit_path_tracking_margin: float = 0.0
+    parking_center_adjustment: float = 0.0
+    entry_departure_reserve: float = .01
+    require_observed_parking_center: bool = False
+    validate_reverse_entry: bool = False
+    exit_max_plan_attempts: int = 3
+    exit_retry_timeout: float = 6.0
+    exit_curve_handoff: bool = False
+    prefer_arc_finish_entry: bool = False
     max_entry_path_length: float = 0.0
     boundary_tolerance: float = 0.12
     target_heading_step: float = math.pi / 36
@@ -692,6 +712,45 @@ def arc_candidates(goal, cfg):
     return sorted(candidates, key=lambda item: item[0])
 
 
+def path_clearance_costs(paths, points, cfg, tree=None):
+    """Bounded soft costs, batched into one nearest-neighbour query.
+
+    Full swept rectangular collision checks still decide feasibility. Up to
+    48 samples and 16 neighbours per path bound the additional work.
+    """
+    if (not paths or len(points)==0 or cfg.path_clearance_weight<=0
+            or cfg.path_preferred_clearance<=cfg.clearance):
+        return [0.]*len(paths)
+    import numpy as np
+    from scipy.spatial import cKDTree
+    points=np.asarray(points,dtype=float)
+    if tree is None:tree=cKDTree(points)
+    samples=[np.asarray(path,dtype=float)[np.unique(np.linspace(0,len(path)-1,min(48,len(path)),dtype=int))]
+             for path in paths]
+    poses=np.concatenate(samples)
+    _,nearest=tree.query(poses[:,:2],k=min(16,len(points)),workers=1)
+    nearest=nearest.reshape(len(poses),-1)
+    delta=points[nearest]-poses[:,None,:2]
+    c,s=np.cos(poses[:,2,None]),np.sin(poses[:,2,None])
+    x,y=c*delta[:,:,0]+s*delta[:,:,1],-s*delta[:,:,0]+c*delta[:,:,1]
+    gaps=np.hypot(np.maximum(abs(x)-cfg.vehicle_length/2,0.),
+                  np.maximum(abs(y)-cfg.vehicle_width/2,0.)).min(axis=1)
+    deficits=np.maximum(0.,1.-gaps/cfg.path_preferred_clearance)**2
+    costs=[];offset=0
+    for sample in samples:
+        n=len(sample)
+        fade=np.minimum(1.,np.linalg.norm(sample[:,:2]-sample[-1,:2],axis=1)/.25)
+        penalty=deficits[offset:offset+n]*fade
+        lengths=np.linalg.norm(np.diff(sample[:,:2],axis=0),axis=1)
+        costs.append(float(cfg.path_clearance_weight*np.sum(lengths*(penalty[1:]+penalty[:-1])/2)))
+        offset+=n
+    return costs
+
+
+def path_clearance_cost(path,points,cfg,tree=None):
+    return path_clearance_costs([path],points,cfg,tree)[0] if len(path)>1 else 0.
+
+
 def plan_path(scan, goal, cfg, known_free_poses=(), initial_clear_center=(0., 0.)):
     """Bounded hybrid A*: Ackermann arcs with swept rectangular footprint.
 
@@ -713,6 +772,18 @@ def plan_path(scan, goal, cfg, known_free_poses=(), initial_clear_center=(0., 0.
     deadline = time.monotonic() + cfg.planning_timeout
     analytic_deadline = (time.monotonic()+cfg.planning_timeout*.45
                          if goal.kind in ('enclosed_center','pair_midpoint') else deadline)
+    if (semantic and cfg.prefer_arc_finish_entry
+            and (not cfg.require_goal_heading or cfg.goal_yaw_tolerance>=math.pi-1e-6)):
+        # Straight approach followed by one same-direction arc ending at the
+        # center. Use the existing swept body/clearance check, never a shortcut.
+        radius=max(cfg.turn_radius,cfg.preferred_turn_radius)
+        if cfg.max_planning_turn_radius>0:radius=min(radius,cfg.max_planning_turn_radius)
+        if radius>=cfg.turn_radius-1e-9:
+            arc_cfg=replace(cfg,min_turn_radius=radius)
+            for length,parts in position_arc_candidates(goal,arc_cfg):
+                if length>path_limit:continue
+                path,valid=sample_candidate(checker,parts,cfg)
+                if valid and at_goal(path[-1]):return path
     candidates=parking_candidates(goal,cfg,include_arcs=True)
     blocked_straight=None
     if semantic and cfg.prefer_straight_entry:
@@ -722,7 +793,10 @@ def plan_path(scan, goal, cfg, known_free_poses=(), initial_clear_center=(0., 0.
             if not checker.free((distance,0.,0.)):
                 blocked_straight=distance
                 break
-    for length, parts in candidates:
+    preference=((semantic or goal.kind=='departure') and cfg.path_clearance_weight>0
+                and cfg.path_preferred_clearance>cfg.clearance
+                and math.hypot(goal.x,goal.y)>.25)
+    for candidate_index,(length,parts) in enumerate(candidates):
         if length>path_limit:continue
         # Reject only at a proven colliding pose on the shared initial straight.
         # This avoids repeatedly sampling the same blocked prefix for dozens of
@@ -731,6 +805,34 @@ def plan_path(scan, goal, cfg, known_free_poses=(), initial_clear_center=(0., 0.
                 and parts[0][0]>=blocked_straight-1e-10):continue
         path, valid = sample_candidate(checker, parts, cfg)
         if valid:
+            # Start with the original feasible solution. Score only its nearby
+            # alternatives; blocked scenes and already-roomy paths add no search.
+            if preference and checker.scan.points and time.monotonic()<analytic_deadline:
+                from scipy.spatial import cKDTree
+                tree=cKDTree(checker.scan.points)
+                current_cost=path_clearance_cost(path,checker.scan.points,cfg,tree)
+                if current_cost>1e-8:
+                    side=1 if goal.y>=0 else -1
+                    base=lambda parts:candidate_cost(parts,cfg)+cfg.entry_outward_penalty*outward_excursion(parts,side)
+                    alternatives=[];previews=[]
+                    for next_length,next_parts in candidates[candidate_index+1:]:
+                        if next_length>path_limit:continue
+                        if (blocked_straight is not None and next_parts and abs(next_parts[0][1])<1e-10
+                                and next_parts[0][0]>=blocked_straight-1e-10):continue
+                        pose=(0.,0.,0.);preview=[pose]
+                        for distance,curvature in next_parts:
+                            count=max(1,math.ceil(distance/.08))
+                            preview.extend(advance(pose,distance*i/count,curvature) for i in range(1,count+1))
+                            pose=preview[-1]
+                        alternatives.append(next_parts);previews.append(preview)
+                        if len(alternatives)>=cfg.path_clearance_candidates:break
+                    costs=path_clearance_costs(previews,checker.scan.points,cfg,tree)
+                    threshold=base(parts)+current_cost
+                    ranked=sorted(((base(p)+c,p) for p,c in zip(alternatives,costs)),key=lambda item:item[0])
+                    for cost,alternative in ranked:
+                        if cost>=threshold or time.monotonic()>analytic_deadline:break
+                        improved,free=sample_candidate(checker,alternative,cfg)
+                        if free:return improved
             return path
         if time.monotonic() > analytic_deadline:
             break

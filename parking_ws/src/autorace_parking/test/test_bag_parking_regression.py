@@ -137,6 +137,24 @@ def test_reverse_reserves_mission_total_budget_and_waits_for_three_stopped_scans
     node.reset_motion();assert node.recovery_remaining==node.cfg.recovery_total_distance
 
 
+@pytest.mark.parametrize('state,deferred',[('PARKING',True),('CONFIRMING',True),('ROUTE_BLOCKED',False)])
+def test_five_cm_terminal_replan_failure_does_not_retreat_unless_route_is_blocked(node,state,deferred):
+    # The 04:01 bag retreated 30 cm with just 5.8 cm left to the fixed center.
+    # Preserve an actively followed route; a stopped/blocked route must recover.
+    node.cfg=replace(node.cfg,terminal_recovery_guard_distance=.12)
+    goal=Gap(.058,0.,0.,.5,0,1,kind='enclosed_center',confirmed=True,
+             support_ids=(1,2,3,4,5),stop_tolerance=.03)
+    node.tracked_goal=goal
+    node.follower.accept(goal,[(0.,0.,0.),(.02,0.,0.),(.04,0.,0.),(.058,0.,0.)],True,(0.,0.,0.))
+    old=node.follower.path
+    node.state=state
+    propose(node)
+    assert bool(node.planning_info.get('terminal_recovery_deferred'))==deferred
+    assert (node.follower.path is old)==deferred
+    assert node.follower.recovering==(not deferred)
+    assert node.recovery_attempts==(0 if deferred else 1)
+
+
 @pytest.mark.parametrize('obstacle,origin',[(True,(0.,0.,0.)),(False,(.2,0.,0.))])
 def test_reverse_rechecks_new_obstacles_and_stale_pose_before_acceptance(node,obstacle,origin):
     if obstacle:node.scan.points=[(-.25,0.)]

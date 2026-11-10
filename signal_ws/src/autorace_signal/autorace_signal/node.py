@@ -16,7 +16,7 @@ from .core import SignalState
 
 # Tune here; launch does not override these defaults. Restart after changes.
 CONFIRM_FRAMES = 2
-MAX_RED_WAIT_SEC = 10.0  # Restarted by every red received while stopping.
+MAX_RED_WAIT_SEC = 5.0  # Restarted by every red received while stopping.
 SIGNAL_GAP_TIMEOUT_SEC = 0.5
 PUBLISH_RATE_HZ = 30.0
 LANE_TIMEOUT_SEC = 0.25

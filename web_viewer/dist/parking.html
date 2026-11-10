@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#10171d">
+  <meta name="description" content="실시간 라이다와 2×3 주차칸 매칭, 주차 경로를 확인하는 AutoRace 관측 화면">
+  <title>AutoRace · Parking Live</title>
+  <link rel="stylesheet" href="/parking.css">
+  <script src="/parking.js" type="module"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/parking"><span class="brand-mark">A↗</span><span>AUTORACE <span class="brand-sub">/ PARKING</span></span></a>
+    <nav><a href="/">영상 보기 ↗</a><span id="connection" class="connection"><i></i><span>연결 중</span></span></nav>
+  </header>
+  <main>
+    <section class="heading">
+      <div><div class="eyebrow">LIVE MISSION MONITOR</div><h1>주차 현황 <span class="mission-badge" id="mission-badge">대기 중</span></h1></div>
+      <div class="host"><span id="host">—</span><span id="update-age">데이터 연결 중</span></div>
+    </section>
+    <div class="workspace">
+      <section class="map-panel" aria-label="실시간 주차 상단 뷰">
+        <div class="panel-bar"><div><span class="live-dot"></span><strong>라이다 · 주차 맵</strong><span class="frame-label">차량 기준 상단 뷰</span></div><div class="map-tools"><button id="fit" title="주차칸과 경로가 보이도록 맞추기">화면 맞춤</button><button id="reset-view" title="차량 중심으로 보기">차량 중심</button><button id="fullscreen" title="지도 전체화면" aria-label="지도 전체화면">⛶</button></div></div>
+        <div class="map-stage" id="map-stage">
+          <canvas id="map" aria-label="차량, 라이다, 기억 장애물, 주차칸 및 계획 경로"></canvas>
+          <div id="map-empty" class="map-message"><span class="crosshair">⌖</span><strong>주차 데이터를 기다리고 있습니다</strong><span>센서와 주차 노드가 연결되면 여기에 표시됩니다.</span></div>
+          <div class="map-status" id="map-status">주차 미션 시작을 기다리는 중</div>
+          <div class="axis-note"><span>↑ 전방</span><span>← 왼쪽</span></div>
+          <div class="scale-bar"><span id="scale-line"></span><span>0.5 m</span></div>
+          <div class="zoom"><button id="zoom-in" aria-label="지도 확대">＋</button><button id="zoom-out" aria-label="지도 축소">−</button></div>
+          <div class="map-help">드래그로 이동 · 휠로 확대</div>
+        </div>
+        <div class="legend" aria-label="표시 레이어">
+          <label><input type="checkbox" data-layer="scan" checked><i class="key scan"></i>라이다</label>
+          <label><input type="checkbox" data-layer="memory" checked><i class="key memory"></i>기억 장애물</label>
+          <label><input type="checkbox" data-layer="slots" checked><i class="key slots"></i>주차칸</label>
+          <label><input type="checkbox" data-layer="path" checked><i class="key path"></i>계획 경로</label>
+          <label><input type="checkbox" data-layer="roi" checked><i class="key roi"></i>탐색 구역</label>
+        </div>
+        <div class="map-footer"><span id="point-count">라이다 —점 · 기억 장애물 —점</span><span>주차 미션에 맞춰 자동 갱신</span></div>
+      </section>
+      <aside class="sidebar">
+        <section class="card status-card"><div class="card-title"><h2>미션 상태</h2><span id="attempt" class="muted">시도 —</span></div><div class="state-name" id="state-name">주차 노드 연결 대기</div><p id="reason">주차 노드에서 최신 상태를 수신하면 표시합니다.</p><div class="metric-row"><div><span>속도</span><strong id="speed">—<small> m/s</small></strong></div><div><span>조향각</span><strong id="steering">—<small> °</small></strong></div><div><span>위치 추정</span><strong id="localization" class="small-value">대기</strong></div></div></section>
+        <section class="card match-card"><div class="card-title"><h2>2 × 3 주차칸 매칭</h2><span id="fit-badge" class="tag">관측 대기</span></div><div class="fit-metrics"><div><span>매칭 관측</span><strong id="matched">—<small> / 6</small></strong></div><div><span>매칭 오차</span><strong id="rmse">—<small> cm</small></strong></div><div><span>지도 가설</span><strong id="hypotheses">—</strong></div></div><div id="slot-grid" class="slot-grid" aria-label="실제 매칭된 6개 주차칸"></div><div class="slot-key"><span><i class="key occupied"></i>점유</span><span><i class="key slots"></i>빈 칸 후보</span><span><i class="key target"></i>목표</span></div><p class="match-note" id="match-note">관측 장애물이 모이면 3열 × 2행 지도를 맞춥니다. 아직 매칭된 지도는 없습니다.</p></section>
+        <section class="card camera-card"><div class="card-title"><h2>전방 카메라</h2><span id="camera-state" class="muted">영상 대기</span></div><div class="camera-stage"><img id="camera" alt="차량 전방 카메라"><span id="camera-wait">카메라 영상 대기</span></div></section>
+        <section class="card input-card"><div class="card-title"><h2>입력 상태</h2><span class="muted">최신 수신 기준</span></div><div id="input-health" class="input-health"></div><p id="input-error" class="input-error"></p></section>
+      </aside>
+    </div>
+    <footer><span>보기 전용 · 차량 제어 기능 없음</span><span id="footer-status">ROS 연결 대기</span></footer>
+  </main>
+</body>
+</html>

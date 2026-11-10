@@ -21,14 +21,14 @@ from autorace_mux.node import MuxNode
 
 
 class Harness:
-    def __init__(self, max_wait=3.):
+    def __init__(self, max_wait=None):
         self.context = Context()
         rclpy.init(context=self.context, domain_id=180+os.getpid()%20,
                    signal_handler_options=SignalHandlerOptions.NO)
         prefix = '/signal_test_'+uuid4().hex
         self.topics = {key: prefix+'/'+key for key, _ in INPUTS}
-        self.signal = SignalNode(context=self.context, parameter_overrides=[
-            Parameter('max_red_wait_sec', value=max_wait)],
+        overrides = [] if max_wait is None else [Parameter('max_red_wait_sec', value=max_wait)]
+        self.signal = SignalNode(context=self.context, parameter_overrides=overrides,
             cli_args=['--ros-args', '-r', '/yolo/signal:='+prefix+'/yolo',
                       '-r', '/mission/lane:='+self.topics['lane'],
                       '-r', '/mission/signal/command_02:='+self.topics['signal']])
@@ -84,6 +84,8 @@ class Harness:
 def test_dds_confirmation_preserves_fields_and_mux_returns_to_lane():
     h = Harness()
     try:
+        assert h.signal.confirm_frames == 2
+        assert h.signal.max_red_wait_sec == 5.0
         h.lane_enabled = True
         h.pump(.3)
         assert h.outputs[-1].linear.x == pytest.approx(.3)

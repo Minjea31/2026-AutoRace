@@ -305,3 +305,13 @@ SDK 1.2.17의 삼각 프로토콜 + intensity 3바이트 패킷을 체크섬까�
 관련 FINDINGS.md에 관찰 사실과 아직 분리하지 못한 장치·펌웨어·전원 원인을 구분해 기록했다.
 
 과거 원시 패킷 기록은 당시 진단용 실행 파일로 수집한 결과이다. 현재 복원한 기존 드라이버는 sdk_debug 원시 패킷 기록을 지원하지 않는다.
+
+
+### 주차 접근 시 정지 자이로 보정
+
+`/localization/calibrate_gyro` (`std_srvs/srv/Trigger`)는 EKF나 정적 기준 TF를
+초기화하지 않고 정지 자이로 보정만 새로 요청합니다. 응답 message의 JSON generation은
+`/localization/health.calibration_generation`과 일치해야 합니다.
+health에는 calibrating, wheel_speed_m_s, wheel_yaw_rate_rad_s도 포함됩니다.
+연속 보정 중 0.2초 이상 입력 간격이 벌어지면 기존 보정 샘플을 버립니다.
+보정 요청 횟수와 재시도 정책은 parking이 관리하며 실패 시 자동 요청을 반복하지 않습니다.

@@ -37,7 +37,7 @@ def transformed_scan(scan,transform):
     return result
 
 
-def single_reverse_route(trace,pose,targets,scan,cfg):
+def single_reverse_route(trace,pose,targets,scan,cfg,grid=None):
     """Plan in a frame facing backwards, then restore body headings.
 
     Forward-only search in this frame guarantees negative body velocity along
@@ -66,7 +66,8 @@ def single_reverse_route(trace,pose,targets,scan,cfg):
         # Stopping ahead of it can leave the enlarged body inside the grid,
         # repeatedly accepting tiny arcs that cannot satisfy exit arrival.
         beyond_return=(aligned[0]-targets[0][0])*math.cos(origin[2])+(aligned[1]-targets[0][1])*math.sin(origin[2])
-        if abs(lateral)<=cfg.exit_lane_tolerance and beyond_return<=0.:choices.insert(0,aligned)
+        if (abs(lateral)<=cfg.exit_lane_tolerance and beyond_return<=0.
+                and (grid is None or outside_grid(aligned,grid,cfg))):choices.insert(0,aligned)
     for index,target in enumerate(choices):
         remaining=deadline-time.monotonic()
         if remaining<=.005:break
@@ -74,19 +75,56 @@ def single_reverse_route(trace,pose,targets,scan,cfg):
         actual_limit=cfg.wheelbase/(math.tan(cfg.steering_limit)*cfg.steering_response_scale)
         reverse_radius=(actual_limit if cfg.require_steering_calibration else cfg.turn_radius)/cfg.reverse_steering_response_scale
         settings=replace(cfg,allow_reverse=False,require_goal_heading=True,goal_tolerance=.02,
-            goal_yaw_tolerance=.04,preferred_turn_radius=reverse_radius,min_turn_radius=reverse_radius,
+            clearance=cfg.clearance+cfg.exit_path_tracking_margin,
+            goal_yaw_tolerance=.02 if cfg.exit_curve_handoff else .04,
+            preferred_turn_radius=reverse_radius,min_turn_radius=reverse_radius,
             steering_response_scale=cfg.steering_response_scale*cfg.reverse_steering_response_scale,
             max_planning_turn_radius=0.,entry_outward_penalty=0.,
             max_steering_paths_only=False,planning_timeout=remaining/(len(choices)-index))
-        freedom=min(.20,cfg.exit_arrival_yaw_tolerance*.6) if cfg.exit_arrival_yaw_tolerance>.20 else 0.
+        # Curve-only handoff needs an aligned lane return. Permitting +/-0.2
+        # rad here used to manufacture an endpoint that immediately needed a
+        # second corrective route, despite tracking its first route accurately.
+        freedom=(min(.20,cfg.exit_arrival_yaw_tolerance*.6)
+                 if not cfg.exit_curve_handoff and cfg.exit_arrival_yaw_tolerance>.20 else 0.)
         headings=(yaw,wrap(yaw-freedom),wrap(yaw+freedom)) if freedom else ()
-        path=plan_path(source,Gap(x,y,yaw,.6,0,1,heading_options=headings),settings,known)
+        path=plan_path(source,Gap(x,y,yaw,.6,0,1,heading_options=headings,kind='departure'),settings,known)
         if not path:continue
         route=[compose(backwards,p) for p in path]
         route=[(x,y,wrap(a-math.pi)) for x,y,a in route]
+        if grid is not None and not outside_grid(route[-1],grid,cfg):continue
+        if cfg.exit_curve_handoff and abs(wrap(route[-1][2]-origin[2]))<=.03:
+            # Leave room for the measured steering delay to settle after the
+            # last arc. The controller may hand off on this checked straight
+            # tail instead of reaching an arc endpoint while still misaligned.
+            end=route[-1]
+            tail=[advance(end,-.02*i,0.) for i in range(1,11)]
+            checker=CollisionChecker(scan,replace(cfg,clearance=cfg.clearance+cfg.exit_path_tracking_margin))
+            if all(checker.free(compose(inverse(pose),p)) for p in tail):route+=tail
         # A long detour is not a useful reconstruction of the entry corridor.
         length=sum(math.dist(a[:2],b[:2]) for a,b in zip(route,route[1:]))
         direct=math.dist(pose[:2],target[:2])
         if length>min(max(3.,2*sum(math.dist(a[:2],b[:2]) for a,b in zip(trace,trace[1:]))),max(.5,1.75*direct+.2)):continue
         return route,''
     return [],'no_reverse_route'
+
+
+def reverse_entry_route(entry, pose, scan, cfg):
+    """Reuse a nominal smooth entry only when the actual join is feasible now."""
+    from .regions import first_path_collision
+    if len(entry)<2:return []
+    route=list(reversed(entry))
+    if math.dist(pose[:2],route[0][:2])>.05 or abs(wrap(pose[2]-route[0][2]))>.12:return []
+    route[0]=pose
+    radius=cfg.turn_radius/cfg.reverse_steering_response_scale
+    for a,b in zip(route,route[1:]):
+        distance=math.dist(a[:2],b[:2])
+        if distance < 1e-5:
+            if abs(wrap(b[2]-a[2]))>.005:return []
+            continue
+        if abs(wrap(b[2]-a[2]))/distance>1/radius+.02:return []
+        mid=a[2]+wrap(b[2]-a[2])/2
+        if (b[0]-a[0])*math.cos(mid)+(b[1]-a[1])*math.sin(mid)>=0:return []
+    tr=inverse(pose)
+    checker=CollisionChecker(scan,replace(cfg,clearance=cfg.clearance+cfg.exit_path_tracking_margin))
+    if first_path_collision(checker,[compose(tr,p) for p in route],cfg.collision_step):return []
+    return route

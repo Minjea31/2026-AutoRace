@@ -140,11 +140,12 @@ def test_short_forward_goal_is_not_lost_in_start_hash_cell():
 
 def test_real_profile_enables_selection_rear_arrival_and_three_second_departure():
     params=yaml.safe_load((Path(__file__).resolve().parents[1]/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
-    assert params['automatic_target_selection'] and params['pair_fallback_enabled']
+    assert params['automatic_target_selection'] and not params['pair_fallback_enabled']
+    assert params['fixed_parking_slot_id']==4 and params['obstacle_min_cluster_size']==.05
     assert params['auto_exit_after_parking'] and params['parking_hold_seconds']==3.
     assert params['arrival_use_rear_axle'] and params['rear_axle_offset_x']==-.1
     assert not params['block_occupied_slots']
-    assert params['steering_gain']==2.0 and params['curvature_feedforward'] and params['recovery_total_distance']==1.5 and params['max_recovery_attempts']==5
+    assert params['steering_gain']==1.2 and params['curvature_feedforward'] and params['recovery_total_distance']==1.5 and params['max_recovery_attempts']==5
 
 
 def test_parked_pair_can_promote_without_erasing_the_old_path_before_new_route():
@@ -180,7 +181,7 @@ def test_parked_pair_can_promote_without_erasing_the_old_path_before_new_route()
 @pytest.mark.parametrize('count',[2,3,5])
 def test_measured_response_and_servo_delay_reach_the_geometric_goal(count):
     params=yaml.safe_load((Path(__file__).resolve().parents[1]/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
-    cfg=replace(Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params}),slot_map_enabled=False,auto_exit_after_parking=False)
+    cfg=replace(Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params}),slot_map_enabled=False,auto_exit_after_parking=False,pair_fallback_enabled=True)
     positions=[(2.2,-.4),(3.,-.4),(3.,-1.2),(2.2,-1.2),(3.,-.8)][:count]
     if count==2:positions=[(2.2,-.7),(3.,-.7)]
     if count==3:positions=[(2.2,-.4),(3.,-.4),(2.6,-1.2)]

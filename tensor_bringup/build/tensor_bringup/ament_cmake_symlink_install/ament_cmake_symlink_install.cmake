@@ -313,8 +313,8 @@ message(STATUS "Execute custom install script")
 # install(DIRECTORY "launch" "rviz" "DESTINATION" "share/tensor_bringup")
 ament_cmake_symlink_install_directory("/home/wego/2026-AutoRace/tensor_bringup" DIRECTORY "launch" "rviz" "DESTINATION" "share/tensor_bringup")
 
-# install(PROGRAMS "scripts/ready.py" "DESTINATION" "lib/tensor_bringup")
-ament_cmake_symlink_install_programs("/home/wego/2026-AutoRace/tensor_bringup" PROGRAMS "scripts/ready.py" "DESTINATION" "lib/tensor_bringup")
+# install(PROGRAMS "scripts/ready.py" "scripts/mission_visualizer.py" "DESTINATION" "lib/tensor_bringup")
+ament_cmake_symlink_install_programs("/home/wego/2026-AutoRace/tensor_bringup" PROGRAMS "scripts/ready.py" "scripts/mission_visualizer.py" "DESTINATION" "lib/tensor_bringup")
 
 # install(FILES "/home/wego/2026-AutoRace/tensor_bringup/build/tensor_bringup/ament_cmake_index/share/ament_index/resource_index/package_run_dependencies/tensor_bringup" "DESTINATION" "share/ament_index/resource_index/package_run_dependencies")
 ament_cmake_symlink_install_files("/home/wego/2026-AutoRace/tensor_bringup" FILES "/home/wego/2026-AutoRace/tensor_bringup/build/tensor_bringup/ament_cmake_index/share/ament_index/resource_index/package_run_dependencies/tensor_bringup" "DESTINATION" "share/ament_index/resource_index/package_run_dependencies")

@@ -84,7 +84,7 @@ def test_right_bay_recovery_goes_straight_then_left_rear():
 def test_real_recovery_profile_backs_straight_thirty_cm_on_either_side(side):
     cfg, _ = real_profile();cfg = replace(cfg, initial_clear_radius=0.,clearance=.04)
     assert not cfg.recovery_left_when_goal_right
-    assert cfg.recovery_speed == .2 and cfg.blind_reverse_distance == .3
+    assert cfg.recovery_speed == .12 and cfg.blind_reverse_distance == .3
     scan = front_scan();scan.points.append((cfg.vehicle_length/2+.08,0.))
     report = build_plan_report(scan, cfg, Gap(1., side*.5, side*math.pi/2, .85, 0, 1))
     assert report['diagnostics']['recovery_mode'] == 'straight_reverse'
@@ -92,15 +92,21 @@ def test_real_recovery_profile_backs_straight_thirty_cm_on_either_side(side):
     assert all(y == yaw == 0. for x, y, yaw in report['path'])
 
 
-def test_steering_target_is_published_without_a_software_slew_ramp():
+def test_real_profile_limits_steering_reversal_and_settling_speed():
     cfg, p = real_profile()
-    assert p['max_steering_rate'] == 0.
+    assert p['max_steering_rate'] == 1.2 and cfg.respect_steering_settle_speed
     follower = Follower(cfg, speed=.5, lookahead=p['lookahead'],
                         max_steering_rate=p['max_steering_rate'], min_turn_speed=p['min_turn_speed'])
     path = [advance((0., 0., 0.), cfg.turn_radius*math.pi/2*i/60, -1/cfg.turn_radius) for i in range(61)]
     follower.accept(Gap(*path[-1], .85, 0, 1), path, True, (0., 0., 0.))
-    speed, steering, _ = follower.command(clear_scan(), (0., 0., 0.), now=0.)
-    assert speed >= .2 and steering == pytest.approx(-math.atan(cfg.wheelbase/cfg.turn_radius),abs=2e-4)
+    previous=0.
+    for i in range(12):
+        speed,steering,_=follower.command(clear_scan(),(0.,0.,0.),now=i*.05)
+        assert abs(steering-previous)<=p['max_steering_rate']*.05+1e-8
+        assert 0<speed<=.5
+        if i==0:assert speed<.1
+        previous=steering
+    assert steering==pytest.approx(-math.atan(cfg.wheelbase/cfg.turn_radius),abs=2e-4)
 
 
 def test_ldf_tracks_actual_pursuit_radius_and_selected_point():

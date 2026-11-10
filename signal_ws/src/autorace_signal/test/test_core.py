@@ -100,3 +100,49 @@ def test_initial_green_and_tunable_threshold():
     assert s.stopping
     s.tick(4.100001)
     assert not s.stopping
+
+
+def test_two_confirmations_and_five_seconds_since_last_red():
+    s = SignalState(2, 5., .5)
+    s.tick(100.)
+    assert not s.stopping
+    s.receive(False, 100.)
+    assert not s.stopping
+    s.receive(False, 100.1)
+    assert s.stopping
+    # Even after a confirmation gap, one red renews the active stop.
+    s.receive(False, 103.)
+    s.receive(True, 103.1)
+    assert s.stopping and s.started_at == 103.
+    s.tick(107.999)
+    assert s.stopping
+    s.tick(108.)
+    assert not s.stopping
+    s.receive(False, 109.)
+    assert not s.stopping
+    s.receive(False, 109.1)
+    assert s.stopping
+    s.receive(True, 109.2)
+    assert s.stopping
+    s.receive(True, 109.3)
+    assert not s.stopping
+
+
+def test_two_confirmations_require_same_colour_without_long_gap():
+    s = SignalState(2, 5., .5)
+    s.receive(False, 0.)
+    s.receive(True, .1)
+    s.receive(False, .2)
+    assert not s.stopping
+    s.receive(False, .8)
+    assert not s.stopping
+    s.receive(False, .9)
+    assert s.stopping
+    s.receive(True, 1.)
+    s.receive(True, 1.6)
+    assert s.stopping
+    s.receive(False, 1.7)
+    s.receive(True, 1.8)
+    assert s.stopping
+    s.receive(True, 1.9)
+    assert not s.stopping

@@ -62,6 +62,7 @@ class CrosswalkNode(Node):
                          durability=DurabilityPolicy.VOLATILE)
         self.command_pub = self.create_publisher(
             AckermannDriveStamped, '/mission/crosswalk/command_01', qos)
+        self.start_crosswalk_pub = self.create_publisher(Bool, '/start_crosswalk', qos)
         self.sign_sub = self.create_subscription(
             Bool, '/yolo/crosswalk_sign', self.on_sign, qos)
         self.lane_sub = self.create_subscription(
@@ -157,6 +158,8 @@ class CrosswalkNode(Node):
         previous = self.state.phase
         stopping = self.state.tick(time.monotonic(), self.lane is not None)
         if previous != self.state.phase:
+            if self.state.phase == 'stopping':
+                self.start_crosswalk_pub.publish(Bool(data=True))
             if self.state.phase == 'waiting':
                 self.white_arm_stamp = None
             self.get_logger().info(f'Crosswalk: {self.state.phase}')

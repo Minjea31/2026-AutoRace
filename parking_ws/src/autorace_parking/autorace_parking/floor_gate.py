@@ -10,6 +10,7 @@ from rcl_interfaces.msg import ParameterDescriptor
 from rcl_interfaces.srv import GetParameters
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
+from std_msgs.msg import Float64MultiArray
 
 from autorace_slow.white_roi import WhiteROI, load_lane_white, validate_white
 from .core import Activation
@@ -40,6 +41,16 @@ class ParkingFloorGate:
         if not config:
             raise ValueError('Cannot find lane white HSV config; set lane_white_config')
         self.s_max, self.v_min = load_lane_white(config)
+        self.line_frames = int(parameter('white_line_confirmations',1))
+        self.line_min_span = float(parameter('white_line_min_span',0.))
+        self.line_max_angle = float(parameter('white_line_max_angle',.44))
+        if not 1 <= self.line_frames <= 5 or not 0 <= self.line_min_span <= 1 or not 0 < self.line_max_angle <= math.pi/2:
+            raise ValueError('Invalid parking start line confirmation settings')
+        self.line_count = 0
+        self.line_stamp = None
+        self.shared_received = -math.inf
+        self.shared_subscription = node.create_subscription(Float64MultiArray,
+            '/parking/floor_observation',self.on_observation,1)
         self.confirmation = Activation(node.required_detections, node.sign_timeout)
         self.armed_stamp = None
         self.ratio = None
@@ -64,6 +75,8 @@ class ParkingFloorGate:
         self.confirmation.reset()
         self.armed_stamp = None
         self.ratio = None
+        self.line_count = 0
+        self.line_stamp = None
 
     def clock(self):
         now = self.node.get_clock().now().nanoseconds
@@ -84,7 +97,40 @@ class ParkingFloorGate:
             self.node.get_logger().info(
                 f'PARKING: YOLO {self.node.required_detections}회 확인, 바닥 흰색 ROI 대기')
 
+    def observe(self, stamp, ratio, span, angle):
+        now = self.clock()
+        if (not self.node.approach_can_start() or not self.armed
+                or time.monotonic() < self.node.sign_ignore_until
+                or stamp <= self.armed_stamp or (self.last_stamp is not None and stamp <= self.last_stamp)
+                or not -.05 <= (now-stamp)/1e9 <= self.timeout):
+            return
+        self.last_stamp = stamp
+        self.ratio = ratio
+        hit = ratio >= self.roi.minimum_ratio and span >= self.line_min_span and abs(angle) <= self.line_max_angle
+        if self.line_stamp is None or (stamp-self.line_stamp)/1e9 > .25:
+            self.line_count = 0
+        self.line_count = self.line_count+1 if hit else 0
+        self.line_stamp = stamp
+        if self.line_count >= self.line_frames:
+            self.reset()
+            self.start()
+
+    def on_observation(self, message):
+        if (self.roi.left,self.roi.right,self.roi.top,self.roi.bottom)!=(.20,.80,.86,.92):return
+        a = message.data
+        if (len(a)!=5 or not all(math.isfinite(v) for v in a)
+                or a[0] < 0 or a[0]!=int(a[0]) or not 0 <= a[1] < 1e9 or a[1]!=int(a[1])
+                or not 0 <= a[2] <= 1 or not 0 <= a[3] <= 1 or abs(a[4]) > math.pi/2):return
+        stamp = int(a[0])*1_000_000_000+int(a[1])
+        if not -.05 <= (self.clock()-stamp)/1e9 <= self.timeout:return
+        self.shared_received = time.monotonic()
+        self.observe(stamp,*a[2:])
+
     def on_image(self, message):
+        if time.monotonic()-self.shared_received <= .5:
+            return
+        if not self.node.approach_can_start():
+            return
         now, wall = self.clock(), time.monotonic()
         if not self.armed or wall < self.node.sign_ignore_until:
             return
@@ -94,20 +140,24 @@ class ParkingFloorGate:
                 or not -.05 <= (now - stamp) / 1e9 <= self.timeout
                 or wall - self.last_wall < 1. / self.hz):
             return
-        self.last_stamp, self.last_wall = stamp, wall
+        self.last_wall = wall
         try:
             image = cv2.imdecode(np.frombuffer(message.data, dtype=np.uint8), cv2.IMREAD_COLOR)
             if image is None:
                 raise ValueError('Cannot decode camera JPEG')
-            ratio, _, _ = self.roi.measure(image, self.s_max, self.v_min)
+            ratio, _, mask = self.roi.measure(image, self.s_max, self.v_min)
             # Re-check age after decoding so a delayed callback cannot start parking.
             age = (self.node.get_clock().now().nanoseconds - stamp) / 1e9
             if not -.05 <= age <= self.timeout:
                 return
-            self.ratio = ratio
-            if ratio >= self.roi.minimum_ratio:
-                self.reset()
-                self.start()
+            span = np.count_nonzero(np.any(mask>0,axis=0))/mask.shape[1]
+            points = cv2.findNonZero(mask)
+            angle = 0.
+            if points is not None and len(points)>=2:
+                vx,vy,_,_ = cv2.fitLine(points,cv2.DIST_L2,0,.01,.01).flatten()
+                angle = math.atan2(float(vy),float(vx))
+                angle = (angle+math.pi/2)%math.pi-math.pi/2
+            self.observe(stamp,ratio,span,angle)
         except (ValueError, cv2.error) as error:
             self.node.get_logger().warning(f'Parking white ROI image rejected: {error}', throttle_duration_sec=5.)
 

@@ -11,6 +11,7 @@ ROS 2 Humble의 `autorace_crosswalk` 패키지입니다. `slow_ws`와 같은 흰
 - `/yolo/crosswalk_sign`을 `std_msgs/msg/Bool`, `/mission/lane`을 `ackermann_msgs/msg/AckermannDriveStamped`로 구독합니다.
 - true를 연속 2회 받으면 흰색 바닥 표시를 기다립니다. 이후 촬영된 유효한 영상에서 ROI의 흰색 비율이 8% 이상이면 즉시 정지를 시작합니다. true 2회 확인 전 false를 받으면 확인 횟수를 초기화하며, 메시지 간 시간 제한은 두지 않습니다.
 - 정지 중에는 최신 lane 메시지를 복사하여 `drive.speed`만 `0.0`으로 바꾸고 `/mission/crosswalk/command_01`로 30 Hz 발행합니다. 메시지 타입은 `ackermann_msgs/msg/AckermannDriveStamped`입니다. 조향 등 나머지 drive 필드와 frame은 보존하고 헤더 시각은 현재 시각으로 갱신합니다.
+- 정지 명령을 시작하는 순간 `/start_crosswalk` (`std_msgs/msg/Bool`, True)를 한 번 발행합니다. 표지판 확정·바닥 대기·lane 입력 대기 중에는 발행하지 않으며, 정지 중 반복 발행하거나 종료 시 False를 보내지 않습니다. QoS는 Reliable / Volatile / KeepLast(1)입니다. `slow_node`는 이를 받아 서행 미션을 종료합니다.
 - 실제 경과 시간 기준 3초 동안 정지 명령을 발행합니다. 정지 중 false를 받아도 3초를 완료합니다.
 - 정지 완료 후 발행을 중단하고 실제 경과 시간으로 10초 동안 표지판·흰색 감지를 무시합니다. 10초가 지나면 확인 횟수를 비운 상태로 다시 대기합니다. 이후 새 true 연속 2회와 확인 이후 촬영된 새 흰색 영상이 있어야 다시 정지합니다. 대기·재감지 금지 중에는 명령을 발행하지 않습니다.
 

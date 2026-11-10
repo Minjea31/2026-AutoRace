@@ -27,11 +27,14 @@ def test_dds_stop_cooldown_and_new_sign_and_floor_required_to_repeat():
         '--ros-args', '-r', '/yolo/crosswalk_sign:=' + prefix + '/sign',
         '-r', '/mission/lane:=' + prefix + '/lane',
         '-r', '/camera/color/image_raw/compressed:=' + prefix + '/camera',
-        '-r', '/mission/crosswalk/command_01:=' + prefix + '/command'])
+        '-r', '/mission/crosswalk/command_01:=' + prefix + '/command',
+        '-r', '/start_crosswalk:=' + prefix + '/start'])
     probe = Node('crosswalk_probe', context=context)
     lane_pub = probe.create_publisher(AckermannDriveStamped, prefix + '/lane', 1)
     sign_pub = probe.create_publisher(Bool, prefix + '/sign', 1)
     camera_pub = probe.create_publisher(CompressedImage, prefix + '/camera', 1)
+    starts = []
+    start_subscription = probe.create_subscription(Bool, prefix + '/start', starts.append, 10)
     commands = []
     subscription = probe.create_subscription(
         AckermannDriveStamped, prefix + '/command', commands.append, 10)
@@ -76,7 +79,8 @@ def test_dds_stop_cooldown_and_new_sign_and_floor_required_to_repeat():
         while (lane_pub.get_subscription_count() < 1
                or sign_pub.get_subscription_count() < 1
                or camera_pub.get_subscription_count() < 1
-               or node.command_pub.get_subscription_count() < 1):
+               or node.command_pub.get_subscription_count() < 1
+               or node.start_crosswalk_pub.get_subscription_count() < 1):
             assert time.monotonic() < deadline, 'DDS discovery timed out'
             pump(.02)
         pump(.1)
@@ -101,9 +105,11 @@ def test_dds_stop_cooldown_and_new_sign_and_floor_required_to_repeat():
         floor(broken)
         floor(image(white=False))
         assert not commands
+        assert not starts
         fresh_white = image()
         floor(fresh_white)
         assert commands
+        assert len(starts) == 1 and starts[0].data is True
         message = commands[-1]
         assert message.drive.speed == 0.
         assert message.drive.steering_angle == pytest.approx(.2)
@@ -128,6 +134,7 @@ def test_dds_stop_cooldown_and_new_sign_and_floor_required_to_repeat():
         remaining = node.state.started_at + 3.15 - time.monotonic()
         pump(max(0., remaining))
         assert node.state.phase == 'cooldown'
+        assert len(starts) == 1
         # Drain any previously published commands before testing silence.
         pump(.1)
         count = len(commands)
@@ -158,12 +165,14 @@ def test_dds_stop_cooldown_and_new_sign_and_floor_required_to_repeat():
         assert len(commands) == count
         floor(image())
         assert node.state.phase == 'stopping'
+        assert len(starts) == 2 and all(m.data for m in starts)
         assert len(commands) > count
         assert commands[-1].drive.speed == 0.
         assert commands[-1].drive.steering_angle == pytest.approx(-.25)
     finally:
         executor.shutdown()
         probe.destroy_subscription(subscription)
+        probe.destroy_subscription(start_subscription)
         node.destroy_node()
         probe.destroy_node()
         context.shutdown()

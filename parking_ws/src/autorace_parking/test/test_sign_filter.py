@@ -1,4 +1,4 @@
-"""Foreground sign filtering must retain the actual parking pair and raw sensing."""
+"""Historical 12 cm filter API; the real 5 cm profile has separate bag coverage."""
 from dataclasses import fields, replace
 import json
 import math
@@ -12,11 +12,13 @@ from autorace_parking.core import CollisionChecker, Scan, Settings, cluster_poin
 from autorace_parking.control import build_plan_report
 
 
-def real_config():
+def legacy_config():
     package = Path(__file__).resolve().parents[1]
     params = yaml.safe_load((package/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     return replace(Settings(**{f.name: params[f.name] for f in fields(Settings) if f.name in params}),
-                   min_cluster_size=.08,enclosed_space_detection=False,continuous_replanning=False)
+                   min_cluster_size=.08,enclosed_space_detection=False,continuous_replanning=False,
+                   obstacle_min_cluster_size=.12,automatic_target_selection=False,slot_map_enabled=False,
+                   pair_fallback_enabled=True,fixed_parking_slot_id=-1)
 
 
 def sign_scan():
@@ -26,7 +28,7 @@ def sign_scan():
 
 def test_live_foreground_sign_is_removed_and_only_distant_parking_pair_remains():
     # Preserve the wider recorded scene to isolate sign-filter behavior.
-    cfg, raw = replace(real_config(),max_gap=1.1), sign_scan()
+    cfg, raw = replace(legacy_config(),max_gap=1.1), sign_scan()
     original = find_gaps(cluster_points(raw.points), cfg)
     assert len(original) == 2 and original[0].x < 1.2
     filtered = raw.filtered_obstacles(cfg)
@@ -44,7 +46,7 @@ def test_live_foreground_sign_is_removed_and_only_distant_parking_pair_remains()
 
 
 def test_filter_preserves_raw_points_visibility_and_repeated_filter_counts():
-    cfg, raw = real_config(), sign_scan()
+    cfg, raw = legacy_config(), sign_scan()
     original_points, original_ranges = raw.points.copy(), raw.ranges.copy()
     filtered = raw.filtered_obstacles(cfg)
     assert raw.points == original_points and raw.ranges == original_ranges
@@ -110,7 +112,7 @@ def test_ros_obstacles_are_filtered_while_tracker_receives_raw_scan():
 
 
 def test_twelve_cm_filter_only_removes_near_signs_and_preserves_small_distant_cars():
-    cfg = real_config()
+    cfg = legacy_config()
     scan = Scan([math.inf]*361, -math.pi, math.pi/180, .01, 12., (0., 0., 0.))
     sign = [(.5, -.455+i*.011) for i in range(11)]
     first_car = [(1.5, -.455+i*.011) for i in range(11)]
@@ -124,7 +126,7 @@ def test_twelve_cm_filter_only_removes_near_signs_and_preserves_small_distant_ca
 
 
 def test_cached_foreground_gap_is_replaced_when_filtered_scene_shows_the_distant_pair():
-    cfg, scan = replace(real_config(),max_gap=1.1), sign_scan()
+    cfg, scan = replace(legacy_config(),max_gap=1.1), sign_scan()
     previous = find_gaps(cluster_points(scan.points), cfg)[0]
     assert previous.x < 1.2
     report = build_plan_report(scan, cfg, previous, validate_goal=True)
@@ -138,7 +140,7 @@ def test_cached_foreground_gap_is_replaced_when_filtered_scene_shows_the_distant
 
 def test_occluded_pair_does_not_erase_an_anchored_target():
     from autorace_parking.core import Gap
-    cfg = real_config()
+    cfg = legacy_config()
     scan = Scan([math.inf]*361, -math.pi, math.pi/180, .01, 12., (0., 0., 0.))
     goal = Gap(1., -.4, -math.pi/2, .85, 0, 1)
     report = build_plan_report(scan, cfg, goal, validate_goal=True)

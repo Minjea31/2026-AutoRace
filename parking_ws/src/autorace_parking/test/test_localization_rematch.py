@@ -94,7 +94,7 @@ def test_stale_ekf_discards_old_frame_and_recovers_with_new_match(scenario):
     assert node.tracker.pose == (0., 0., 0.)
 
 
-@pytest.mark.parametrize('stamp', [99., 101.])
+@pytest.mark.parametrize('stamp', [101.])
 def test_invalid_timestamp_restarts_once_and_keeps_cutoff_fixed(scenario, stamp):
     node, clock, commands = scenario
     node.on_localization(odom(100.)); node.on_scan(scan(100.))

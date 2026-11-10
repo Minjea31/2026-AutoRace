@@ -51,9 +51,9 @@ CONFIRM_FRAMES = 2  # Require this many consecutive new frames, not timer ticks.
 # Image resizing for inference does not change these thresholds.
 CLASS_THRESHOLDS = {
     'bump': {'confidence': 0.55, 'min_area_pixels': 2500},
-    'crosswalk': {'confidence': 0.60, 'min_area_pixels': 3200},
+    'crosswalk': {'confidence': 0.60, 'min_area_pixels': 2500},
     'left': {'confidence': 0.65, 'min_area_pixels': 3400},
-    'parking': {'confidence': 0.60, 'min_area_pixels': 1500},
+    'parking': {'confidence': 0.60, 'min_area_pixels': 2000},
     'right': {'confidence': 0.65, 'min_area_pixels': 3400},
     'slow': {'confidence': 0.55, 'min_area_pixels': 2500},
 }

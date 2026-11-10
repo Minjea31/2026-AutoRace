@@ -30,7 +30,7 @@ from .white_roi import WhiteROI, load_lane_white, validate_white
 class SlowNode(Node):
     def __init__(self, **kwargs):
         super().__init__('slow_node', **kwargs)
-        defaults = dict(confirm_frames=2, hold_sec=8., signal_gap_timeout_sec=.5,
+        defaults = dict(confirm_frames=2, hold_sec=8., slow_hold_sec=15., signal_gap_timeout_sec=.5,
                         speed_mps=.2, publish_rate_hz=20.,
                         lane_timeout_sec=.25, future_tolerance_sec=.05)
         for name, default in defaults.items():
@@ -59,7 +59,7 @@ class SlowNode(Node):
         self.white_ratio = None
         self.white_arm_stamps = {}
         self.state = SlowState(self.confirm_frames, self.hold_sec, self.signal_gap_timeout_sec,
-                               require_white_mark=self.white_roi_enabled)
+                               require_white_mark=self.white_roi_enabled, slow_hold_sec=self.slow_hold_sec)
         self.lane = self.lane_received = self.last_ros_ns = None
         self.last_mode = None
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
@@ -68,6 +68,7 @@ class SlowNode(Node):
         self.lane_sub = self.create_subscription(AckermannDriveStamped, '/mission/lane', self.on_lane, qos)
         self.sign_subs = [self.create_subscription(Bool, topic, partial(self.on_sign, kind), qos)
                           for kind, topic in (('slow', '/yolo/slow_sign'), ('bump', '/yolo/bump_sign'))]
+        self.crosswalk_sub = self.create_subscription(Bool, '/start_crosswalk', self.on_crosswalk, qos)
         self.white_query = None
         self.white_client = None
         if self.white_roi_enabled:
@@ -133,7 +134,13 @@ class SlowNode(Node):
             return
         self.lane, self.lane_received = copy.deepcopy(message), now
 
+    def on_crosswalk(self, message):
+        if message.data:
+            self.state.stop_slow()
+            self.white_arm_stamps.pop('slow', None)
+
     def on_sign(self, kind, message):
+        self.state.tick(time.monotonic())
         was_armed = self.state.missions[kind].armed
         self.state.receive(kind, message.data, time.monotonic())
         if not was_armed and self.state.missions[kind].armed:

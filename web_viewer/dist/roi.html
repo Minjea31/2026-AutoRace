@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#10181d"><title>AutoRace · 흰색 ROI 조절</title><link rel="stylesheet" href="/roi.css"><script src="/roi.js" defer></script></head>
+<body>
+<header><a class="brand" href="/">A↗ <span>AUTORACE <i>/ ROI LAB</i></span></a><a href="/">영상 모니터 ↗</a></header>
+<main>
+<section class="intro"><div><p class="eyebrow">WHITE FLOOR · REGION OF INTEREST</p><h1>흰선을 볼 영역을,<br>직접 맞춰보세요.</h1><p class="muted">위치와 크기를 조절하고, 영상과 파라미터를 한 장으로 저장하세요.</p></div><div class="scope"><span class="pill">미리보기 모드</span><p>미션 노드의 실제 설정은 변경하지 않습니다.<br>저장한 캡처를 보내주시면 그 값으로 반영할 수 있습니다.</p></div></section>
+<div class="workspace">
+<section class="preview-panel">
+<div class="panel-top"><div class="sources" role="group" aria-label="영상 소스"><button data-source="live">실시간</button><button data-source="bag" class="selected">최신 bag</button><button id="upload-button">이미지 업로드</button><input id="upload" type="file" accept="image/jpeg,image/png" hidden></div><span class="source-tag" id="source-tag">최신 bag</span></div>
+<div class="canvas-wrap"><canvas id="preview" width="640" height="480" aria-label="ROI 영역: 빈 곳을 드래그하여 만들거나 사각형 안쪽과 모서리를 끌어 조절하세요"></canvas><div id="empty">카메라 영상을 기다립니다.</div><span class="canvas-label">ORIGINAL FRAME / WHITE ROI</span></div>
+<div class="preview-bottom"><span id="source-detail">샘플 불러오는 중</span><span id="image-size">—</span></div>
+<div id="bag-controls"><div class="bag-title"><strong id="bag-name">최신 bag 불러오는 중</strong><button id="reload-bag">새로 불러오기 ↻</button></div><input id="bag-index" type="range" min="0" max="0" value="0" step="1" aria-label="bag 프레임 위치"><div class="bag-navigation"><button id="prev-second">−1초</button><button id="prev-frame">← 이전 프레임</button><span id="bag-position">—</span><button id="next-frame">다음 프레임 →</button><button id="next-second">+1초</button></div></div><p class="drag-hint">빈 곳 드래그 <b>새 영역</b><span>·</span> 안쪽 드래그 <b>이동</b><span>·</span> 모서리 드래그 <b>크기 조절</b></p>
+<div class="metrics"><div><span class="metric-label">ROI 흰색 비율</span><strong id="ratio">—<small>%</small></strong></div><div class="decision"><span id="decision" class="pill">영상 대기</span><p id="pixel-count">—</p><p class="muted">흰색 조건만 판정합니다. 표지판 확인은 별도입니다.</p></div></div>
+<div id="message" role="status" aria-live="polite"></div>
+</section>
+<aside>
+<div class="panel-top"><h2>영역 파라미터</h2><button id="reset" class="text-button">기본값 복원 ↺</button></div>
+<div class="controls-body"><label class="target-label" for="mission">캡처할 미션</label><select id="mission"><option value="crosswalk">횡단보도 · crosswalk</option><option value="slow">서행 / 방지턱 · slow</option></select><p class="helper">원본 화면 기준 0~1의 비율입니다.</p><div id="roi-controls"></div>
+<div class="geometry" id="geometry">ROI 크기를 계산하는 중…</div>
+<div class="threshold"><h3>흰색 판정 기준</h3><div id="threshold-controls"></div></div>
+<details><summary>흰색 HSV 기준 조절 <span>선택</span></summary><p class="helper">lane 설정 파일에서 읽은 초기값입니다. 변경은 이 미리보기에만 적용됩니다.</p><div id="hsv-controls"></div></details>
+</div>
+<div class="actions"><button id="capture" class="primary" disabled>영상 + 파라미터 캡처 ↓</button><div class="action-row"><button id="copy" disabled>값 복사</button><button id="download" disabled>YAML 저장 ↓</button></div><p>캡처에 ROI, 흰색 비율, HSV, 모든 조절값이 함께 들어갑니다.</p></div>
+</aside>
+</div>
+<section class="parameter-panel"><div><p class="eyebrow">SHARE YOUR SETTINGS</p><h2>이 값을 캡처해서 보내주세요.</h2><p class="muted">초록색은 ROI 흰색 조건 충족, 노란색은 기준 미달입니다.</p></div><pre id="parameters" tabindex="0">설정을 불러오는 중…</pre></section>
+</main><footer><span>AUTORACE / ROI LAB</span><span id="connection">플랫폼 연결 중</span></footer><div id="toast" role="status"></div>
+</body></html>

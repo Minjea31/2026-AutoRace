@@ -85,6 +85,11 @@ def test_two_signs_then_new_white_starts_and_old_white_is_not_cached(h):
     assert not h.node.activation.active and not h.node.floor_gate.armed
     h.sign()
     assert h.node.floor_gate.armed and not h.node.activation.active
+    # sign() pumps for 40 ms; the status timer runs every 50 ms. Wait for
+    # the actual callback instead of depending on their relative phase.
+    deadline=time.monotonic()+.25
+    while h.node.state!='WAITING_WHITE_LINE' and time.monotonic()<deadline:
+        h.pump(.005)
     assert h.node.state == 'WAITING_WHITE_LINE'
     h.camera.publish(old)
     h.pump(.12)

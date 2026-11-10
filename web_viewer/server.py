@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read ROS images on the robot and serve JPEG/MJPEG over HTTP."""
 import argparse
+import base64
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -19,6 +20,9 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import CompressedImage, Image
+from parking_bridge import ParkingState
+from roi_bag import BagImages
+from roi_preview import defaults as roi_defaults, render_preview, validate as validate_roi
 
 
 SOURCES = (
@@ -26,6 +30,7 @@ SOURCES = (
     ('yolo', 'YOLO 검출', '/yolo/debug/compressed', CompressedImage),
     ('mask', '차선 마스크', '/lane_fusion/deep_mask', Image),
     ('lane', '차선 디버그', '/lane_fusion/debug', Image),
+    ('roi_camera', 'ROI 편집용 원본', '/camera/color/image_raw', Image),
     ('white_roi', '서행·방지턱 ROI', '/slow/white_roi/debug/compressed', CompressedImage),
 )
 DIST = Path(__file__).resolve().parent / 'dist'
@@ -88,8 +93,15 @@ class Stream:
         self.width = self.height = self.clients = 0
         self.times = deque(maxlen=50)
         self.error = ''
+        self.preview_until = 0.0
+
+    def active(self):
+        return self.clients > 0 or time.monotonic() < self.preview_until
 
     def receive(self, message):
+        # A parking-only viewer should not encode unused lane/debug streams.
+        if not self.active():
+            return
         now = time.monotonic()
         if now - self.updated < self.interval:
             return
@@ -125,12 +137,21 @@ class Stream:
 
 
 class Bridge(Node):
-    def __init__(self, streams):
+    def __init__(self, streams, parking):
         super().__init__('autorace_web_viewer')
-        self.image_subscriptions = [
-            self.create_subscription(kind, topic, streams[key].receive, qos_profile_sensor_data)
-            for key, _, topic, kind in SOURCES
-        ]
+        self.streams = streams
+        self.image_subscriptions = {}
+        self.image_subscription_timer = self.create_timer(.5, self.update_image_subscriptions)
+        parking.attach(self)
+
+    def update_image_subscriptions(self):
+        # Avoid even deserializing raw debug images unless a browser displays them.
+        for key, _, topic, kind in SOURCES:
+            if self.streams[key].active() and key not in self.image_subscriptions:
+                self.image_subscriptions[key] = self.create_subscription(
+                    kind, topic, self.streams[key].receive, qos_profile_sensor_data)
+            elif not self.streams[key].active() and key in self.image_subscriptions:
+                self.destroy_subscription(self.image_subscriptions.pop(key))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -158,13 +179,37 @@ class Handler(BaseHTTPRequestHandler):
 
     def route(self):
         path = urlparse(self.path).path
-        if path in ('/', '/app.js', '/style.css'):
+        if path in ('/', '/app.js', '/style.css', '/parking', '/parking/', '/parking.js', '/parking.css',
+                    '/roi', '/roi/', '/roi.js', '/roi.css', '/roi-sample.jpg'):
             name, content_type = {
                 '/': ('index.html', 'text/html; charset=utf-8'),
                 '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
                 '/style.css': ('style.css', 'text/css; charset=utf-8'),
+                '/parking': ('parking.html', 'text/html; charset=utf-8'),
+                '/parking/': ('parking.html', 'text/html; charset=utf-8'),
+                '/parking.js': ('parking.js', 'text/javascript; charset=utf-8'),
+                '/parking.css': ('parking.css', 'text/css; charset=utf-8'),
+                '/roi': ('roi.html', 'text/html; charset=utf-8'),
+                '/roi/': ('roi.html', 'text/html; charset=utf-8'),
+                '/roi.js': ('roi.js', 'text/javascript; charset=utf-8'),
+                '/roi.css': ('roi.css', 'text/css; charset=utf-8'),
+                '/roi-sample.jpg': ('roi-sample.jpg', 'image/jpeg'),
             }[path]
             self.send_body((DIST / name).read_bytes(), content_type)
+        elif path == '/api/roi/bag':
+            try:
+                payload = self.server.roi_bag.latest()
+                self.send_body(json.dumps(payload, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
+            except ValueError as error:
+                self.send_body(json.dumps({'error': str(error)}, ensure_ascii=False).encode(), 'application/json; charset=utf-8', 404)
+        elif path == '/api/roi/config':
+            self.send_body(json.dumps(roi_defaults(), ensure_ascii=False).encode(),
+                           'application/json; charset=utf-8')
+        elif path == '/api/parking':
+            payload = self.server.parking.snapshot()
+            payload['camera'] = self.server.streams['camera'].status()
+            self.send_body(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode(),
+                           'application/json; charset=utf-8')
         elif path == '/api/state':
             payload = dict(streams=[stream.status() for stream in self.server.streams.values()],
                            uptime_s=round(time.monotonic() - self.server.started),
@@ -200,6 +245,59 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_body(b'Not found', 'text/plain', 404)
 
+    def do_POST(self):
+        if urlparse(self.path).path != '/api/roi/preview':
+            self.send_body(b'Not found', 'text/plain', 404)
+            return
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 0 < length <= 8_000_000:
+                self.close_connection = True
+                raise ValueError('요청 이미지가 너무 큽니다. 6MB 이하 이미지를 사용하세요.')
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError('요청 형식이 올바르지 않습니다.')
+            params = payload.get('params')
+            validate_roi(params)
+            source = payload.get('source')
+            if source == 'live':
+                candidates = []
+                for key in ('camera', 'roi_camera'):
+                    stream = self.server.streams[key]
+                    stream.preview_until = time.monotonic() + 4.
+                    with stream.condition:
+                        if stream.jpeg and time.monotonic() - stream.updated < 2.:
+                            candidates.append((stream.updated, stream.jpeg, stream.topic))
+                if not candidates:
+                    self.send_body(json.dumps({'error': '실시간 카메라를 기다립니다. 센서와 ROS 도메인을 확인하거나 bag 샘플을 사용하세요.'}, ensure_ascii=False).encode(),
+                                   'application/json; charset=utf-8', 503)
+                    return
+                updated, data, topic = max(candidates, key=lambda item: item[0])
+                metadata = dict(source='live', source_label=topic,
+                                age_ms=round((time.monotonic()-updated)*1000))
+            elif source == 'bag':
+                data, metadata = self.server.roi_bag.frame(payload.get('frame_index'), payload.get('bag_name'))
+            elif source == 'sample':
+                data = (DIST / 'roi-sample.jpg').read_bytes()
+                metadata = dict(source='sample', source_label=roi_defaults()['sample'], age_ms=None)
+            elif source == 'upload':
+                encoded = payload.get('image', '')
+                if not isinstance(encoded, str) or not encoded.startswith(('data:image/jpeg;base64,', 'data:image/png;base64,')):
+                    raise ValueError('JPEG 또는 PNG 이미지를 선택하세요.')
+                data = base64.b64decode(encoded.split(',', 1)[1], validate=True)
+                metadata = dict(source='upload', source_label='업로드 이미지', age_ms=None)
+            else:
+                raise ValueError('영상 소스를 선택하세요.')
+            result = render_preview(data, params)
+            result.update(metadata)
+            self.send_body(json.dumps(result, ensure_ascii=False, allow_nan=False).encode(),
+                           'application/json; charset=utf-8')
+        except (ValueError, TypeError, cv2.error) as error:
+            self.send_body(json.dumps({'error': str(error)}, ensure_ascii=False).encode(),
+                           'application/json; charset=utf-8', 400)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            self.close_connection = True
+
     def stream(self, source):
         self.connection.settimeout(5)
         self.send_response(200)
@@ -232,6 +330,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # Leave the final CPU available for the vehicle's localization processes.
+    if hasattr(os, 'sched_getaffinity'):
+        cpus = sorted(os.sched_getaffinity(0))
+        if len(cpus) >= 4:
+            os.sched_setaffinity(0, cpus[:-1])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8080)
@@ -245,10 +348,12 @@ def main():
     http.started = time.monotonic()
     http.slots = threading.BoundedSemaphore(12)
     http.streams = {key: Stream(key, title, topic, args.max_fps) for key, title, topic, _ in SOURCES}
+    http.parking = ParkingState()
+    http.roi_bag = BagImages(Path(__file__).resolve().parents[2])
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: http.stopping.set())
     rclpy.init(args=[], signal_handler_options=SignalHandlerOptions.NO)
-    bridge = Bridge(http.streams)
+    bridge = Bridge(http.streams, http.parking)
 
     def spin():
         try:

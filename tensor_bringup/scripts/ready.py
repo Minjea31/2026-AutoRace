@@ -8,7 +8,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rosidl_runtime_py.utilities import get_message
 
-BASE_NODES = ('/parking_node', '/slow_node', '/yolo_detect')
+BASE_NODES = ('/parking_node', '/slow_node', '/crosswalk_node', '/yolo_detect')
 LANE_NODES = {  # same as tensor_bringup.launch.py
     'fusion': ('/lane_fusion_deep_mask', '/lane_fusion_node', '/lane_fusion_pid_controller'),
     'opencv': ('/lane_lite_node', '/lane_pid_controller'),
@@ -17,6 +17,7 @@ LANE_NODES = {  # same as tensor_bringup.launch.py
 BASE_TOPICS = (
     '/camera/color/image_raw/compressed', '/scan', '/odometry/filtered',
     '/mission/lane', '/yolo/parking_sign', '/yolo/slow_sign', '/yolo/bump_sign',
+    '/yolo/crosswalk_sign', '/parking/control_state',
 )
 INPUT_TOPICS = BASE_TOPICS  # replaced in main() by the lane mode's topics
 

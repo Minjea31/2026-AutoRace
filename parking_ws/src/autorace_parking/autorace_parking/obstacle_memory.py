@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from copy import copy
 import math
+import numpy as np
 
 from .core import Scan, Cluster, cluster_points
 from .tracking import compose, inverse
@@ -63,17 +64,43 @@ class ObstacleMemory:
                 return False
         return True
 
-    def update(self, raw_scan, filtered, pose, stamp, cfg):
+    @staticmethod
+    def measured_clear_many(scan, points):
+        """Same two-beam visibility rule, evaluated in one bounded array pass."""
+        points=np.asarray(points,dtype=float).reshape(-1,2)
+        clear=np.zeros(len(points),dtype=bool)
+        if not len(points) or not scan.ranges or not scan.angle_increment:return clear
+        sx,sy,yaw=scan.sensor_pose
+        dx,dy=points[:,0]-sx,points[:,1]-sy
+        distance=np.hypot(dx,dy)
+        angle=np.arctan2(dy,dx)-yaw
+        angle=np.arctan2(np.sin(angle),np.cos(angle))
+        index=(angle-scan.angle_min)/scan.angle_increment
+        valid=np.flatnonzero(np.isfinite(index)&(index>=0)&(index<=len(scan.ranges)-1))
+        if not len(valid):return clear
+        ranges=np.asarray(scan.ranges,dtype=float)
+        lower,upper=np.floor(index[valid]).astype(int),np.ceil(index[valid]).astype(int)
+        a,b=ranges[lower],ranges[upper]
+        boundary=np.minimum(np.minimum(a,b),min(scan.range_max,scan.max_range))
+        clear[valid]=(~np.isnan(a)&~np.isnan(b)&(a>=max(.001,scan.range_min))
+                      &(b>=max(.001,scan.range_min))&(distance[valid]+.03<boundary))
+        return clear
+
+    def update(self, raw_scan, filtered, pose, stamp, cfg, groups=None):
         if self.stamp is not None and stamp <= self.stamp:
             return
         dt = max(0.,stamp-self.stamp) if self.stamp is not None else 0.
         self.stamp = stamp
         transform = inverse(pose)
-        for key,cell in list(self.cells.items()):
-            local = compose(transform,(*cell[:2],0.))
-            if math.hypot(local[0],local[1]) > self.radius:
+        old=list(self.cells.items())
+        c,s=math.cos(transform[2]),math.sin(transform[2])
+        local=np.asarray([(transform[0]+c*v[0]-s*v[1],transform[1]+s*v[0]+c*v[1])
+                          for _,v in old],dtype=float).reshape(-1,2)
+        observed_clear=self.measured_clear_many(raw_scan,local)
+        for i,(key,cell) in enumerate(old):
+            if math.hypot(*local[i]) > self.radius:
                 del self.cells[key]
-            elif self.measured_clear(raw_scan,local):
+            elif observed_clear[i]:
                 cell[3] += 1
                 if cell[3] >= 3:
                     del self.cells[key]
@@ -82,7 +109,8 @@ class ObstacleMemory:
         for track in self.tracks.values():
             track.observed = False
             track.variance += .005**2*dt
-        groups = cluster_points(filtered.points,cfg.cluster_distance,cfg.cluster_min_points)
+        if groups is None:
+            groups = cluster_points(filtered.points,cfg.cluster_distance,cfg.cluster_min_points)
         centers = [compose(pose,(*g.center,0.))[:2] for g in groups]
         pairs = sorted((math.dist(center,t.center),i,t.id)
                        for i,center in enumerate(centers) for t in self.tracks.values()
@@ -106,8 +134,9 @@ class ObstacleMemory:
                 self.tracks[tid] = track
             for point in group.points:
                 owners[tuple(point)] = track.id
+        c,s=math.cos(pose[2]),math.sin(pose[2])
         for point in filtered.points:
-            x,y,_ = compose(pose,(*point,0.))
+            x,y=pose[0]+c*point[0]-s*point[1],pose[1]+s*point[0]+c*point[1]
             key = math.floor(x/self.resolution),math.floor(y/self.resolution)
             previous = self.cells.get(key)
             owner = owners.get(tuple(point))
@@ -123,7 +152,8 @@ class ObstacleMemory:
 
     def local_points(self, pose, radius=None):
         transform = inverse(pose)
-        points = [compose(transform,(*cell[:2],0.))[:2] for cell in self.cells.values()]
+        c,s=math.cos(transform[2]),math.sin(transform[2])
+        points = [(transform[0]+c*x-s*y,transform[1]+s*x+c*y) for x,y,_,_ in self.cells.values()]
         return points if radius is None else [p for p in points if math.hypot(*p)<=radius]
 
     def snapshot(self, scan, pose, cfg):
@@ -132,8 +162,9 @@ class ObstacleMemory:
         result.points = []
         result.point_owners = {}
         transform = inverse(pose)
+        c,s=math.cos(transform[2]),math.sin(transform[2])
         for x,y,owner,_ in self.cells.values():
-            point = compose(transform,(x,y,0.))[:2]
+            point = (transform[0]+c*x-s*y,transform[1]+s*x+c*y)
             if math.hypot(*point) <= cfg.max_range+.5:
                 result.points.append(point)
                 result.point_owners[point] = owner

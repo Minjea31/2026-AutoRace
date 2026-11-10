@@ -272,3 +272,31 @@ TEST(Pid, FarHeadingKeepsSteeringInsideACurve) {
   EXPECT_NEAR(on.terms().error, .15, 1e-9);
   EXPECT_GT(on.terms().target_steering, 0);
 }
+
+TEST(ParkingApproach, CalibrationStopLatchesUntilExplicitMatchingReady) {
+  ParkingApproach gate(2,.3,10.,.5,5.,true);
+  EXPECT_FALSE(gate.receive(true,1.)); EXPECT_TRUE(gate.receive(true,1.1));
+  for(int i=0;i<100;++i) {
+    EXPECT_FALSE(gate.receive(true,2.+i));
+    EXPECT_DOUBLE_EQ(gate.limit(2.+i,.8),0.);
+  }
+  EXPECT_TRUE(gate.ready(102.)); EXPECT_FALSE(gate.ready(103.));
+  EXPECT_DOUBLE_EQ(gate.limit(111.9,.8),.3);
+  EXPECT_DOUBLE_EQ(gate.limit(112.,.8),.3);
+  gate.release();
+  EXPECT_DOUBLE_EQ(gate.limit(112.1,.8),.8);
+}
+
+TEST(ParkingApproach, SamePersistentSignCannotRestartCalibrationAfterCooldown) {
+  ParkingApproach gate(2,.3,10.,.5,5.,true);
+  EXPECT_FALSE(gate.receive(true,1.)); EXPECT_TRUE(gate.receive(true,1.1));
+  EXPECT_TRUE(gate.ready(4.));
+  for (int i=0;i<200;++i) EXPECT_FALSE(gate.receive(true,5.+i));
+  gate.release();
+  EXPECT_FALSE(gate.receive(false,205.));
+  EXPECT_FALSE(gate.receive(true,205.1)); // One false frame is insufficient.
+  EXPECT_FALSE(gate.receive(false,206.));
+  EXPECT_FALSE(gate.receive(false,206.6));
+  EXPECT_FALSE(gate.receive(true,207.));
+  EXPECT_TRUE(gate.receive(true,207.1));
+}

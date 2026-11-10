@@ -8,6 +8,7 @@
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/header.hpp>
+#include <std_msgs/msg/string.hpp>
 
 namespace {
 double steady() {
@@ -40,7 +41,8 @@ public:
     const double parking_duration = declare_parameter<double>("parking_slowdown_duration", 10.);
     parking_ = lane_pid::ParkingApproach(confirmations, parking_speed, parking_duration,
                                        declare_parameter<double>("parking_slowdown_max_gap", .5),
-                                       declare_parameter<double>("parking_slowdown_cooldown", 5.));
+                                       declare_parameter<double>("parking_slowdown_cooldown", 5.),
+                                       declare_parameter<bool>("parking_calibration_stop", false));
 
     parameters_ = add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter> &ps) {
       rcl_interfaces::msg::SetParametersResult result;
@@ -99,14 +101,30 @@ public:
     parking_sign_ = create_subscription<std_msgs::msg::Bool>(
         parking_topic, rclcpp::QoS(10),
         [this, parking_speed, parking_duration](std_msgs::msg::Bool::ConstSharedPtr msg) {
-          if (parking_.receive(msg->data, steady())) {
+          if (!parking_mission_active_ && parking_.receive(msg->data, steady())) {
             std_msgs::msg::Header event;
             event.stamp = now();
+            parking_event_stamp_ = event.stamp;
             approach_start_->publish(event);
             RCLCPP_INFO(get_logger(), "주차 표지 확인: lane 속도 최대 %.2f m/s, %.1f초간 감속",
                         parking_speed, parking_duration);
           }
         });
+    parking_ready_ = create_subscription<std_msgs::msg::Header>(
+        "/parking/approach_ready", rclcpp::QoS(10),
+        [this](std_msgs::msg::Header::ConstSharedPtr msg) {
+          if (msg->stamp == parking_event_stamp_ && parking_.ready(steady()))
+            RCLCPP_INFO(get_logger(), "주차 정지 보정 완료: 0.3 m/s 접근 제한을 시작합니다.");
+        });
+    parking_state_ = create_subscription<std_msgs::msg::String>(
+        "/parking/control_state",rclcpp::QoS(1),[this](std_msgs::msg::String::ConstSharedPtr m){
+          // Compact state is produced by ParkingNode; mux validates timestamps independently.
+          if(m->data.find("\"phase\":\"RELEASE\"")!=std::string::npos ||
+             m->data.find("\"phase\":\"RESET\"")!=std::string::npos)parking_.release();
+        });
+    parking_active_ = create_subscription<std_msgs::msg::Bool>(
+        "/parking/active", rclcpp::QoS(1),
+        [this](std_msgs::msg::Bool::ConstSharedPtr msg) { parking_mission_active_ = msg->data; });
     timer_ = create_wall_timer(std::chrono::milliseconds(20), [this] { tick(); });
     RCLCPP_INFO(get_logger(), "lane_fusion_pid_controller: %s -> /lane_fusion_pid/command%s", input.c_str(),
                 vehicle ? " + /mission/lane" : " (vehicle output OFF)");
@@ -140,7 +158,12 @@ private:
   }
   lane_pid::Config config_;
   lane_pid::Controller controller_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr parking_state_;
   lane_pid::ParkingApproach parking_;
+  builtin_interfaces::msg::Time parking_event_stamp_;
+  bool parking_mission_active_ = false;
+  rclcpp::Subscription<std_msgs::msg::Header>::SharedPtr parking_ready_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr parking_active_;
   lane_pid::Measurement measurement_;
   double received_ = 0, last_tick_ = -1, last_measure_ = -1e18;
   rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr command_, vehicle_;

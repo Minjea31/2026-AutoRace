@@ -9,7 +9,7 @@ setup(
         ('share/autorace_parking/config', glob('config/*') + ['../../parking_real.rviz']),
         ('share/autorace_parking/launch', glob('launch/*.launch.py')),
     ],
-    install_requires=['setuptools', 'numpy'], zip_safe=True,
+    install_requires=['setuptools', 'numpy', 'scipy'], zip_safe=True,
     maintainer='AutoRace Team', maintainer_email='autorace@example.com',
     description='Wheel/IMU/LiDAR localization and parking control',
     license='Apache-2.0',

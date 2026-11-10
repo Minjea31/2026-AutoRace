@@ -46,7 +46,7 @@ PyTorch와 Ultralytics는 실제 노드를 실행하는 Python 환경에 설치�
 | --- | ---: |
 | slow | 3600 |
 | bump | 3800 |
-| parking | 3900 |
+| parking | 2000 |
 | crosswalk | 3200 |
 | left / right | 3400 |
 

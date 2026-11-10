@@ -12,6 +12,11 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <thread>
+#include <atomic>
+#include <opencv2/imgproc.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/header.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 // /lane_fusion/target data layout (metres/radians, left positive):
 // [valid, lateral_m, heading_rad, lookahead_m, curvature_1pm, confidence,
@@ -25,7 +30,7 @@
 // stalled) the newest frame runs alone with the newest mask no older than
 // deep_max_age, else HSV only (the previous asynchronous behaviour, also used
 // with sync_mask:=false). The JPEG is decoded only when HSV or the debug
-// picture needs it.
+// picture or the 10 Hz parking approach observation needs it.
 class LaneFusionNode : public rclcpp::Node {
 public:
   LaneFusionNode() : Node("lane_fusion_node") {
@@ -54,6 +59,11 @@ public:
             yaw_ += m->twist.twist.angular.z * dt;
           });
     target_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_fusion/target", rclcpp::QoS(1));
+    floor_ = create_publisher<std_msgs::msg::Float64MultiArray>("/parking/floor_observation",rclcpp::QoS(1));
+    floor_start_ = create_subscription<std_msgs::msg::Header>("/parking/approach_start",rclcpp::QoS(1),
+        [this](std_msgs::msg::Header::ConstSharedPtr){floor_active_=true;});
+    floor_active_sub_ = create_subscription<std_msgs::msg::Bool>("/parking/active",rclcpp::QoS(1),
+        [this](std_msgs::msg::Bool::ConstSharedPtr m){if(m->data)floor_active_=false;});
     // Debug picture only on request: off, nothing is advertised or drawn.
     if (declare_parameter<bool>("debug", false))
       debug_ = create_publisher<sensor_msgs::msg::Image>("/lane_fusion/debug", rclcpp::SensorDataQoS().keep_last(1));
@@ -185,12 +195,15 @@ private:
           stamp = now().seconds();
         const auto begin = steady();
         bool decoded = false;
+        cv::Mat cached_image;
         auto image = [&]() {
+          if (!cached_image.empty()) return cached_image;
           decoded = true;
           cv::Mat bgr = cv::imdecode(frame->data, cv::IMREAD_COLOR);
           if (bgr.empty())
             throw std::runtime_error("cannot decode image");
-          return bgr;
+          cached_image=bgr;
+          return cached_image;
         };
         const bool views = debug_ && debug_->get_subscription_count() > 0;
         cv::Mat classes;
@@ -199,6 +212,28 @@ private:
                             mask->step);
         pipeline.move(forward, yaw);
         const auto r = pipeline.process(lane_lite::Pipeline::Image(image), stamp, views, classes);
+        if (floor_active_ && steady()-floor_last_ >= .1) {
+          const auto bgr=image();
+          const int x0=int(bgr.cols*.20),x1=int(std::ceil(bgr.cols*.80));
+          const int y0=int(bgr.rows*.86),y1=int(std::ceil(bgr.rows*.92));
+          cv::Mat blur,hsv,white,cols;
+          cv::GaussianBlur(bgr(cv::Rect(x0,y0,x1-x0,y1-y0)),blur,cv::Size(5,5),0);
+          cv::cvtColor(blur,hsv,cv::COLOR_BGR2HSV);
+          cv::inRange(hsv,cv::Scalar(0,0,config["white_v_min"]),cv::Scalar(179,config["white_s_max"],255),white);
+          cv::reduce(white,cols,0,cv::REDUCE_MAX);
+          std::vector<cv::Point> points;cv::findNonZero(white,points);
+          double angle=0.;
+          if(points.size()>1){cv::Vec4f line;cv::fitLine(points,line,cv::DIST_L2,0,.01,.01);
+            angle=std::atan2(line[1],line[0]);
+            if(angle>M_PI/2)angle-=M_PI;
+            if(angle < -M_PI/2)angle+=M_PI;
+          }
+          std_msgs::msg::Float64MultiArray obs;
+          // [capture sec, capture nanosec, white ratio, horizontal coverage, angle rad]
+          obs.data={double(frame->header.stamp.sec),double(frame->header.stamp.nanosec),
+            double(cv::countNonZero(white))/white.total(),double(cv::countNonZero(cols))/white.cols,angle};
+          floor_->publish(obs);floor_last_=steady();
+        }
         const double total = (steady() - begin) * 1000;
         std::lock_guard<std::mutex> lock(mutex_);
         publish(&r);
@@ -248,6 +283,11 @@ private:
   bool stop_ = false;
   size_t revision_ = 0;
   double timeout_ = .3, processed_ = 0, reported_ = 0;
+  std::atomic<bool> floor_active_{false};
+  double floor_last_=0.;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr floor_;
+  rclcpp::Subscription<std_msgs::msg::Header>::SharedPtr floor_start_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr floor_active_sub_;
   bool sync_ = true;
   double mask_wait_ = .3;
   int64_t done_stamp_ = 0; // capture stamp of the last processed frame

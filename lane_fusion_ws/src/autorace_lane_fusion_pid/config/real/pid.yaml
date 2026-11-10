@@ -28,6 +28,7 @@
 # steer = kp*e + ki*int(e) + kd*de/dt + ff
 lane_fusion_pid_controller:
   ros__parameters:
+    parking_calibration_stop: true
     lateral_weight: 0.3
     heading_weight: 0.27
     lookahead_weight: 0.8

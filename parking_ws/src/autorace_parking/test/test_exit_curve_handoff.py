@@ -68,3 +68,24 @@ def test_zero_length_aligned_departure_can_still_finish():
     f.path = [(0., 0., 0.)]
     assert f.exit_curve_complete((0., 0., 0.))
     assert not f.exit_curve_complete((0., 0., .2))
+
+
+def test_real_policy_can_skip_straight_reverse_after_the_last_curve_only():
+    f=follower();f.cfg=replace(f.cfg,exit_curve_handoff=True)
+    f.path=[(0.,0.,.6),(-.2,-.1,.3),(-.4,-.1,0.),(-1.,-.1,0.)]
+    assert not f.exit_curve_complete((0.,0.,0.))
+    f.index=2
+    assert f.exit_curve_complete((-.4,-.1,0.))
+    assert not f.exit_curve_complete((-.4,-.1,0.),final_arrival=True)
+    assert not f.exit_curve_complete((-.4,-.1,.06))
+    assert not f.exit_curve_complete((-.4,-.3,0.))
+    f.goal=Gap(-1.,-.1,0.,.6,0,1,parking_grid={'origin':[-.4,-.1],'yaw':0.,'width':1.,'depth':1.})
+    assert not f.exit_curve_complete((-.4,-.1,0.))
+
+
+def test_early_handoff_keeps_a_later_s_turn_and_accumulated_small_curves():
+    f=follower();f.cfg=replace(f.cfg,exit_curve_handoff=True)
+    f.path=[(0.,0.,0.),(-.2,0.,0.),(-.4,-.1,.3),(-.6,-.1,0.)]
+    assert not f.exit_curve_complete((0.,0.,0.))
+    f.path=[(-.05*i,0.,.03*(i%2)) for i in range(8)]
+    assert not f.exit_curve_complete((0.,0.,0.))

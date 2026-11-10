@@ -78,7 +78,7 @@ def _setup(context):
     except PackageNotFoundError as error:
         raise RuntimeError(f'lane_mode:={mode}: lane package not found, source its workspace '
                            '(opencv: source ~/2026-AutoRace/lane_ws/install/setup.bash)') from error
-    node_count = 3 + len(LANE_NODES[mode]) + 1  # parking, slow, YOLO, lane, mux
+    node_count = 4 + len(LANE_NODES[mode]) + 1  # parking, slow, crosswalk, YOLO, lane, mux
 
     def include(package, filename, arguments):
         return IncludeLaunchDescription(
@@ -101,7 +101,7 @@ def _setup(context):
         group = GroupAction(actions=[SetLaunchConfiguration('launch-prefix', process_prefix), action])
         return TimerAction(period=delay, actions=[group]) if delay else group
 
-    mux = include('autorace_mux', 'mux.launch.py', {'output_topic': C('output_topic')})
+    mux = include('autorace_mux', 'mux.launch.py', {'output_topic': C('output_topic'), 'parking_guard_enabled':'true'})
     timeout = ParameterValue(C('startup_timeout'), value_type=float)
     ready = Node(
         package='tensor_bringup', executable='ready.py',
@@ -128,13 +128,14 @@ def _setup(context):
 
     return [
         LogInfo(msg=f'Lane mode: {mode} ({", ".join(LANE_NODES[mode])})'),
-        LogInfo(msg='Mission startup stagger: parking 0s, slow 2s, lane 4s, YOLO 8s'),
+        LogInfo(msg='Mission startup stagger: parking 0s, slow/crosswalk 2s, lane 4s, YOLO 8s'),
         RegisterEventHandler(OnProcessExit(target_action=ready, on_exit=inputs_ready)),
         RegisterEventHandler(OnProcessExit(target_action=report, on_exit=reported)),
         heavy(include('autorace_parking', 'parking.launch.py', {
             'use_sim_time': 'false', 'rviz': 'false', 'params_file': C('parking_params'),
         }), 0.),
         heavy(include('autorace_slow', 'slow.launch.py', {'use_sim_time': 'false'}), 2.),
+        heavy(include('autorace_crosswalk', 'crosswalk.launch.py', {'use_sim_time': 'false'}), 2.),
         heavy(GroupAction(actions=lane), 4.),
         heavy(Node(
             package='yolo_detect', executable='yolo_detect',

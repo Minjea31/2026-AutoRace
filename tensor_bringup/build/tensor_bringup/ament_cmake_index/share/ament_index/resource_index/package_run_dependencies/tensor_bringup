@@ -1,1 +1,1 @@
-rclpy;launch_ros;autorace_mux;autorace_lane_fusion_pid;autorace_parking;autorace_slow;yolo_detect
+rclpy;autorace_sensor_bringup;launch_ros;autorace_mux;autorace_lane_fusion_pid;autorace_parking;autorace_slow;autorace_crosswalk;yolo_detect;rviz2;rviz_default_plugins;ament_index_python;geometry_msgs;nav_msgs;sensor_msgs;std_msgs;visualization_msgs

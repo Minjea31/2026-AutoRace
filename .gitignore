@@ -15,3 +15,11 @@ Agent.md
 # Sensor SDK runtime logs
 /sensor_ws/Log/
 /mux_ws/Log/
+
+# Local assistant workspace files
+*[gG][pP][tT]*
+.codex/
+.claude/
+.openai/
+CLAUDE.md
+CODEX.md

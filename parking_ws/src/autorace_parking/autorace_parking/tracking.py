@@ -1,6 +1,7 @@
 """Short-range scan registration; does not subscribe to odom, IMU or TF."""
 import math
 import numpy as np
+from scipy.spatial import cKDTree
 
 from .core import wrap
 
@@ -51,20 +52,18 @@ class ScanTracker:
 
     @staticmethod
     def surfaces(points):
-        distances = ((points[:, None, :] - points[None, :, :]) ** 2).sum(axis=2)
-        keep, normals = [], []
-        for i in range(len(points)):
-            indices = np.argsort(distances[i])[:7]
-            neighbors = points[indices[distances[i, indices] < .14 ** 2]]
-            if len(neighbors) < 3:
-                continue
-            centered = neighbors - neighbors.mean(axis=0)
-            values, vectors = np.linalg.eigh(centered.T @ centered / len(neighbors))
-            if values[1] < .00003 or values[0] > values[1] * .12:
-                continue
-            keep.append(points[i])
-            normals.append(vectors[:, 0])
-        return np.asarray(keep).reshape(-1, 2), np.asarray(normals).reshape(-1, 2)
+        if len(points) < 3:
+            return np.empty((0,2)),np.empty((0,2))
+        distances, indices = cKDTree(points).query(points,k=min(7,len(points)),workers=1)
+        valid=distances < .14
+        counts=valid.sum(axis=1)
+        neighbors=points[indices]
+        means=(neighbors*valid[:,:,None]).sum(axis=1)/np.maximum(counts[:,None],1)
+        centered=neighbors-means[:,None,:]
+        covariance=np.einsum('nki,nkj,nk->nij',centered,centered,valid)/np.maximum(counts[:,None,None],1)
+        values,vectors=np.linalg.eigh(covariance)
+        keep=(counts>=3)&(values[:,1]>=.00003)&(values[:,0]<=values[:,1]*.12)
+        return points[keep],vectors[keep,:,0]
 
     def update(self, points, stamp=None):
         if not self.valid:
