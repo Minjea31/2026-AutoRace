@@ -49,7 +49,8 @@ const char *sourceName(int source);
 struct Candidate {
   Path path;   // fitted, near -> far
   Path points; // observed sliding-window centres
-  int cls = 0; // 1 yellow, 2 white
+  int cls = 0;      // 1 yellow, 2 white (majority of the line's pixels)
+  int near_cls = 0; // the same over the near half of the BEV only (a dash continued by a far yellow island edge stays white)
   int source = 0, observed = 0;
   double length = 0, residual = 0, quality = 0;
 };
@@ -75,6 +76,7 @@ struct Line {
   double quality = 0, residual = 0, age = 0;
   int observed = 0, source = 0, frames = 0; // centroids, kDeep|kHsv, frames tracked
   bool yellow = false;
+  bool near_white = false; // near half of the boundary is white paint
   std::string note;
 };
 
@@ -118,6 +120,9 @@ public:
   // Fork sign (/yolo/LR_sign): -1 A (left), +1 B (right). Latched until the
   // fork is passed (fork_length travelled, or fork_timeout).
   void forkSign(int direction);
+  // A sign seen but not acted on yet (still far): -1 A, 1 B, 0 none. Used
+  // instead of fork_default when the island shows up first.
+  void forkSignSeen(int direction) { seen_dir_ = direction; }
 
 private:
   struct Track {
@@ -133,6 +138,7 @@ private:
   double motion_[3] = {0, 0, 0}; // x fwd (m), y left (m), yaw since the previous process()
   int base_side_ = -1;           // boundary the centre path is built on (0 left, 1 right)
   // Fork: latched direction, when it started, distance travelled since (odometry).
+  int seen_dir_ = 0;
   int fork_dir_ = 0, island_hits_ = 0, fork_phase_ = 0; // phase: 0 undecided, 1 keep the outer lane, 2 change
   double fork_since_ = -1, fork_travel_ = 0, island_seen_ = -1;
   // Fork steering: lanes to cross, vehicle pose (x fwd, y left, yaw) since it

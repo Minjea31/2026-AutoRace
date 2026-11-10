@@ -365,6 +365,7 @@ cv::Mat road(std::vector<std::pair<int, bool>> lines, bool island = false) {
 lane_lite::Config threeLanes() {
   auto c = identity();
   c.values["lane_width_px"] = 200;
+  c.values["fork_shift"] = 1; // geometry tests: aim exactly at the target lane centre
   return c;
 }
 lane_lite::Result runFork(lane_lite::Pipeline &p, const cv::Mat &img, int sign, int frames = 10) {
@@ -388,6 +389,17 @@ TEST(LaneLite, ForkFromTheMiddleLaneMovesOneLaneToTheSign) {
     EXPECT_NEAR(r.target_x, sign < 0 ? 130 : 530, 30) << sign << " " << r.fork_state;
   }
 }
+TEST(LaneLite, ForkSteeringDrivesHalfALaneInsideTheTargetLaneLine) {
+  // A from the middle lane; the target lane's left line is 40 px further in
+  // (x 60) than the 1.5 lanes the odometry pose expects (x 20): the steer centre follows
+  // the seen line (half a lane inside it), not the synthetic target.
+  const auto img = road({{60, true}, {220, false}, {420, false}, {620, true}});
+  lane_lite::Pipeline p(threeLanes());
+  const auto r = runFork(p, img, -1, 6);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.state, "fork steer") << r.fork_state;
+  EXPECT_NEAR(r.target_x, 60 + 100 + 10, 15) << r.fork_state; // line + half lane (+ lean at mid height)
+}
 TEST(LaneLite, ForkInTheOuterLaneOfTheSignKeepsTheLane) {
   // Already in the left lane (yellow road edge half a lane to the left): A keeps it.
   const auto img = road({{220, true}, {420, false}, {620, false}});
@@ -403,10 +415,10 @@ TEST(LaneLite, ForkWithoutSignTakesTheDefaultAtTheIsland) {
   EXPECT_EQ(r.fork, 0); // no island, no sign: plain lane keeping
   EXPECT_NEAR(r.target_x, 330, 25);
   const auto island = road({{20, true}, {220, false}, {420, false}, {620, true}}, true);
-  for (int i = 6; i < 18; ++i) // island seen: waits fork_default_wait (0.8 s) for a sign
+  for (int i = 6; i < 18; ++i) // island seen: waits fork_default_wait (1.2 s) for a sign
     r = p.process(island, i * .05);
   EXPECT_EQ(r.fork, 0);
-  for (int i = 18; i < 45; ++i)
+  for (int i = 18; i < 55; ++i)
     r = p.process(island, i * .05);
   EXPECT_EQ(r.fork, 1);
   EXPECT_NEAR(r.target_x, 530, 30) << r.fork_state;
@@ -417,9 +429,20 @@ TEST(LaneLite, ASignDuringTheIslandWaitWins) {
   auto r = runFork(p, island, 0, 6); // island seen, default not yet taken
   EXPECT_EQ(r.fork, 0);
   p.forkSign(-1);
-  for (int i = 10; i < 45; ++i)
+  for (int i = 10; i < 55; ++i)
     r = p.process(island, i * .05);
   EXPECT_EQ(r.fork, -1);
+}
+TEST(LaneLite, AFarSignSeenBeforeTheIslandReplacesTheDefault) {
+  // The A sign is in view but still too small to act on (node: fork_sign_area)
+  // when the island shows up: the island wait ends in A, not fork_default B.
+  lane_lite::Pipeline p(threeLanes());
+  p.forkSignSeen(-1);
+  const auto island = road({{20, true}, {220, false}, {420, false}, {620, true}}, true);
+  lane_lite::Result r;
+  for (int i = 0; i < 55; ++i)
+    r = p.process(island, i * .05);
+  EXPECT_EQ(r.fork, -1) << r.fork_state;
 }
 TEST(LaneLite, ForkLateSignAtTheIslandStillChangesLanes) {
   // Middle lane; the B sign comes only when the right dashes have ended and
@@ -471,12 +494,45 @@ TEST(LaneLite, ForkSteeringHandsOverToLaneKeepingAfterTheSideStep) {
   EXPECT_NE(r.fork_state.find("분기 주행"), std::string::npos) << r.fork_state;
   EXPECT_NE(r.state, "fork steer");
 }
+TEST(LaneLite, ForkSteeringAimsBeyondTheLaneOnlyWithoutTheTargetLine) {
+  // fork_shift 1.8 sets the synthetic aim (1.8 lanes over) used while the
+  // target lane's line is not seen; the steering still ends after 85 % of ONE
+  // lane sideways. With the line in view the centre is half a lane inside it.
+  auto c = threeLanes();
+  c.values["fork_shift"] = 1.8;
+  {
+    lane_lite::Pipeline p(c);
+    const auto img = road({{20, true}, {220, false}, {420, false}}); // B lane's right line not seen
+    auto r = runFork(p, img, 1, 2);
+    EXPECT_NEAR(r.lateral_m, -1.8 * .55, .06);
+    p.move(.4, -.5, 0.); // 0.5 m >= 85 % of 0.55 m
+    r = p.process(img, .35);
+    EXPECT_NE(r.fork_state.find("분기 주행"), std::string::npos) << r.fork_state;
+  }
+  lane_lite::Pipeline p(c);
+  const auto r = runFork(p, road({{20, true}, {220, false}, {420, false}, {620, true}}), 1, 6);
+  EXPECT_NEAR(r.lateral_m, -.55, .06) << r.state;
+}
 TEST(LaneLite, ForkFromTheFarLaneSteersTwoLanes) {
   // Left lane (yellow road edge on the left), sign B: two lanes to the right.
   lane_lite::Pipeline p(threeLanes());
   const auto r = runFork(p, road({{220, true}, {420, false}, {620, false}}), 1, 3);
   EXPECT_NE(r.fork_state.find("2차로"), std::string::npos) << r.fork_state;
   EXPECT_LT(r.lateral_m, -.9);
+}
+TEST(LaneLite, ForkDashRunningIntoTheYellowIslandIsStillALaneLine) {
+  // 11-10 car snapshot: middle lane, the left dash is followed on into the
+  // island's yellow edge far ahead, so most of its pixels are yellow. Its
+  // NEAR half is white, so sign A still means "steer", not "outer lane".
+  lane_lite::Pipeline p(threeLanes());
+  cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+  cv::line(img, {220, 479}, {226, 330}, cv::Scalar(240, 240, 240), 14); // near: white dash
+  cv::line(img, {226, 330}, {240, 0}, cv::Scalar(0, 200, 230), 14);     // far: yellow island edge
+  cv::line(img, {420, 479}, {440, 0}, cv::Scalar(240, 240, 240), 14);
+  auto r = runFork(p, img, -1, 4);
+  EXPECT_EQ(r.fork, -1);
+  EXPECT_EQ(r.fork_state.find("바깥 차로 유지"), std::string::npos) << r.fork_state;
+  EXPECT_GT(r.lateral_m, .4) << r.fork_state; // one lane to the left
 }
 TEST(LaneLite, ForkEndsAfterTheConfiguredDistance) {
   const auto img = road({{20, true}, {220, false}, {420, false}, {620, true}});

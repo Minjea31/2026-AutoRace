@@ -360,10 +360,15 @@ Detection detect(const cv::Mat &classes, int source, const Path prior_in[2], dou
     // bend, a dash gap at the start), which would flip heading and side.
     if (length(cand.path.front() - vehicle) > length(cand.path.back() - vehicle) + .05f * h)
       std::reverse(cand.path.begin(), cand.path.end());
-    size_t yellow_pixels = 0;
-    for (const auto &p : search.pixels)
-      yellow_pixels += yellow.at<uchar>(p) != 0;
+    size_t yellow_pixels = 0, near = 0, near_yellow = 0;
+    for (const auto &p : search.pixels) {
+      const bool y = yellow.at<uchar>(p) != 0;
+      yellow_pixels += y;
+      if (p.y >= h / 2)
+        ++near, near_yellow += y;
+    }
     cand.cls = 2 * yellow_pixels > search.pixels.size() ? 1 : 2;
+    cand.near_cls = near ? (2 * near_yellow > near ? 1 : 2) : cand.cls;
     cand.source = source;
     cand.length = pathLength(cand.path);
     out.note[side].clear();

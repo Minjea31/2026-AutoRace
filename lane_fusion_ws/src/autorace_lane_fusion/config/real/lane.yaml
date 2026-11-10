@@ -63,9 +63,9 @@ lane_lite:
   fork_timeout: 10.0
   fork_default: 1
   fork_shift: 1.0
-  fork_steer_max: 1.2
-  fork_steer_time: 2.5
-  fork_default_wait: 0.8
+  fork_steer_max: 1.6
+  fork_steer_time: 3.5
+  fork_default_wait: 1.2
   fork_island_px: 300
   lane_width_m: 0.52
   bev_near_m: 0.49
