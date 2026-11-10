@@ -1,8 +1,6 @@
-"""Threshold boundaries and OCR overrides must use original-image pixel area."""
+"""Threshold boundaries must use original-image pixel area; A/B comes from the YOLO class."""
 import ast
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import Mock
 import numpy as np
 import pytest
 
@@ -16,7 +14,7 @@ method = next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name
 selected.append(ast.ClassDef(name='Classifier', bases=[], keywords=[], body=[method], decorator_list=[]))
 ns = {'np': np, 'LR_TOPIC': '/yolo/LR_sign'}
 exec(compile(ast.fix_missing_locations(ast.Module(body=selected, type_ignores=[])), str(SOURCE), 'exec'), ns)
-EXPECTED = {'slow': 3200, 'bump': 3200, 'parking': 3200, 'crosswalk': 3200, 'left': 3400, 'right': 3400}
+EXPECTED = {'slow': 2500, 'bump': 2500, 'parking': 2000, 'crosswalk': 2500, 'left': 1000, 'right': 1000}
 
 @pytest.mark.parametrize('name', EXPECTED)
 @pytest.mark.parametrize('offset', [-1, 0, 1])
@@ -32,15 +30,14 @@ def test_low_confidence_and_off_image_area_do_not_pass():
     assert not f([[0, 0, 100, 100, .1, 0]], {0: 'slow'}, 640, 480)
     assert not f([[-100, 0, 10, 100, .99, 0]], {0: 'slow'}, 640, 480)
 
-@pytest.mark.parametrize('letter,name', [('A', 'left'), ('B', 'right')])
-@pytest.mark.parametrize('area', [3399, 3400, 3401])
-def test_ocr_direction_cannot_bypass_pixel_threshold(letter, name, area):
+@pytest.mark.parametrize('name', ['left', 'right'])
+@pytest.mark.parametrize('area', [999, 1000, 1001])
+def test_direction_is_the_yolo_class_with_pixel_threshold(name, area):
     classifier = ns['Classifier']()
-    classifier.names = {0: 'parking'}
-    classifier.get_logger = Mock(return_value=Mock())
-    classifier.direction_ocr = SimpleNamespace(read=lambda image: SimpleNamespace(letter=letter, score=.99))
-    detected, _, _ = classifier.classify_detections([[0, 0, area / 50., 50, .1, 0]], np.zeros((100,100,3), dtype=np.uint8))
-    assert (name in detected) == (area >= 3400)
+    classifier.names = {0: name}
+    detected, _ = classifier.classify_detections([[0, 0, area / 50., 50, .9, 0]], np.zeros((100, 100, 3), dtype=np.uint8))
+    assert (name in detected) == (area >= 1000)
+    assert classifier.box_details[0]['eligible'] == (area >= 1000)
 
 
 def test_default_input_uses_compressed_camera_messages():

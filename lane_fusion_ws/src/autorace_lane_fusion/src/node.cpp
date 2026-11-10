@@ -3,6 +3,7 @@
 #include "autorace_lane_fusion/lane.hpp"
 #include "autorace_lane_fusion/odometry.hpp"
 #include <condition_variable>
+#include <limits>
 #include <cv_bridge/cv_bridge.h>
 #include <mutex>
 #include <nav_msgs/msg/odometry.hpp>
@@ -12,6 +13,9 @@
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <filesystem>
+#include <fstream>
+#include <ctime>
 #include <thread>
 #include <atomic>
 #include <opencv2/imgproc.hpp>
@@ -70,14 +74,48 @@ public:
           });
     target_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_fusion/target", rclcpp::QoS(1));
     // Fork sign from YOLO: false = A (left), true = B (right); published only
-    // while a sign is confirmed. The pipeline latches it until the fork is passed.
+    // while a sign is confirmed. Acted on after fork_sign_count messages of the
+    // same direction, each within fork_sign_gap s of the previous one (an
+    // opposite one restarts the count); the pipeline then latches it until
+    // the fork is passed.
     const auto fork_topic = declare_parameter<std::string>("fork_topic", "/yolo/LR_sign");
+    sign_count_needed_ = std::max<int64_t>(1, declare_parameter<int64_t>("fork_sign_count", 2));
+    sign_gap_ = declare_parameter<double>("fork_sign_gap", 1.0);
+    // Only a sign box of at least fork_sign_area px^2 (from /yolo/LR_detail)
+    // counts. 1000 = the yolo_detect left/right minimum (act on the first
+    // confirmation, user choice 2026-11-10). 2000 delayed the lane change to
+    // ~45 px; at ~32 px (2-3 m before the island) it once drove the car past the
+    // target lane into the wall. 3400 px^2 was too late (~0.7 m).
+    // Live: ros2 param set /lane_fusion_node fork_sign_area N.
+    declare_parameter<double>("fork_sign_area", 1000.);
     if (!fork_topic.empty())
       fork_sub_ = create_subscription<std_msgs::msg::Bool>(
           fork_topic, rclcpp::QoS(10), [this](std_msgs::msg::Bool::ConstSharedPtr m) {
+            const double t = steady();
             std::lock_guard<std::mutex> lock(mutex_);
-            fork_sign_ = m->data ? 1 : -1;
+            if (t - fork_detail_time_ > 2.) // no box details (older yolo_detect): count the flag alone
+              countSign(m->data ? 1 : -1, std::numeric_limits<double>::infinity(), t);
           });
+    // Fork snapshot: at every fork state change one frame is rendered with the
+    // debug views and published latched on /lane_fusion/fork_debug (camera with
+    // the followed boundaries / centre and the sign box from /yolo/LR_detail,
+    // BEV candidates, BEV followed path), and saved as JPEG. Nothing is drawn
+    // between changes.
+    fork_detail_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
+        declare_parameter<std::string>("fork_detail_topic", "/yolo/LR_detail"), rclcpp::QoS(10),
+        [this](std_msgs::msg::Float32MultiArray::ConstSharedPtr m) {
+          const double area_min = get_parameter("fork_sign_area").as_double();
+          std::lock_guard<std::mutex> lock(mutex_);
+          fork_detail_ = m->data;
+          fork_detail_time_ = steady();
+          if (m->data.size() >= 2)
+            countSign(m->data[0] > .5f ? 1 : -1, m->data[1] >= area_min ? 1. : 0., fork_detail_time_);
+        });
+    fork_debug_ = create_publisher<sensor_msgs::msg::CompressedImage>(
+        "/lane_fusion/fork_debug", rclcpp::QoS(1).reliable().transient_local());
+    snapshot_dir_ = declare_parameter<std::string>("fork_snapshot_dir", "");
+    if (snapshot_dir_.empty() && std::getenv("HOME"))
+      snapshot_dir_ = std::string(std::getenv("HOME")) + "/fork_snapshots";
     // Parking approach (main a95746e): after /parking/approach_start, a 10 Hz
     // white-floor observation of the near image band until /parking/active.
     floor_ = create_publisher<std_msgs::msg::Float64MultiArray>("/parking/floor_observation", rclcpp::QoS(1));
@@ -168,7 +206,7 @@ private:
       size_t revision;
       double rx, step[3] = {0, 0, 0};
       bool stepped = false;
-      int sign = 0;
+      int sign = 0, seen = 0;
       {
         std::unique_lock<std::mutex> lock(mutex_);
         cv_.wait(lock, [this] { return stop_ || frame_; });
@@ -204,6 +242,7 @@ private:
           stepped = odom_.between(previous_rx, rx, step[0], step[1], step[2]);
         sign = fork_sign_;
         fork_sign_ = 0;
+        seen = !sign_blocked_ && steady() - sign_seen_time_ <= sign_gap_ ? sign_seen_dir_ : 0;
       }
       previous_rx = rx;
       try {
@@ -221,17 +260,31 @@ private:
         const double decoded = steady();
         if (stepped)
           pipeline.move(step[0], step[1], step[2]);
-        if (sign)
+        pipeline.forkSignSeen(seen);
+        if (sign) {
           pipeline.forkSign(sign);
-        const bool views = debug_ && debug_->get_subscription_count() > 0;
+          sign_time_ = steady();
+        }
+        const bool debug_wanted = debug_ && debug_->get_subscription_count() > 0;
+        const bool snapshot = snapshot_pending_;
+        const bool views = debug_wanted || snapshot;
         const auto r = pipeline.process(bgr, stamp, views, deep);
         if (floor_active_ && steady() - floor_last_ >= .1)
           observeFloor(bgr, frame->header.stamp, config);
         if (r.fork_state != fork_state_) {
           RCLCPP_INFO(get_logger(), "fork: %s", r.fork_state.empty() ? "off" : r.fork_state.c_str());
           fork_state_ = r.fork_state;
+          snapshot_pending_ = true; // drawn on the next frame
+        } else if (snapshot) {
+          snapshot_pending_ = false;
         }
         std::lock_guard<std::mutex> lock(mutex_);
+        if (fork_active_ && !r.fork) { // fork passed: the sign still in view must not restart it
+          sign_blocked_ = true;
+          fork_sign_ = 0;
+          sign_seen_count_ = 0;
+        }
+        fork_active_ = r.fork != 0;
         publish(&r);
         processed_ = steady();
         // Capture -> publish, when the camera stamps the system clock.
@@ -244,11 +297,13 @@ private:
           reported_ = processed_;
           stats_ = {};
         }
-        if (views) {
+        if (debug_wanted) {
           auto h = frame->header;
           h.frame_id = "lane_fusion_bev";
           debug_->publish(*cv_bridge::CvImage(h, "bgr8", r.path_view).toImageMsg());
         }
+        if (snapshot && !r.overlay.empty())
+          publishSnapshot(r, frame->header);
       } catch (const std::exception &e) {
         pipeline.reset();
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "lane_fusion: %s", e.what());
@@ -281,6 +336,99 @@ private:
                 double(cv::countNonZero(cols)) / white.cols, angle};
     floor_->publish(obs);
     floor_last_ = steady();
+  }
+  // ASCII only (cv::putText has no Hangul).
+  static std::string phaseName(const std::string &state) {
+    if (state.empty())
+      return "OFF";
+    if (state.find("표지판 없음") != std::string::npos)
+      return "DEFAULT (island seen, no sign)";
+    if (state.find("조향") != std::string::npos)
+      return state.find("2차로") != std::string::npos ? "STEER 2 lanes" : "STEER 1 lane";
+    if (state.find("분기") != std::string::npos)
+      return "BRANCH lane keeping";
+    if (state.find("바깥") != std::string::npos)
+      return "KEEP outer lane";
+    return "?";
+  }
+  // One /yolo/LR_sign event (mutex_ held). `near` < 1: the box is still too
+  // small (far), seen but not counted. After a fork ends, the sign that kept
+  // being seen is ignored until it has been gone for fork_sign_gap s, so the
+  // same sign cannot start the manoeuvre again.
+  void countSign(int direction, double near, double t) {
+    const bool continued = direction == sign_seen_dir_ && t - sign_seen_time_ <= sign_gap_;
+    sign_seen_dir_ = direction;
+    sign_seen_time_ = t;
+    if (sign_blocked_ && continued)
+      return;
+    sign_blocked_ = false;
+    if (!continued || near < 1)
+      sign_seen_count_ = 0;
+    if (near >= 1 && ++sign_seen_count_ >= sign_count_needed_)
+      fork_sign_ = direction;
+  }
+  // Called with mutex_ held.
+  void publishSnapshot(const lane_lite::Result &r, const std_msgs::msg::Header &header) {
+    const double now_s = steady(), detail_age = now_s - fork_detail_time_;
+    const bool detail = fork_detail_.size() >= 9 && detail_age < 10;
+    cv::Mat camera = r.overlay.clone();
+    std::string sign_text = "sign: none received";
+    if (detail) {
+      const auto &d = fork_detail_;
+      const std::string letter = d[0] > .5f ? "B (right)" : "A (left)";
+      const cv::Rect box{cv::Point{int(d[5]), int(d[6])}, cv::Point{int(d[7]), int(d[8])}};
+      cv::rectangle(camera, box, {0, 255, 255}, 2);
+      char label[64];
+      std::snprintf(label, sizeof label, "%s %.0fpx2", d[0] > .5f ? "B" : "A", d[1]);
+      cv::putText(camera, label, {box.x, std::max(14, box.y - 6)}, cv::FONT_HERSHEY_SIMPLEX, .55, {0, 0, 0}, 4);
+      cv::putText(camera, label, {box.x, std::max(14, box.y - 6)}, cv::FONT_HERSHEY_SIMPLEX, .55, {0, 255, 255}, 1);
+      char text[200];
+      std::snprintf(text, sizeof text, "sign: %s  bbox %.0f px2 (%.0fx%.0f)  YOLO %.2f  (%.1f s ago)",
+                    letter.c_str(), d[1], d[2], d[3], d[4], detail_age);
+      sign_text = text;
+    }
+    std::vector<cv::Mat> panels = {camera, r.search_view, r.path_view};
+    for (auto &p : panels)
+      if (p.size() != camera.size())
+        cv::resize(p, p, camera.size());
+    const char *titles[] = {"camera + followed path + sign box", "BEV detected candidates (purple deep, orange HSV, green both)",
+                            "BEV followed boundaries / centre / target"};
+    for (size_t i = 0; i < panels.size(); ++i) {
+      panels[i] = panels[i].clone();
+      cv::putText(panels[i], titles[i], {8, panels[i].rows - 10}, cv::FONT_HERSHEY_SIMPLEX, .5, {0, 0, 0}, 3);
+      cv::putText(panels[i], titles[i], {8, panels[i].rows - 10}, cv::FONT_HERSHEY_SIMPLEX, .5, {255, 255, 255}, 1);
+    }
+    cv::Mat row, out;
+    cv::hconcat(panels, row);
+    cv::Mat bar(64, row.cols, CV_8UC3, cv::Scalar(30, 30, 30));
+    const std::string dir = r.fork < 0 ? "A (left)" : r.fork > 0 ? "B (right)" : "-";
+    const bool by_sign = sign_time_ > 0 && now_s - sign_time_ < 15;
+    const std::string line1 = "FORK " + dir + "   phase: " + phaseName(r.fork_state) + "   source: " +
+                              (r.fork ? (by_sign ? "sign (/yolo/LR_sign)" : "default (no sign)") : "-") +
+                              "   lane: " + r.state + " " + r.source;
+    cv::putText(bar, line1, {10, 26}, cv::FONT_HERSHEY_SIMPLEX, .7, {0, 255, 0}, 2);
+    cv::putText(bar, sign_text, {10, 54}, cv::FONT_HERSHEY_SIMPLEX, .6, {0, 255, 255}, 1);
+    cv::vconcat(bar, row, out);
+    std::vector<uchar> jpeg;
+    cv::imencode(".jpg", out, jpeg, {cv::IMWRITE_JPEG_QUALITY, 85});
+    sensor_msgs::msg::CompressedImage msg;
+    msg.header = header;
+    msg.format = "jpeg";
+    msg.data = std::move(jpeg);
+    fork_debug_->publish(msg);
+    if (!snapshot_dir_.empty()) {
+      std::error_code error;
+      std::filesystem::create_directories(snapshot_dir_, error);
+      char name[96];
+      const auto t = std::time(nullptr);
+      std::strftime(name, sizeof name, "%Y%m%d_%H%M%S", std::localtime(&t));
+      std::string phase = phaseName(r.fork_state);
+      for (auto &ch : phase)
+        if (!std::isalnum(static_cast<unsigned char>(ch)))
+          ch = '_';
+      std::ofstream(snapshot_dir_ + "/fork_" + name + "_" + phase.substr(0, 20) + ".jpg", std::ios::binary)
+          .write(reinterpret_cast<const char *>(msg.data.data()), std::streamsize(msg.data.size()));
+    }
   }
   struct Stats {
     size_t frames = 0, valid = 0, offered = 0, used = 0, captured = 0;
@@ -328,7 +476,16 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr fork_sub_;
-  int fork_sign_ = 0;      // newest /yolo/LR_sign not yet given to the pipeline
+  int fork_sign_ = 0;      // confirmed /yolo/LR_sign not yet given to the pipeline
+  int sign_seen_dir_ = 0, sign_seen_count_ = 0, sign_count_needed_ = 2;
+  double sign_seen_time_ = -1e9, sign_gap_ = 1.0;
+  bool sign_blocked_ = false, fork_active_ = false;
+  bool snapshot_pending_ = false; // fork state changed: render the next frame
+  double sign_time_ = -1, fork_detail_time_ = -1e9;
+  std::vector<float> fork_detail_; // newest /yolo/LR_detail
+  std::string snapshot_dir_;
+  rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr fork_detail_sub_;
+  rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr fork_debug_;
   std::string fork_state_; // worker thread only
   rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr compressed_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr target_;

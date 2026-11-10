@@ -20,7 +20,7 @@
       <div class="session"><span class="session-label">CONNECTED TO</span><span id="host">—</span><span class="session-meta" id="session-meta">영상을 기다리고 있습니다</span></div>
     </section>
     <section class="viewer" aria-label="실시간 영상">
-      <div class="toolbar"><div class="tabs" role="tablist" aria-label="영상 분류"><button class="tab active" role="tab" aria-selected="true" data-view="all">전체 영상 <span>05</span></button><button class="tab" role="tab" aria-selected="false" data-view="camera">카메라 · YOLO</button><button class="tab" role="tab" aria-selected="false" data-view="analysis">차선 분석</button></div><div class="toolbar-note"><span class="live-dot"></span>LIVE VIEW</div></div>
+      <div class="toolbar"><div class="tabs" role="tablist" aria-label="영상 분류"><button class="tab active" role="tab" aria-selected="true" data-view="all">전체 영상 <span>06</span></button><button class="tab" role="tab" aria-selected="false" data-view="camera">카메라 · YOLO</button><button class="tab" role="tab" aria-selected="false" data-view="analysis">차선 분석</button></div><div class="toolbar-note"><span class="live-dot"></span>LIVE VIEW</div></div>
       <div class="video-grid" id="video-grid">
         <article class="feed primary" data-source="camera">
           <div class="feed-header"><div class="feed-title"><span class="feed-number">01</span><h2>카메라</h2></div><span class="feed-state waiting"><span class="dot"></span><span>연결 중</span></span></div>
@@ -46,6 +46,11 @@
           <div class="feed-header"><div class="feed-title"><span class="feed-number">05</span><h2>서행 · 방지턱 ROI</h2></div><span class="feed-state waiting"><span class="dot"></span><span>대기 중</span></span></div>
           <div class="stage" id="stage-white_roi"><img alt="미션 시작용 바닥 ROI와 흰색 비율 확인 영상" data-stream="white_roi"><div class="placeholder"><span class="placeholder-icon">▱</span><strong>바닥 ROI 대기 중</strong><span>서행 노드 실행 후 흰색 비율을 확인할 수 있습니다.</span></div></div>
           <div class="feed-footer"><div><span class="dimensions">—</span><span class="divider">/</span><span class="fps">— FPS</span></div><div class="feed-actions"><a href="/snapshot/white_roi.jpg" download aria-label="바닥 ROI 이미지 저장">저장 ↗</a><button data-fullscreen="white_roi" aria-label="바닥 ROI 전체화면">전체화면 ⛶</button></div></div>
+        </article>
+        <article class="feed secondary" data-source="fork">
+          <div class="feed-header"><div class="feed-title"><span class="feed-number">06</span><h2>갈림길 스냅샷</h2></div><span class="feed-state waiting"><span class="dot"></span><span>대기 중</span></span></div>
+          <div class="stage" id="stage-fork"><img alt="갈림길 상태가 바뀔 때의 추종 차선·검출 차선·표지판 bbox" data-stream="fork"><div class="placeholder"><span class="placeholder-icon">⑂</span><strong>갈림길 대기 중</strong><span>갈림길 모드가 켜지거나 바뀔 때마다 한 장씩 표시됩니다(마지막 장면 유지).</span></div></div>
+          <div class="feed-footer"><div><span class="dimensions">—</span><span class="divider">/</span><span class="fps">— FPS</span></div><div class="feed-actions"><a href="/snapshot/fork.jpg" download aria-label="갈림길 스냅샷 저장">저장 ↗</a><button data-fullscreen="fork" aria-label="갈림길 스냅샷 전체화면">전체화면 ⛶</button></div></div>
         </article>
       </div>
     </section>

@@ -17,7 +17,7 @@ import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import CompressedImage, Image
 from parking_bridge import ParkingState
@@ -32,8 +32,19 @@ SOURCES = (
     ('lane', '차선 디버그', '/lane_fusion/debug', Image),
     ('roi_camera', 'ROI 편집용 원본', '/camera/color/image_raw', Image),
     ('white_roi', '서행·방지턱 ROI', '/slow/white_roi/debug/compressed', CompressedImage),
+    # Latched: one picture per fork state change (lane_fusion_node), kept until the next one.
+    ('fork', '갈림길 스냅샷', '/lane_fusion/fork_debug', CompressedImage),
 )
 DIST = Path(__file__).resolve().parent / 'dist'
+LATCHED = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+
+
+def latest_fork_file():
+    # lane_fusion_node also saves every fork snapshot here; after a node
+    # restart (latched picture lost) the newest file is shown instead.
+    folder = Path(os.environ.get('FORK_SNAPSHOT_DIR', Path.home() / 'fork_snapshots'))
+    files = sorted(folder.glob('fork_*.jpg'), key=lambda f: f.stat().st_mtime) if folder.is_dir() else []
+    return files[-1] if files else None
 
 
 def jpeg_dimensions(data):
@@ -96,7 +107,8 @@ class Stream:
         self.preview_until = 0.0
 
     def active(self):
-        return self.clients > 0 or time.monotonic() < self.preview_until
+        # The fork snapshot is latched and rare: always subscribed (no stream needed).
+        return self.key == 'fork' or self.clients > 0 or time.monotonic() < self.preview_until
 
     def receive(self, message):
         # A parking-only viewer should not encode unused lane/debug streams.
@@ -124,6 +136,12 @@ class Stream:
             self.condition.notify_all()
 
     def status(self):
+        if self.key == 'fork' and self.jpeg is None and latest_fork_file():
+            f = latest_fork_file()
+            width, height = jpeg_dimensions(f.read_bytes())
+            return dict(id=self.key, title=self.title, topic=self.topic + ' (saved file)', status='stale',
+                        age_ms=round((time.time() - f.stat().st_mtime) * 1000), fps=0, width=width,
+                        height=height, bytes=f.stat().st_size, clients=self.clients, error='')
         with self.condition:
             age = time.monotonic() - self.updated if self.jpeg else None
             fps = ((len(self.times) - 1) / (self.times[-1] - self.times[0])
@@ -149,7 +167,8 @@ class Bridge(Node):
         for key, _, topic, kind in SOURCES:
             if self.streams[key].active() and key not in self.image_subscriptions:
                 self.image_subscriptions[key] = self.create_subscription(
-                    kind, topic, self.streams[key].receive, qos_profile_sensor_data)
+                    kind, topic, self.streams[key].receive,
+                    LATCHED if key == 'fork' else qos_profile_sensor_data)
             elif not self.streams[key].active() and key in self.image_subscriptions:
                 self.destroy_subscription(self.image_subscriptions.pop(key))
 
@@ -223,7 +242,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with stream.condition:
                 data, age = stream.jpeg, time.monotonic() - stream.updated
-            if data is None or age >= 2:
+            if data is None and key == 'fork' and latest_fork_file():
+                data, age = latest_fork_file().read_bytes(), 0.
+            if data is None or (age >= 2 and key != 'fork'):  # fork: last picture stays valid
                 self.send_body('최신 영상이 없습니다.'.encode(), 'text/plain; charset=utf-8', 503)
                 return
             filename = f'{key}-{time.strftime("%Y%m%d-%H%M%S")}.jpg'
