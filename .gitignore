@@ -23,3 +23,32 @@ Agent.md
 .openai/
 CLAUDE.md
 CODEX.md
+
+# ROS bag recordings
+rosbag2_*/
+*.[bB][aA][gG]
+*.[bB][aA][gG].*
+*.[dD][bB]3
+*.[dD][bB]3-wal
+*.[dD][bB]3-shm
+*.[mM][cC][aA][pP]
+*.[mM][cC][aA][pP].*
+
+# Video recordings
+*.[mM][pP]4
+*.[mM]4[vV]
+*.[aA][vV][iI]
+*.[mM][oO][vV]
+*.[mM][kK][vV]
+*.[wW][eE][bB][mM]
+*.[mM][pP][gG]
+*.[mM][pP][eE][gG]
+*.[wW][mM][vV]
+*.[fF][lL][vV]
+*.[mM][tT][sS]
+*.[mM]2[tT][sS]
+*.3[gG][pP]
+*.[oO][gG][vV]
+*.[hH]264
+*.[hH]265
+*.[hH][eE][vV][cC]

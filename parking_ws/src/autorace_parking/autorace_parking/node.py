@@ -9,6 +9,7 @@ import time
 import multiprocessing
 import signal
 import struct
+import traceback
 from threading import Event
 
 import rclpy
@@ -502,6 +503,12 @@ class ParkingNode(Node):
             if self.localization_not_before is not None and health['stamp']<self.localization_not_before:return
             if self.fusion_health is not None and health['stamp'] <= self.fusion_health['stamp']:
                 return
+            if self.departure_active():
+                # Diagnostic only after parking. The route is driven using
+                # validated odometry and fresh collision scans, not this heartbeat.
+                self.fusion_health = health
+                self.fusion_health_received = time.monotonic()
+                return
             if self.approach_calibration.pending and not self.activation.active:
                 self.fusion_health = health
                 self.fusion_health_received = time.monotonic()
@@ -546,7 +553,11 @@ class ParkingNode(Node):
             phase = 'RELEASE' if self.follower.exited else 'DRIVE'
         if self.guard_reset and phase == 'IDLE':
             phase = 'RESET'
-        if phase == 'APPROACH' or (phase == 'DRIVE' and self.localization_source == 'fused'):
+        if phase == 'DRIVE' and self.localization_source == 'fused' and self.departure_active():
+            ready = bool(ready and self.tracker.healthy(self.now_seconds())
+                and self.scan is not None and self.scan_time is not None
+                and -SCAN_FUTURE_TOLERANCE <= self.now_seconds()-self.scan_time <= self.scan_timeout)
+        elif phase == 'APPROACH' or (phase == 'DRIVE' and self.localization_source == 'fused'):
             ready = ready and self.fusion_health is not None and self.fusion_health_received is not None
             ready = bool(ready and self.fusion_health.get('ready') is True
                 and time.monotonic()-self.fusion_health_received <= self.localization_timeout
@@ -751,8 +762,35 @@ class ParkingNode(Node):
             'latest_scan_received_age_s':None if self.last_scan_received_stamp is None else now-self.last_scan_received_stamp,
             'last_odom_rejection':self.last_localization_rejection}
 
+    def departure_active(self):
+        return self.follower.parked and not self.follower.exited
+
+    def lock_departure_localization(self):
+        if (self.localization_source != 'fused' or not self.departure_active()
+                or self.tracker.odometry_only):
+            return
+        self.tracker.freeze_corrections()
+        # A pre-parking scan job must not overwrite the now-fixed transform.
+        if self.scan_job is not None:
+            self.scan_job[0].cancel()
+            self.scan_job = None
+        self.latest_scan_job = None
+        if self.pending is not None:
+            self.pending[0].cancel()
+            self.pending = None
+
+    def hold_departure(self, reason):
+        # Do not throw away the goal, parked timestamp, trace, route, map, or
+        # coordinate frame. A discontinuous odometry frame still requires reset.
+        if self.activation.active:
+            self.publish_command(0., 0.)
+        self.state, self.reason = 'WAITING_LOCALIZATION', reason
+
     def hold_localization(self, now, reason):
         if self.follower.exited:
+            return
+        if self.departure_active():
+            self.hold_departure(reason)
             return
         established = getattr(self.tracker, 'origin', None) is not None
         if (not established or self.localization_preserve_timeout <= 0
@@ -776,6 +814,10 @@ class ParkingNode(Node):
         # Every fault discards ALL partial recovery data too. Keep the first
         # cutoff fixed during an outage so callback latency cannot starve recovery.
         if self.follower.exited:
+            return
+        if self.departure_active():
+            self.tracker.valid, self.tracker.reason = False, reason
+            self.hold_departure(reason)
             return
         self.localization_hold_since = None
         self.localization_hold_samples = 0
@@ -815,6 +857,12 @@ class ParkingNode(Node):
     def localization_ready(self, now):
         if self.localization_source == 'scan':
             return True
+        if self.departure_active():
+            self.lock_departure_localization()
+            if not self.tracker.healthy(now):
+                self.hold_departure(self.tracker.reason)
+                return False
+            return True
         health = self.fusion_health
         if health is None or self.fusion_health_received is None:
             self.reason = 'Fusion health unavailable'
@@ -851,7 +899,7 @@ class ParkingNode(Node):
         return True
 
     def clear_visuals(self, clear_obstacles=True):
-        held = bool(self.follower.path) and (self.follower.entry_locked or self.cfg.continuous_replanning or self.follower.exiting)
+        held = bool(self.follower.path) and (self.follower.entry_locked or self.cfg.continuous_replanning or self.follower.parked)
         self.path_pub.publish(self.path_message(self.visible_path() if held else []))
         publishers = [self.target_pub, self.lookahead_pub]
         if self.slot_map is None:publishers.append(self.slot_map_pub)
@@ -1131,10 +1179,10 @@ class ParkingNode(Node):
             self.state, self.reason = 'TRACKING_LOST', f'Scan matching failed: {self.tracker.reason}; retry required'
             if was_tracking:
                 self.get_logger().warning(reason_text(self.reason))
-            if not (self.follower.entry_locked or self.cfg.continuous_replanning):
+            if not (self.follower.entry_locked or self.cfg.continuous_replanning or self.departure_active()):
                 self.follower.path = []
             self.path_pub.publish(self.path_message(self.visible_path()
-                                                   if self.follower.entry_locked or self.cfg.continuous_replanning else []))
+                                                   if self.follower.entry_locked or self.cfg.continuous_replanning or self.departure_active() else []))
         if self.memory_enabled and self.activation.active and self.tracker.valid:
             self.memory.update(raw_scan,self.scan,self.tracker.pose,stamp,self.cfg,groups=clusters)
         if self.localization_source == 'fused' and self.tracker.valid:
@@ -1166,7 +1214,8 @@ class ParkingNode(Node):
                 and self.memory.stamp is not None
                 and (self.memory.stamp==self.scan_time or self.cfg.recovery_uses_memory_map)):
             scan=self.memory.snapshot(self.scan,self.tracker.pose,self.cfg)
-        if scan is not None and self.slot_map is not None and self.slot_map.get('locked'):
+        if (scan is not None and self.slot_map is not None and self.slot_map.get('locked')
+                and not self.departure_active()):
             from .core import Cluster
             from .enclosed import physical_objects
             from .slot_map import fit_slot_map
@@ -1878,6 +1927,7 @@ class ParkingNode(Node):
             else:
                 speed, steering, self.state = self.follower.command(
                     self.scan, control_pose, fresh_control_scan, now=now, obstacle_scan=obstacle_scan)
+                self.lock_departure_localization()
             if self.state in ('APPROACHING', 'PARKING', 'REVERSING', 'RECOVERING', 'CHANGING_DIRECTION',
                               'RECOVERY_BLOCKED', 'REOBSERVE', 'REPLAN', 'PATH_HELD', 'ROUTE_BLOCKED', 'CONFIRMING', 'PARKED', 'EXITING', 'EXIT_CONFIRMING', 'EXITED'):
                 self.reason = ''
@@ -1917,7 +1967,7 @@ class ParkingNode(Node):
                 and ((not self.cfg.replan_while_following and self.follower.goal.confirmed)
                      or math.dist(control_pose[:2],(self.follower.goal.x,self.follower.goal.y))
                         <=self.cfg.terminal_recovery_guard_distance))
-            if (not search_exhausted and not retain_entry and (not self.follower.parked or observe_pair) and self.pending is None
+            if (not search_exhausted and not retain_entry and not self.follower.parked and self.pending is None
                     and not self.recovery_running
                     and not (self.follower.entry_locked and self.state != 'FRONT_BLOCKED')
                     and not (self.follower.final_approach and self.follower.path and self.state != 'FRONT_BLOCKED' and not self.cfg.continuous_replanning)
@@ -2133,7 +2183,8 @@ def main(args=None):
         pass
     except Exception as exc:
         exit_code = 1
-        node.get_logger().error('주차 노드 실행 중 오류가 발생해 종료합니다: '+reason_text(str(exc)))
+        node.get_logger().error('주차 노드 실행 중 오류가 발생해 종료합니다: '+reason_text(str(exc))
+                               +f'\n{type(exc).__name__}: {exc}\n'+traceback.format_exc())
     finally:
         node.destroy_node()
         if rclpy.ok():

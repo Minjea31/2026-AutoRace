@@ -183,6 +183,11 @@ class FusedTracker:
         self.sample = None
         self.latched = False
         self.stationary_disagreements = 0
+        self.odometry_only = False
+
+    def freeze_corrections(self):
+        """Keep the parked route's frame; subsequent scans only timestamp odometry."""
+        self.odometry_only = True
 
     def update(self, points, stamp):
         if self.latched or self.history.discontinuity:
@@ -199,6 +204,13 @@ class FusedTracker:
         if self.origin is None:
             self.origin = predicted
             self.global_pose = predicted
+        if self.odometry_only:
+            self.global_pose = predicted
+            self.pose = compose(inverse(self.origin), predicted)
+            self.last_stamp = stamp
+            self.valid, self.reason = True, ''
+            self.lidar_status = 'departure: fixed-frame odometry'
+            return True
         if self.matcher is not None:
             prior = compose(inverse(self.key_pose), predicted)
             scene_changed = self.stationary and self.matcher.stationary_scene_changed(points, prior)

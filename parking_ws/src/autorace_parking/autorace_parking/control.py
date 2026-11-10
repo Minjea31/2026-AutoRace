@@ -885,6 +885,10 @@ class Follower:
                 previous = local
         if self.exited:
             return self.stop('EXITED', now)
+        if self.parked and self.goal is None:
+            self.exit_route_ready = False
+            self.exit_route_reason = 'missing_parking_goal'
+            return self.stop('EXIT_PATH_ERROR', now)
         if self.parked and not self.exiting:
             if self.cfg.auto_exit_after_parking and not self.exit_prepared:
                 self.prepare_exit(pose,now,scan if obstacle_scan is None else obstacle_scan)
