@@ -135,6 +135,9 @@ private:
   Track tracks_[2];
   Path center_;
   double center_seen_ = -1, center_confidence_ = 0, last_time_ = -1, width_ = 0;
+  double curve_k_ = 0; // 0 straight .. 1 curve_lane_width_m (left-only right-hand bend), low-passed
+  double curve_until_ = -1, odom_seen_ = -1; // bend memory active until; last frame with odometry motion
+  Path curve_left_;         // last accepted left boundary, moved with the car (bend memory)
   double motion_[3] = {0, 0, 0}; // x fwd (m), y left (m), yaw since the previous process()
   int base_side_ = -1;           // boundary the centre path is built on (0 left, 1 right)
   // Fork: latched direction, when it started, distance travelled since (odometry).

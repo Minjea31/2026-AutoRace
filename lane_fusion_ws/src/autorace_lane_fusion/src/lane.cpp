@@ -72,6 +72,17 @@ const std::vector<Spec> &specs() {
        400, 1},
       {"track_memory", "차로·추적", "관측이 끊겨도 마지막 경계·중앙 경로를 유지하는 시간(s). 지나면 무효(정지)", .5,
        0, 3, .05},
+      {"curve_lane_width_m", "차로·추적",
+       "우회전 커브의 차로 폭(m, 최대). 왼쪽 선만 보이고 그 선이 오른쪽으로 꺾일수록 중앙 경로를 만드는 폭을 "
+       "lane_width_m에서 이 값까지 늘림(바깥 선에 붙지 않게). 0 = 끔",
+       0, 0, 2, .01},
+      {"curve_angle_deg", "차로·추적",
+       "왼쪽 선 방향(차 기준, 오른쪽 +)이 이 각도면 curve_lane_width_m 전부 적용. 이 값의 1/3 이하는 직선 폭", 45, 5, 90,
+       1},
+      {"curve_memory", "차로·추적",
+       "커브(왼쪽 선만, 오른쪽으로 꺾임) 중과 그 뒤 이 시간(s) 동안 왼쪽 선을 odom으로 옮기며 기억하고, 그보다 "
+       "반 차로폭 넘게 바깥(왼쪽)에 있는 선(이미 지나온 차로)은 경계로 쓰지 않음. 0 = 끔",
+       0, 0, 10, .1},
       {"role_frames", "차로·추적",
        "한쪽만 보일 때 그 선을 이만큼 연속 추적했어야 중앙 경로를 만듦(역할 확인)", 3, 1, 30, 1},
       {"lookahead_row", "출력", "목표점 BEV 세로 위치(0=먼 곳, 1=차량 앞)", .55, .05, .98, .01},
@@ -187,6 +198,9 @@ void Pipeline::reset() {
   center_.clear();
   center_seen_ = last_time_ = -1;
   center_confidence_ = 0;
+  curve_k_ = 0;
+  curve_until_ = odom_seen_ = -1;
+  curve_left_.clear();
   base_side_ = -1;
   motion_[0] = motion_[1] = motion_[2] = 0;
   width_ = config_["lane_width_px"];
@@ -256,6 +270,8 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
       path = moved.size() >= 2 ? moved : Path();
     };
     shift(center_);
+    shift(curve_left_);
+    odom_seen_ = time;
     if (fork_dir_) { // vehicle pose since the fork steering started
       const double cs = std::cos(fork_pose_[2]), sn = std::sin(fork_pose_[2]);
       fork_pose_[0] += cs * motion_[0] - sn * motion_[1];
@@ -414,8 +430,24 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
         if (!prior[s].empty())
           cont[s][i] = distanceTo(r.candidates[i].path, prior[s]);
     }
+    // After a right-hand bend the lane just driven runs parallel outside
+    // (left of) the current left line (234303 bag, 46.5 s on). While in or
+    // shortly after a bend, a line more than half a lane outside the
+    // remembered left line is no boundary of this lane.
+    std::vector<char> outside(n, 0);
+    // Only with odometry: a remembered line that does not move with the car
+    // would exclude the right lines.
+    if (c["curve_memory"] > 0 && time <= curve_until_ && !curve_left_.empty() && odom_seen_ >= 0 &&
+        time - odom_seen_ <= .2)
+      for (size_t i = 0; i < n; ++i) {
+        const auto gap = separation(r.candidates[i].path, curve_left_); // > 0: the remembered line lies right of it
+        if (!gap.empty() && median(gap) > .5 * width_)
+          outside[i] = 1;
+      }
     auto unary = [&](size_t i, int s) -> double {
       const auto &k = r.candidates[i];
+      if (outside[i])
+        return kInf;
       const bool track = !std::isnan(cont[s][i]) && cont[s][i] < 1.5f * gate;
       // The vehicle lies right of a left boundary; a tracked line keeps its
       // role while the vehicle straddles it (no flip on the line itself).
@@ -704,6 +736,8 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
         track.jumps = 0;
       line.path = track.path;
       line.frames = track.frames;
+      if (s == 0)
+        curve_left_ = track.path; // remembered (and moved with the car) for the bend
     } else if (!prior[s].empty()) {
       line.path = prior[s];
       line.state = LineState::Predicted;
@@ -749,7 +783,28 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
     const Line &base = left_base ? r.left : r.right, &other = left_base ? r.right : r.left;
     // No refit here: the boundaries are already fitted and
     // smoothed once, a further fit would straighten the bend.
-    center = centreLine(base.path, dl && dr ? other.path : Path(), left_base ? 1.f : -1.f, float(width_),
+    // The track's bends all turn right and are wider than the straights:
+    // there only the outer (left) line is in view, and half the straight
+    // width from it puts the centre against the outer line. The wider the
+    // left line turns to the right (direction relative to the car), the
+    // closer the width used gets to curve_lane_width_m.
+    double width = width_;
+    if (dl && !dr && c["curve_lane_width_m"] > c["lane_width_m"] && r.left.path.size() >= 2) {
+      const cv::Point2f d = r.left.path.back() - r.left.path.front(); // near -> far
+      const double angle = std::atan2(d.x, -d.y) * 180 / CV_PI;       // > 0: bends right
+      const double full = c["curve_angle_deg"], start = full / 3;
+      // Low-passed (time constant 0.3 s): the end-to-end direction of a
+      // fitted line wobbles from frame to frame.
+      const double k = std::clamp((angle - start) / (full - start), 0., 1.);
+      curve_k_ += (1 - std::exp(-dt / .3)) * (k - curve_k_);
+      if (curve_k_ > .3)
+        curve_until_ = time + c["curve_memory"];
+      width = width_ * (1 + curve_k_ * (c["curve_lane_width_m"] / c["lane_width_m"] - 1));
+      if (curve_k_ > .01)
+        r.notes.push_back("커브 차로 폭 " + std::to_string(int(std::lround(width))) + " px (왼쪽 선 " +
+                          std::to_string(int(std::lround(angle))) + "도)");
+    }
+    center = centreLine(base.path, dl && dr ? other.path : Path(), left_base ? 1.f : -1.f, float(width),
                         float(tol));
     confidence = dl && dr ? (r.left.quality + r.right.quality) / 2 : .7 * base.quality;
     r.state = dl && dr ? "both" : dl ? "left only" : "right only";

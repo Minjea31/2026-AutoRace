@@ -76,6 +76,65 @@ TEST(LaneLite, HeldPathMovesWithOdometry) {
   ASSERT_TRUE(back.valid);
   EXPECT_LT(back.lateral_m, a.lateral_m - .005);
 }
+TEST(LaneLite, RightBendWithOnlyTheLeftLineUsesTheWiderCurveLane) {
+  // Right-hand bend: only the outer (left) line, turned right, is in view.
+  // With curve_lane_width_m the centre lies further inside (right) than half
+  // the straight width; a straight left line and a left bend are unchanged.
+  auto run = [](double curve_m, int far_x) {
+    auto c = identity();
+    c.values["curve_lane_width_m"] = curve_m;
+    lane_lite::Pipeline p(c);
+    cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+    cv::line(img, {150, 479}, {far_x, 0}, cv::Scalar(0, 200, 230), 14);
+    lane_lite::Result r;
+    for (int i = 0; i < 30; ++i)
+      r = p.process(img, i * .05);
+    return r;
+  };
+  const double base = identity()["lane_width_m"];
+  const auto off = run(0, 450), on = run(1.5 * base, 450);
+  ASSERT_TRUE(off.valid && on.valid);
+  EXPECT_EQ(on.state, "left only");
+  EXPECT_GT(on.target_x, off.target_x + 20);
+  EXPECT_LT(on.lateral_m, off.lateral_m);
+  EXPECT_NEAR(run(1.5 * base, 170).target_x, run(0, 170).target_x, 1); // straight
+}
+TEST(LaneLite, AfterARightBendTheLaneJustDrivenIsNotTakenAsTheLeftLine) {
+  // Right-hand bend: only the left line (turned right) is seen, the lane just
+  // driven runs parallel further left. The left line then drops out: with
+  // curve_memory the outer line is not taken as this lane's left boundary.
+  auto run = [](double memory) {
+    auto c = identity();
+    c.values["curve_lane_width_m"] = 1.3 * c["lane_width_m"];
+    c.values["curve_memory"] = memory;
+    lane_lite::Pipeline p(c);
+    auto frame = [](bool left) {
+      cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+      if (left)
+        cv::line(img, {200, 479}, {560, 0}, cv::Scalar(0, 200, 230), 14);
+      cv::line(img, {0, 300}, {330, 0}, cv::Scalar(0, 200, 230), 14); // lane just driven
+      return img;
+    };
+    double t = 0;
+    lane_lite::Result r;
+    for (; t < 1; t += .05) {
+      p.move(.02, 0);
+      r = p.process(frame(true), t);
+    }
+    EXPECT_EQ(r.state, "left only");
+    const double lane = r.target_x;
+    double worst = 0;
+    for (; t < 2.5; t += .05) {
+      p.move(1e-4, 0); // odometry running, car (nearly) still: the memory stays on the line
+      r = p.process(frame(false), t);
+      if (r.valid)
+        worst = std::max(worst, lane - r.target_x); // > 0: pulled toward the outer line
+    }
+    return worst;
+  };
+  EXPECT_GT(run(0), 100);  // without the memory the outer line becomes the left boundary
+  EXPECT_LT(run(2.), 20); // with it: no centre on the outer line
+}
 TEST(LaneLite, OneFrameJumpIsRejected) {
   lane_lite::Pipeline p(identity());
   for (int i = 0; i < 5; ++i)

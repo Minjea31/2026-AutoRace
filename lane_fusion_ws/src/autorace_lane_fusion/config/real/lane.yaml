@@ -68,5 +68,8 @@ lane_lite:
   fork_default_wait: 1.2
   fork_island_px: 300
   lane_width_m: 0.52
+  curve_lane_width_m: 0.67  # 2026-11-11: right-hand bends are up to 0.67 m wide (left line only in view)
+  curve_angle_deg: 45
+  curve_memory: 2.0  # 2026-11-11: after a bend the lane just driven runs parallel outside the left line
   bev_near_m: 0.49
   bev_far_m: 1.39
