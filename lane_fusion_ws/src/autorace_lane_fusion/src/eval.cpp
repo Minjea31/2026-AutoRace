@@ -15,7 +15,6 @@ int main(int argc, char **argv) {
                  "[--every N] [--start I] [--count N] [--no-views] [--video OUT.mp4] [--tracks]\n"
                  "  [--deep-masks DIR (NNNNNN.png per bag frame)] [--no-hsv] [--mask-delay N]\n"
                  "  [--deep-rate HZ --deep-latency S] [--rate HZ] [--odom-topic T] [--no-odom] [--imu-topic T] [--no-imu]\n"
-                 "  [--fork-sign FRAME:A|B]  (/yolo/LR_sign at that frame)\n"
                  "  --no-hsv: deep only (HSV colours off); without --deep-masks: HSV only\n"
                  "  --mask-delay N: use the mask of frame i-N\n"
                  "  --deep-rate/--deep-latency: simulate the asynchronous network (newest free frame,\n"
@@ -29,8 +28,6 @@ int main(int argc, char **argv) {
   size_t mask_delay = 0;
   double deep_rate = 0, deep_latency = .05, max_rate = 0;
   std::string odom_topic, imu_topic = "/imu";
-  long fork_frame = -1;
-  int fork_dir = 0;
   bool tracks = false; // --tracks: also draw the tracked boundaries/centre in the video
   size_t every = 0, first = 0, count = ~size_t(0);
   bool views = true; // --no-views: time the pipeline as the driving node runs it
@@ -53,11 +50,6 @@ int main(int argc, char **argv) {
     else if (a == "--no-odom") use_odom = false;
     else if (a == "--imu-topic" && i + 1 < argc) imu_topic = argv[++i];
     else if (a == "--no-imu") imu_topic.clear();
-    else if (a == "--fork-sign" && i + 1 < argc) { // FRAME:A|B, as if /yolo/LR_sign arrived there
-      const std::string v = argv[++i];
-      fork_frame = std::stol(v.substr(0, v.find(':')));
-      fork_dir = v.substr(v.find(':') + 1) == "A" ? -1 : 1;
-    }
     else out = a;
   }
   try {
@@ -174,8 +166,6 @@ int main(int argc, char **argv) {
           pipeline.move(dx, dy, dyaw);
       }
       processed_time = t;
-      if (long(i) == fork_frame)
-        pipeline.forkSign(fork_dir);
       auto frame = bag.frame(i);
       auto r = pipeline.process(frame.image, frame.time, views || (every && i % every == 0), deep);
       deep_used += r.deep_used;

@@ -281,8 +281,7 @@ cv::Mat hsvClasses(const cv::Mat &bev, const cv::Mat &valid, const Config &c, cv
   return classes;
 }
 
-Detection detect(const cv::Mat &classes, int source, const Path prior_in[2], double width, const Config &c,
-                 bool keep_roles) {
+Detection detect(const cv::Mat &classes, int source, const Path prior_in[2], double width, const Config &c) {
   Detection out;
   out.source = source;
   const int w = classes.cols, h = classes.rows;
@@ -430,7 +429,7 @@ Detection detect(const cv::Mat &classes, int source, const Path prior_in[2], dou
   }
   // 4. A boundary well past the vehicle centre cannot be that side's
   // boundary (e.g. a track locked onto the wrong line): it changes side.
-  for (int side = 0; side < 2 && !keep_roles; ++side) {
+  for (int side = 0; side < 2; ++side) {
     const double sign = side == 0 ? 1 : -1;
     auto &cand = out.side[side];
     if (cand.path.empty() || !out.side[1 - side].path.empty() || sign * (cand.path.front().x - cu) < .25 * width)

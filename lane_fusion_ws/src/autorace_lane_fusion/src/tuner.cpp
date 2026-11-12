@@ -37,7 +37,7 @@ namespace {
 // Parameters shown by default (perception): the ones tuned in practice. The rest
 // (calibration, rarely changed limits, unused ones) stay in the YAML and are
 // still loaded, saved and applied; "고급 파라미터 표시" shows them.
-const std::set<std::string> kBasic = {"yellow_h_min", "yellow_h_max", "yellow_s_min", "yellow_v_min", "white_s_max", "white_v_min", "white_tophat", "white_max_width", "white_max_length", "lane_width_px", "margin", "min_pixels", "smoothing", "track_jump_px", "track_memory", "lookahead_row", "deep_max_age", "fork_default", "fork_length", "fork_shift"};
+const std::set<std::string> kBasic = {"yellow_h_min", "yellow_h_max", "yellow_s_min", "yellow_v_min", "white_s_max", "white_v_min", "white_tophat", "white_max_width", "white_max_length", "lane_width_px", "margin", "min_pixels", "smoothing", "track_jump_px", "track_memory", "lookahead_row", "deep_max_age"};
 double wall() {
   return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
       .count();

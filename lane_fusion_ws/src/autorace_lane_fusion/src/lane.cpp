@@ -88,25 +88,6 @@ const std::vector<Spec> &specs() {
       {"lookahead_row", "출력", "목표점 BEV 세로 위치(0=먼 곳, 1=차량 앞)", .55, .05, .98, .01},
       {"max_curvature", "출력", "발행 곡률 상한(1/m)", 3, .2, 20, .1},
       {"curvature_span_m", "출력", "곡률을 원 맞춤할 중앙 경로 길이(m, 가까운 쪽부터)", .6, .15, 3, .05},
-      {"fork_length", "갈림길",
-       "표지판(/yolo/LR_sign) 이후 갈림길 모드를 유지할 이동 거리(m, odom). 섬 앞 접근 + 섬 길이 + 합류", 3.0, .5, 10,
-       .1},
-      {"fork_timeout", "갈림길", "갈림길 모드 최대 유지 시간(s). odom이 없을 때의 종료 기준", 10, 1, 60, .5},
-      {"fork_default", "갈림길", "표지판 없이 가운데 차로 정면에 섬이 보일 때 갈 방향: -1=A(왼쪽), 1=B(오른쪽), 0=안 함",
-       1, -1, 1, 1},
-      {"fork_shift", "갈림길",
-       "조향 단계에서 목표 차로의 표지판 쪽 경계선이 안 보일 때만 쓰는 가상 목표 배율: "
-       "(이동 차로 수 + 값-1)×차로 폭(1=목표 차로 중심). 선이 보이면 그 선에서 반 차로 안쪽을 중앙 경로로 주행 "
-       "(PID 시뮬 한 차로: 1.0→1.9 m·최대 20°, 1.35→1.15 m·26°)",
-       1.0, 1, 3, .05},
-      {"fork_steer_max", "갈림길", "조향(차로 이동) 단계 최대 이동 거리(m, odom). 넘으면 분기 차선 주행으로", 1.6, .3, 5,
-       .1},
-      {"fork_steer_time", "갈림길", "조향 단계 최대 시간(s). odom이 없을 때의 종료 기준", 3.5, .5, 10, .1},
-      {"fork_default_wait", "갈림길",
-       "섬이 보인 뒤 표지판을 기다리는 시간(s). 그때까지 표지판이 없으면 fork_default 방향으로 진입", 1.2, 0, 5,
-       .1},
-      {"fork_island_px", "갈림길", "두 흰 선 사이(가운데 차로 안)의 노란 픽셀이 이만큼 3프레임 연속이면 섬으로 판단(BEV px)", 300,
-       20, 20000, 10},
       {"lane_width_m", "거리 보정", "실제 차로 폭(m, 선 중심 사이). 가로 px→m 환산", .55, .1, 3, .01},
       {"bev_near_m", "거리 보정", "BEV 맨 아래 행의 base_link 전방 거리(m), 실측", .25, 0, 5, .01},
       {"bev_far_m", "거리 보정", "BEV 맨 위 행의 전방 거리(m), 실측", 1.2, .05, 10, .01},
@@ -135,7 +116,10 @@ Config Config::load(const std::string &path) {
   // HSV switching, output gate): ignored so older YAML files still load.
   static const std::set<std::string> retired = {
       "deep_mode", "deep_dilate", "role_by_color", "cell", "min_cell_pixels", "max_gap", "max_turn_deg",
-      "min_length", "hsv_min_quality", "hsv_penalty", "max_target_jump_m"};
+      "min_length", "hsv_min_quality", "hsv_penalty", "max_target_jump_m",
+      // 2026-11-12: fork (A/B) logic removed from the lane node, to be redone
+      "fork_length", "fork_timeout", "fork_default", "fork_shift", "fork_shift_rate", "fork_steer_max",
+      "fork_steer_time", "fork_default_wait", "fork_island_px"};
   Config c;
   const auto root = YAML::LoadFile(path);
   const auto n = root["lane_lite"];
@@ -194,7 +178,6 @@ void Pipeline::configure(const Config &config) {
 }
 void Pipeline::reset() {
   tracks_[0] = tracks_[1] = {};
-  white_seen_[0] = white_seen_[1] = -1;
   center_.clear();
   center_seen_ = last_time_ = -1;
   center_confidence_ = 0;
@@ -204,15 +187,6 @@ void Pipeline::reset() {
   base_side_ = -1;
   motion_[0] = motion_[1] = motion_[2] = 0;
   width_ = config_["lane_width_px"];
-  island_hits_ = 0; // a latched fork sign survives a tracking reset (camera gap, tuner Apply)
-}
-void Pipeline::forkSign(int direction) {
-  if (direction != -1 && direction != 1)
-    return;
-  if (fork_dir_ != direction)
-    fork_since_ = -1, fork_travel_ = 0, fork_phase_ = 0; // (re)start; a corrected sign wins
-  fork_dir_ = direction;
-  island_seen_ = -1;
 }
 void Pipeline::move(double dx, double dy, double dyaw) {
   if (!std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dyaw))
@@ -221,8 +195,6 @@ void Pipeline::move(double dx, double dy, double dyaw) {
   motion_[0] += cs * dx - sn * dy;
   motion_[1] += sn * dx + cs * dy;
   motion_[2] += dyaw;
-  if (fork_dir_)
-    fork_travel_ += std::hypot(dx, dy);
 }
 void Pipeline::move(double forward_m, double yaw_rad) { // chord of the arc, along the mid heading
   move(forward_m * std::cos(yaw_rad / 2), forward_m * std::sin(yaw_rad / 2), yaw_rad);
@@ -272,12 +244,6 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
     shift(center_);
     shift(curve_left_);
     odom_seen_ = time;
-    if (fork_dir_) { // vehicle pose since the fork steering started
-      const double cs = std::cos(fork_pose_[2]), sn = std::sin(fork_pose_[2]);
-      fork_pose_[0] += cs * motion_[0] - sn * motion_[1];
-      fork_pose_[1] += sn * motion_[0] + cs * motion_[1];
-      fork_pose_[2] += motion_[2];
-    }
     motion_[0] = motion_[1] = motion_[2] = 0;
   }
   constexpr double kInf = std::numeric_limits<double>::infinity();
@@ -294,56 +260,13 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
   for (int side = 0; side < 2; ++side)
     if (!tracks_[side].path.empty() && time - tracks_[side].seen <= c["track_memory"])
       prior[side] = tracks_[side].path;
-  // Fork steering: a straight line `lateral` m (left +) off the ground frame
-  // where the manoeuvre started, in this frame's BEV (rows inside the image).
-  auto groundLine = [&](double lateral) {
-    Path out;
-    const double cs = std::cos(fork_pose_[2]), sn = std::sin(fork_pose_[2]);
-    const double vx = cs * -fork_pose_[0] + sn * (lateral - fork_pose_[1]);
-    const double vy = -sn * -fork_pose_[0] + cs * (lateral - fork_pose_[1]);
-    if (cs > .2)
-      for (int y = h - 1; y >= 0; y -= 12) {
-        const double f = c["bev_near_m"] + (h - 1 - y) * mrow, t = (f - vx) / cs;
-        const float x = float(cu - (vy - t * sn) / mpx);
-        if (x >= 0 && x <= w - 1)
-          out.emplace_back(x, float(y));
-      }
-    return out;
-  };
-  // While steering, the target lane's sign-side line (A: its left, B: its
-  // right) is searched from where the odometry pose expects it, so it is a
-  // candidate even 1-1.5 lanes off the car (the ordinary search only finds
-  // the boundaries of the lane the car is in).
-  const bool steering = fork_dir_ && fork_phase_ == 2;
-  const int target_side = fork_dir_ < 0 ? 0 : 1;
-  Path expect[2];
-  if (steering) {
-    const double sgn = fork_dir_ < 0 ? 1 : -1, lane_m = fork_lanes_ * c["lane_width_m"];
-    expect[target_side] = groundLine(sgn * (lane_m + .5 * c["lane_width_m"]));
-    expect[1 - target_side] = groundLine(sgn * (lane_m - .5 * c["lane_width_m"]));
-    if (expect[target_side].size() < 3)
-      expect[0].clear(), expect[1].clear();
-  }
   std::vector<Detection> found;
-  auto detectTarget = [&](const cv::Mat &classes, int source, double quality = 1) {
-    if (expect[target_side].empty())
-      return;
-    Detection d = detect(classes, source, expect, width_, c, true);
-    d.side[1 - target_side] = {};
-    d.note[1 - target_side].clear();
-    d.forget[0] = d.forget[1] = false;
-    d.note[target_side].clear();
-    d.side[target_side].quality *= quality;
-    if (!d.side[target_side].path.empty())
-      found.push_back(d);
-  };
 
   // 1. HSV detection, every frame (the main detector).
   cv::Mat hsv_bev, deep_bev, colours;
   if (c["yellow_enabled"] > 0 || c["white_enabled"] > 0) {
     hsv_bev = hsvClasses(r.bev, bev_valid_, c, views ? &colours : nullptr);
-    found.push_back(detect(hsv_bev, kHsv, prior, width_, c, fork_dir_ != 0));
-    detectTarget(hsv_bev, kHsv);
+    found.push_back(detect(hsv_bev, kHsv, prior, width_, c));
     r.hsv_used = true;
   }
   // 2. Deep detection on a recent mask, warped into THIS frame's BEV: mask
@@ -362,13 +285,12 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
         warp = to_metric.inv() * motionMatrix(deep.dx, deep.dy, deep.dyaw) * to_metric * warp;
       cv::warpPerspective(deep.mask, deep_bev, cv::Mat(warp), {w, h}, cv::INTER_NEAREST, cv::BORDER_CONSTANT, 0);
       deep_bev &= bev_valid_; // class ids 1/2 survive an AND with 255
-      found.push_back(detect(deep_bev, kDeep, prior, width_, c, fork_dir_ != 0));
+      found.push_back(detect(deep_bev, kDeep, prior, width_, c));
       // An older measurement is a weaker one (alignment error grows with the
       // motion since its capture): its quality fades with the age.
       const double fade = std::clamp(1 - deep.age / std::max(.01, c["deep_max_age"]), 0., 1.);
       for (auto &k : found.back().side)
         k.quality *= fade;
-      detectTarget(deep_bev, kDeep, fade);
       r.deep_used = true;
       r.deep_age = deep.age;
       r.deep_note = "딥 마스크 " + std::to_string(age_ms) + " ms" + (deep.moved ? " (odom 정합)" : "");
@@ -494,179 +416,6 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
             best = cost, pick[0] = int(a), pick[1] = int(b);
         }
   }
-  // 4b. Fork (A/B). The island splits the middle of a 3-lane road: its edges
-  // continue the two white dashed lines, the outer lanes become A (left) and
-  // B (right). Rule for A (B mirrored): with the yellow road edge already half
-  // a lane to the left, normal lane keeping is right (outer lane); otherwise
-  // the left-most white line is made the RIGHT boundary, so the centre moves
-  // one lane left per step, from any starting lane. No sign but the island
-  // ahead in the middle lane (yellow inside the corridor of two white tracks):
-  // fork_default.
-  Path steer_path; // fork steering: synthetic centre path (BEV px), replaces the lane centre
-  {
-    if (!fork_dir_ && c["fork_default"] != 0 && tracks_[0].cls == 2 && tracks_[1].cls == 2 && !prior[0].empty() &&
-        !prior[1].empty()) {
-      // Inside the corridor between the two white tracks only (a yellow road
-      // edge beside them, crossing the view when the car is at an angle, is
-      // not an island), shrunk by a line width.
-      std::vector<cv::Point> corridor;
-      for (const auto &q : prior[0])
-        corridor.emplace_back(cvRound(q.x), cvRound(q.y));
-      for (auto q = prior[1].rbegin(); q != prior[1].rend(); ++q)
-        corridor.emplace_back(cvRound(q->x), cvRound(q->y));
-      cv::Mat inside = cv::Mat::zeros(h, w, CV_8U);
-      cv::fillPoly(inside, std::vector<std::vector<cv::Point>>{corridor}, 255);
-      const int margin = 2 * int(c["line_width_max"]) + 1;
-      cv::erode(inside, inside, cv::getStructuringElement(cv::MORPH_RECT, {margin, 1}));
-      int yellow = 0;
-      for (const cv::Mat *m : {&hsv_bev, &deep_bev})
-        if (!m->empty())
-          yellow = std::max(yellow, cv::countNonZero((*m == 1) & inside));
-      island_hits_ = yellow >= c["fork_island_px"] ? island_hits_ + 1 : 0;
-      if (island_hits_ >= 3 && island_seen_ < 0)
-        island_seen_ = time; // give the sign fork_default_wait to arrive first
-    }
-    if (!fork_dir_ && c["fork_default"] != 0 && island_seen_ >= 0 && time - island_seen_ >= c["fork_default_wait"]) {
-      {
-        // no sign during the wait: a far sign already seen, else fork_default
-        fork_dir_ = seen_dir_ ? seen_dir_ : c["fork_default"] > 0 ? 1 : -1;
-        fork_since_ = -1, fork_travel_ = 0, fork_phase_ = 0;
-        island_seen_ = -1;
-        r.notes.push_back(std::string("표지판 확정 전 섬 감지: ") + (seen_dir_ ? "멀리 본 표지판 " : "기본 방향 ") +
-                          (fork_dir_ > 0 ? "B" : "A"));
-        r.fork_state = std::string("갈림길 ") + (fork_dir_ > 0 ? "B" : "A") + ": 표지판 없음, 기본 방향";
-      }
-    }
-    if (fork_dir_ && fork_since_ < 0)
-      fork_since_ = time;
-    if (fork_dir_ && (fork_travel_ >= c["fork_length"] || time - fork_since_ >= c["fork_timeout"])) {
-      r.notes.push_back("갈림길 모드 종료 (" + std::to_string(fork_travel_).substr(0, 4) + " m)");
-      fork_dir_ = island_hits_ = fork_phase_ = 0;
-      fork_since_ = -1, fork_travel_ = 0, island_seen_ = -1;
-    }
-    if (fork_dir_) {
-      const int keep = fork_dir_ < 0 ? 1 : 0; // the side away from the sign: A -> right, B -> left
-      const float sign = fork_dir_ < 0 ? 1.f : -1.f; // sideOf > 0: line left of the car
-      int edge = -1;
-      float edge_side = 0, outer_side = -1e9f;
-      for (size_t i = 0; i < n; ++i) {
-        const auto &k = r.candidates[i];
-        const float side = sign * sideOf(k.path, vehicle); // > 0: on the sign's side
-        if (k.cls == 1 && side > .25 * width_ && side < .9 * width_)
-          edge = int(i), edge_side = side;
-        if (side > -.5 * width_ && side < 1.6 * width_ && side > outer_side && !transverse(k.path))
-          outer_side = side;
-      }
-      // A road edge is the OUTERMOST line on that side (half a lane away);
-      // a line further out means the yellow one is the island.
-      if (edge >= 0 && outer_side > edge_side + .25f * width_)
-        edge = -1;
-      const char *name = fork_dir_ < 0 ? "A" : "B";
-      // Decided once: already in the outer lane of the sign (keep lane
-      // keeping) or steer over. A WHITE boundary on the sign's side within
-      // the last 3 s means "not the outer lane" even if the tracker has just
-      // handed the ending dash to the yellow island edge; in the outer lane
-      // that side is the yellow road edge all along.
-      if (!fork_phase_) {
-        const auto &side_track = tracks_[1 - keep];
-        if (white_seen_[1 - keep] >= 0 && time - white_seen_[1 - keep] <= 3.)
-          fork_phase_ = 2;
-        else if (!prior[1 - keep].empty() && side_track.cls)
-          fork_phase_ = side_track.cls == 1 ? 1 : 2;
-        else
-          fork_phase_ = edge >= 0 ? 1 : 2;
-        if (fork_phase_ == 2) {
-          // Two lanes from the far lane: there the OTHER side is the yellow road edge.
-          const bool far = !prior[keep].empty() && tracks_[keep].cls == 1 &&
-                           !(white_seen_[keep] >= 0 && time - white_seen_[keep] <= 3.);
-          fork_lanes_ = far ? 2 : 1;
-          fork_pose_[0] = fork_pose_[1] = fork_pose_[2] = 0;
-          fork_steer_since_ = time;
-          fork_steer_travel_ = fork_travel_;
-        }
-      }
-      if (fork_phase_ == 2) {
-        // Steer: follow the target lane's boundary on the sign's side (A: its
-        // left line, B: its right line) and drive half a lane inside it, the
-        // ordinary one-side lane centre. That line is looked for where it
-        // should be: fixed on the ground where the manoeuvre started (lanes +
-        // half a lane toward the sign) and moved into the vehicle frame with
-        // the odometry pose since then, so the island's lines are not taken.
-        // Only while that line is not seen, a synthetic target-lane centre
-        // (fork_shift lanes over, 1 = the centre) is driven instead.
-        const double lane_m = fork_lanes_ * c["lane_width_m"];
-        const double shift = lane_m + (c["fork_shift"] - 1) * c["lane_width_m"];
-        const double progress = sign * fork_pose_[1]; // m moved toward the sign
-        const double travelled = fork_travel_ - fork_steer_travel_, elapsed = time - fork_steer_since_;
-        const bool odometry = travelled > 1e-3;
-        const double cs0 = std::cos(fork_pose_[2]), sn0 = std::sin(fork_pose_[2]);
-        const double bound_m = sign * (lane_m + .5 * c["lane_width_m"]); // ground lateral of that line
-        const float expect = float((sn0 * fork_pose_[0] + cs0 * (bound_m - fork_pose_[1])) / mpx); // px, left +
-        int line = -1;
-        float best = .35f * float(width_);
-        for (size_t i = 0; i < n; ++i) {
-          const auto &k = r.candidates[i];
-          if (k.path.size() < 3 || transverse(k.path))
-            continue;
-          const float d = std::abs(sideOf(k.path, vehicle) - expect);
-          if (d < best)
-            best = d, line = int(i);
-        }
-        const float line_side = line >= 0 ? sign * sideOf(r.candidates[line].path, vehicle) : 0.f;
-        std::string done;
-        if (line >= 0 && line_side > .3f * width_ && line_side < .7f * width_ &&
-            (odometry ? progress >= .5 * lane_m : elapsed >= 1.2))
-          done = "목표 차로 경계선 도착";
-        else if (odometry && progress >= .85 * lane_m)
-          done = "옆 이동 완료";
-        else if (edge >= 0 && (odometry ? progress >= .5 * lane_m : elapsed >= 1.2))
-          done = "끝선 확인";
-        else if (travelled >= c["fork_steer_max"] || elapsed >= c["fork_steer_time"])
-          done = "제한 도달";
-        if (!done.empty()) {
-          // Lane keeping in the branch: re-seed both boundaries in the new
-          // lane; the line followed so far stays the sign-side boundary.
-          fork_phase_ = 3;
-          tracks_[0] = tracks_[1] = {};
-          prior[0].clear(), prior[1].clear();
-          pick[0] = pick[1] = -1;
-          if (line >= 0 && line_side > 0) {
-            pick[1 - keep] = line;
-            prior[1 - keep] = r.candidates[line].path;
-            tracks_[1 - keep].path = prior[1 - keep];
-            tracks_[1 - keep].seen = time;
-            tracks_[1 - keep].frames = 1;
-            tracks_[1 - keep].cls = r.candidates[line].cls == 1 ? 1 : 2;
-          }
-          r.notes.push_back("갈림길 조향 종료: " + done + " (옆 " + std::to_string(progress).substr(0, 4) + " m)");
-        } else if (line >= 0) {
-          steer_path = centreLine(r.candidates[line].path, Path(), sign, float(width_), float(tol));
-          r.fork_state = std::string("갈림길 ") + name + ": 조향(" + std::to_string(fork_lanes_) + "차로 이동)";
-        } else {
-          const double cs = std::cos(fork_pose_[2]), sn = std::sin(fork_pose_[2]), S = sign * shift;
-          const double vx = cs * -fork_pose_[0] + sn * (S - fork_pose_[1]);
-          const double vy = -sn * -fork_pose_[0] + cs * (S - fork_pose_[1]);
-          if (cs > .2)
-            for (int y = h - 1; y >= 0; y -= 12) {
-              const double f = c["bev_near_m"] + (h - 1 - y) * mrow, t = (f - vx) / cs;
-              steer_path.emplace_back(float(cu - (vy - t * sn) / mpx), float(y));
-            }
-          r.fork_state = std::string("갈림길 ") + name + ": 조향(" + std::to_string(fork_lanes_) + "차로 이동)";
-        }
-      }
-      if (fork_phase_ == 3)
-        r.fork_state = std::string("갈림길 ") + name + ": 분기 주행";
-      if (fork_phase_ == 1) {
-        r.fork_state = std::string("갈림길 ") + name + ": 바깥 차로 유지";
-        if (edge >= 0 && pick[1 - keep] != edge) { // the edge is this side's boundary
-          pick[1 - keep] = edge;
-          if (pick[keep] == edge)
-            pick[keep] = -1;
-        }
-      }
-      r.fork = fork_dir_;
-    }
-  }
   Line *lines[2] = {&r.left, &r.right};
   for (int s = 0; s < 2; ++s) {
     auto &line = *lines[s];
@@ -704,7 +453,7 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
     bool accept = line.state == LineState::Detected, relock = false;
     if (accept && !prior[s].empty()) {
       double jump = distanceTo(line.path, prior[s]);
-      if (track.cls && track.cls != (line.near_white ? 2 : 1) && !fork_dir_) // fork: white dash -> yellow island edge
+      if (track.cls && track.cls != (line.near_white ? 2 : 1))
         jump = std::max(jump, c["track_jump_px"] + 1);
       if (jump > c["track_jump_px"]) {
         const bool crossing = !line.yellow && transverse(line.path);
@@ -726,12 +475,9 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
       track.frames = continued ? track.frames + 1 : 1;
       track.seen = time;
       track.quality = line.quality;
-      // The near half decides the boundary's colour for the fork logic: the
-      // tracker follows a dash on into the far yellow island edge (11-10 car:
-      // the middle lane's dash was "yellow" by majority -> wrongly the outer lane).
+      // The near half decides the boundary's colour (a dash continued by a
+      // far yellow edge stays white).
       track.cls = line.near_white ? 2 : 1;
-      if (line.near_white)
-        white_seen_[s] = time;
       if (relock)
         track.jumps = 0;
       line.path = track.path;
@@ -758,7 +504,7 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
   if (dl != dr) {
     const Line &one = dl ? r.left : r.right;
     const float inside = std::abs(sideOf(one.path, vehicle));
-    if (!fork_dir_ && one.frames < c["role_frames"] && !(inside > .25 * width_ && inside < .75 * width_)) {
+    if (one.frames < c["role_frames"] && !(inside > .25 * width_ && inside < .75 * width_)) {
       r.notes.push_back(std::string(dl ? "왼쪽" : "오른쪽") + "만 보이고 역할이 불확실해 중앙 경로 보류");
       dl = dr = false;
     }
@@ -808,12 +554,6 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
                         float(tol));
     confidence = dl && dr ? (r.left.quality + r.right.quality) / 2 : .7 * base.quality;
     r.state = dl && dr ? "both" : dl ? "left only" : "right only";
-  }
-  if (steer_path.size() >= 3) { // fork steering overrides the lane centre
-    center = steer_path;
-    confidence = 1;
-    dl = true;
-    r.state = "fork steer";
   }
   // A fresh centre too short to give a target (stop line, one short dash)
   // does not replace a recent path: it is treated like a dropout.
@@ -885,8 +625,6 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
   }
   if (!r.deep_note.empty())
     r.notes.insert(r.notes.begin(), r.deep_note);
-  if (!r.fork_state.empty())
-    r.notes.insert(r.notes.begin(), r.fork_state);
   for (const auto *line : lines)
     if (!line->note.empty())
       r.notes.push_back(std::string(line == &r.left ? "왼쪽: " : "오른쪽: ") + line->note);
@@ -941,8 +679,7 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
     r.path_view = r.bev.clone();
     drawing.copyTo(r.path_view, drawn);
     drawing.copyTo(r.search_view, drawn);
-    const std::string label = r.state + " | " + r.source + (r.deep_used ? " | deep " : " | no deep") +
-                              (r.fork ? (r.fork < 0 ? " | FORK A" : " | FORK B") : "");
+    const std::string label = r.state + " | " + r.source + (r.deep_used ? " | deep " : " | no deep");
     cv::putText(r.path_view, label, {10, 24}, cv::FONT_HERSHEY_SIMPLEX, .7, {0, 255, 255}, 2);
     cv::putText(r.search_view, label, {10, 24}, cv::FONT_HERSHEY_SIMPLEX, .7, {0, 255, 255}, 2);
     r.overlay = r.original.clone();

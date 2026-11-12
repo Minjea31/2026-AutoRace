@@ -22,8 +22,5 @@ struct Detection {
   bool forget[2] = {false, false}; // stop line / role swap: drop that track unless another source fills it
   std::string note[2];
 };
-// keep_roles: skip the side correction (fork mode deliberately puts a line
-// on the "wrong" side of the car to change lanes).
-Detection detect(const cv::Mat &classes, int source, const Path prior[2], double width, const Config &c,
-                 bool keep_roles = false);
+Detection detect(const cv::Mat &classes, int source, const Path prior[2], double width, const Config &c);
 } // namespace lane_lite

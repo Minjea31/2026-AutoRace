@@ -12,7 +12,7 @@
 # 2026-11-10: asynchronous candidate fusion. HSV (lane_ws detector) every frame, deep masks aligned with
 #   odometry (deep_max_age), candidates chosen by geometry only. Removed: cell chains, hsv_min_quality,
 #   hsv_penalty, max_target_jump_m (old YAML with these keys still loads).
-# 2026-11-10: fork A/B from /yolo/LR_sign; fork_default 1 = B when the island is seen without a sign.
+# 2026-11-12: fork (A/B, /yolo/LR_sign) logic removed from the lane node (to be redone).
 lane_lite:
   width: 640
   height: 480
@@ -59,14 +59,6 @@ lane_lite:
   role_frames: 3
   max_curvature: 3.0
   curvature_span_m: 0.6
-  fork_length: 3.0
-  fork_timeout: 10.0
-  fork_default: 1
-  fork_shift: 1.0
-  fork_steer_max: 1.6
-  fork_steer_time: 3.5
-  fork_default_wait: 1.2
-  fork_island_px: 300
   lane_width_m: 0.52
   curve_lane_width_m: 0.67  # 2026-11-11: right-hand bends are up to 0.67 m wide (left line only in view)
   curve_angle_deg: 45

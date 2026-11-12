@@ -50,7 +50,7 @@ struct Candidate {
   Path path;   // fitted, near -> far
   Path points; // observed sliding-window centres
   int cls = 0;      // 1 yellow, 2 white (majority of the line's pixels)
-  int near_cls = 0; // the same over the near half of the BEV only (a dash continued by a far yellow island edge stays white)
+  int near_cls = 0; // the same over the near half of the BEV only (a dash continued by a far yellow edge stays white)
   int source = 0, observed = 0;
   double length = 0, residual = 0, quality = 0;
 };
@@ -91,8 +91,6 @@ struct Result {
   bool valid = false;
   bool deep_used = false, hsv_used = false, image_used = false;
   double deep_age = -1;        // s, age of the deep mask used (-1: none)
-  int fork = 0;                // fork mode: -1 A (left), +1 B (right), 0 off
-  std::string fork_state;      // fork mode description (display / log)
   std::string deep_note;       // why a given deep mask was or was not used
   std::string source = "none"; // of the chosen boundaries: deep | deep+hsv | hsv | none
   // Control-facing measurement at the lookahead point. Left is positive.
@@ -117,12 +115,6 @@ public:
   // moves the remembered centre path into the new vehicle frame.
   void move(double forward_m, double yaw_rad); // along an arc
   void move(double dx, double dy, double dyaw); // m fwd, m left, rad, in the previous frame
-  // Fork sign (/yolo/LR_sign): -1 A (left), +1 B (right). Latched until the
-  // fork is passed (fork_length travelled, or fork_timeout).
-  void forkSign(int direction);
-  // A sign seen but not acted on yet (still far): -1 A, 1 B, 0 none. Used
-  // instead of fork_default when the island shows up first.
-  void forkSignSeen(int direction) { seen_dir_ = direction; }
 
 private:
   struct Track {
@@ -140,15 +132,5 @@ private:
   Path curve_left_;         // last accepted left boundary, moved with the car (bend memory)
   double motion_[3] = {0, 0, 0}; // x fwd (m), y left (m), yaw since the previous process()
   int base_side_ = -1;           // boundary the centre path is built on (0 left, 1 right)
-  // Fork: latched direction, when it started, distance travelled since (odometry).
-  int seen_dir_ = 0;
-  int fork_dir_ = 0, island_hits_ = 0, fork_phase_ = 0; // phase: 0 undecided, 1 keep the outer lane, 2 change
-  double fork_since_ = -1, fork_travel_ = 0, island_seen_ = -1;
-  // Fork steering: lanes to cross, vehicle pose (x fwd, y left, yaw) since it
-  // started, its start time and the travel counter then. Phases: 0 undecided,
-  // 1 keep the outer lane, 2 steer over, 3 lane keeping in the branch.
-  int fork_lanes_ = 1;
-  double fork_pose_[3] = {0, 0, 0}, fork_steer_since_ = -1, fork_steer_travel_ = 0;
-  double white_seen_[2] = {-1, -1}; // last time each side's accepted boundary was white
 };
 } // namespace lane_lite
