@@ -14,7 +14,7 @@ def generate_launch_description():
                   for name in ROI_DEFAULTS}
     parameters['use_sim_time'] = ParameterValue(LaunchConfiguration('use_sim_time'), value_type=bool)
     return LaunchDescription([
-        DeclareLaunchArgument('use_sim_time', default_value='true'),
+        DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
         DeclareLaunchArgument('params_file', default_value=(
             get_package_share_directory('cone_lane_follower') + '/config/clustering.yaml')),

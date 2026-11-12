@@ -16,8 +16,8 @@ cone_lane_roi:
     center_max_turn: 75.0
     center_smoothing_weight: 0.25
     center_width_relative_tolerance: 0.25
-    boundary_connect_distance: 0.50
-    boundary_max_turn: 80.0
+    boundary_connect_distance: 0.35
+    boundary_max_turn: 100.0
     boundary_initial_max_turn: 110.0
     boundary_direction_window: 3
     boundary_distance_weight: 1.0
