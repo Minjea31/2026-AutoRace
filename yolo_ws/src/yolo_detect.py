@@ -46,15 +46,15 @@ CONFIRM_FRAMES = 2  # Require this many consecutive new frames, not timer ticks.
 # Per-class minimum bounding-box area in original-image pixels squared.
 # Image resizing for inference does not change these thresholds.
 CLASS_THRESHOLDS = {
-    'bump': {'confidence': 0.55, 'min_area_pixels': 2500},
-    'crosswalk': {'confidence': 0.60, 'min_area_pixels': 2500},
+    'bump': {'confidence': 0.55, 'min_area_pixels': 1800},
+    'crosswalk': {'confidence': 0.60, 'min_area_pixels': 2000},
     # left/right (A/B): 3400 -> 1000 (2026-11-10). 3400 confirmed the sign only ~0.7 m before
     # the island, too late for a lane change. The YOLO class decides A/B (no OCR); in the
     # 2026-11-10 car-06 bag it was 'left' with confidence >= 0.85 from ~20 px boxes.
     'left': {'confidence': 0.65, 'min_area_pixels': 1000},
     'parking': {'confidence': 0.60, 'min_area_pixels': 2000},
     'right': {'confidence': 0.65, 'min_area_pixels': 1000},
-    'slow': {'confidence': 0.55, 'min_area_pixels': 2500},
+    'slow': {'confidence': 0.55, 'min_area_pixels': 1800},
     'red': {'confidence': 0.60, 'min_area_pixels': 2000},
     'green': {'confidence': 0.60, 'min_area_pixels': 2000},
 }

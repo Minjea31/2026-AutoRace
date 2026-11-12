@@ -14,7 +14,7 @@ method = next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name
 selected.append(ast.ClassDef(name='Classifier', bases=[], keywords=[], body=[method], decorator_list=[]))
 ns = {'np': np, 'LR_TOPIC': '/yolo/LR_sign'}
 exec(compile(ast.fix_missing_locations(ast.Module(body=selected, type_ignores=[])), str(SOURCE), 'exec'), ns)
-EXPECTED = {'slow': 2500, 'bump': 2500, 'parking': 2000, 'crosswalk': 2500, 'left': 1000, 'right': 1000}
+EXPECTED = {'slow': 1800, 'bump': 1800, 'parking': 2000, 'crosswalk': 2000, 'left': 1000, 'right': 1000}
 
 @pytest.mark.parametrize('name', EXPECTED)
 @pytest.mark.parametrize('offset', [-1, 0, 1])
