@@ -85,7 +85,7 @@ def _setup(context):
         ws = {'opencv': ['lane_ws'], 'deep': ['lane_fusion_ws', 'lane_ws']}.get(mode, ['lane_fusion_ws'])
         raise RuntimeError(f'lane_mode:={mode}: lane package not found, source '
                            + ' and '.join(f'~/2026-AutoRace/{w}/install/setup.bash' for w in ws)) from error
-    node_count = 4 + len(LANE_NODES[mode]) + 1  # parking, slow, crosswalk, YOLO, lane, mux
+    node_count = 5 + len(LANE_NODES[mode]) + 1  # parking, slow, crosswalk, signal, YOLO, lane, mux
 
     def include(package, filename, arguments):
         return IncludeLaunchDescription(
@@ -135,7 +135,7 @@ def _setup(context):
 
     return [
         LogInfo(msg=f'Lane mode: {mode} ({", ".join(LANE_NODES[mode])})'),
-        LogInfo(msg='Mission startup stagger: parking 0s, slow/crosswalk 2s, lane 4s, YOLO 8s'),
+        LogInfo(msg='Mission startup stagger: parking 0s, slow/crosswalk/signal 2s, lane 4s, YOLO 8s'),
         RegisterEventHandler(OnProcessExit(target_action=ready, on_exit=inputs_ready)),
         RegisterEventHandler(OnProcessExit(target_action=report, on_exit=reported)),
         heavy(include('autorace_parking', 'parking.launch.py', {
@@ -143,6 +143,8 @@ def _setup(context):
         }), 0.),
         heavy(include('autorace_slow', 'slow.launch.py', {'use_sim_time': 'false'}), 2.),
         heavy(include('autorace_crosswalk', 'crosswalk.launch.py', {'use_sim_time': 'false'}), 2.),
+        # Traffic light: red /yolo/signal (x2) -> stop on /mission/signal/command_02 (mux priority 2).
+        heavy(include('autorace_signal', 'signal.launch.py', {'use_sim_time': 'false'}), 2.),
         heavy(GroupAction(actions=lane), 4.),
         heavy(Node(
             package='yolo_detect', executable='yolo_detect',

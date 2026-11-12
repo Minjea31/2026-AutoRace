@@ -30,7 +30,7 @@ Rendering is limited to 15 fps. TF and fused odometry displays are optional and 
 The helper only publishes `/missions_viz/*`; it never publishes motion, mission starts or TF.
 Sensors must already be running. Stop individual mission launches first.
 
-Startup is staggered by default. Parking starts immediately, slow and crosswalk at 2 s,
+Startup is staggered by default. Parking starts immediately, slow, crosswalk and signal at 2 s,
 lane/TensorRT at 4 s, YOLO at 8 s. Input readiness monitoring starts at 8 s, so its
 `startup_timeout` still measures the readiness phase rather than the initial stagger.
 Mux starts only after the required input checks pass; output topics, speed settings
@@ -45,7 +45,7 @@ There are no additional launch arguments.
 
 ```bash
 source /opt/ros/humble/setup.bash
-for ws in sensor_ws mux_ws lane_fusion_ws parking_ws slow_ws crosswalk_ws yolo_ws; do source ~/2026-AutoRace/$ws/install/setup.bash; done
+for ws in sensor_ws mux_ws lane_ws lane_fusion_ws parking_ws slow_ws crosswalk_ws signal_ws yolo_ws; do source ~/2026-AutoRace/$ws/install/setup.bash; done
 cd ~/2026-AutoRace/tensor_bringup
 colcon build --base-paths .
 source install/setup.bash
@@ -65,8 +65,8 @@ opencv: `lane_lite_node`, `lane_pid_controller`). fusion PID: `autorace_lane_fus
 opencv uses lane_ws as-is (`autorace_lane_lite/config/real/lane.yaml`, `autorace_lane_pid/config/real/pid.yaml`,
 lane_lite debug on, tuners off). deep uses `autorace_lane_deep_lite/config/real/lane.yaml` (lane_ws values) and the same lane_ws PID with `target_topic:=/lane_deep/target`.
 `lane_speed` applies to all three.
-After mux starts, readiness checks all mission nodes (8 with fusion/deep, 7 with opencv) and fresh input topics for two seconds.
-The final startup line is `[bringup 결과] 전체 노드 8/8 실행 확인 완료` on success;
+After mux starts, readiness checks all mission nodes (9 with fusion/deep, 8 with opencv) and fresh input topics for two seconds.
+The final startup line is `[bringup 결과] 전체 노드 9/9 실행 확인 완료` on success;
 timeouts list missing nodes and missing/stale input topics before reporting failure.
 `startup_timeout` (default 60 seconds) applies to each startup check.
 `lane_speed` overrides the lane PID base speed only; the default is 0.5 m/s.
@@ -79,6 +79,11 @@ Readiness requires `/crosswalk_node` and fresh `/yolo/crosswalk_sign` messages b
 starting mux. It does not wait for `/start_crosswalk` or `/mission/crosswalk/command_01`;
 those appear only when an actual crosswalk stop begins. The existing crosswalk policy
 (two sign confirmations, fresh white ROI, three-second stop) and mux priority are unchanged.
+
+Traffic light (2026-11-12): `signal_ws` `signal_node` starts with crosswalk (`use_sim_time:=false`).
+Two red `/yolo/signal` (False) messages stop the car on `/mission/signal/command_02` (mux priority 2,
+after crosswalk) until two green or 5 s after the last red; see [signal_ws](../signal_ws/README.md).
+Readiness requires `/signal_node` but not `/yolo/signal`: YOLO publishes it only while a light is seen.
 
 Build the crosswalk overlay once before rebuilding bringup:
 
