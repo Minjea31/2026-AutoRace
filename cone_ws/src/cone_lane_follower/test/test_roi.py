@@ -1055,8 +1055,8 @@ def test_path_loss_stops_immediately_and_recovers(harness, speed):
     assert roi.control_stop_reason is None
 
 
-@pytest.mark.parametrize('target,expected_speed', [(0., .4), (.24, .26),
-    (-.24, .26), (.48, .12), (-.48, .12), (1.3, .12), (-1.3, .12)])
+@pytest.mark.parametrize('target,expected_speed', [(0., .4), (.24, .35),
+    (-.24, .35), (.48, .3), (-.48, .3), (1.3, .3), (-1.3, .3)])
 def test_corner_slowdown_independent_of_maximum_steering(harness, monkeypatch, target, expected_speed):
     roi, *_ = harness
     messages = []
@@ -1190,3 +1190,47 @@ def test_unified_node_geometry_matches_straight_lane(harness, scenario):
     if scenario in ('disjoint', 'left_only', 'right_only'):
         assert not roi.center_pairs
         assert roi.lane_width_samples == samples
+
+
+def test_control_points_match_error_projection_and_clear(harness):
+    roi, *_ = harness
+    messages = []
+    class Capture:
+        def publish(self, msg):
+            messages.append(msg)
+    roi.control_points_pub = Capture()
+    path = [(.1, .1, 0.), (.8, .3, 0.)]
+    geometry = roi.path_control_geometry(path, .25)
+    assert geometry[:2] == roi.path_errors(path, .25)
+    roi.publish_control_points(path)
+    markers = {m.ns: m for m in messages[-1].markers if m.action == Marker.ADD}
+    projection = markers['projection'].pose.position
+    assert (projection.x, projection.y) == pytest.approx(geometry[2:4])
+    assert markers['reference'].pose.position.x == .25
+    segment = markers['selected_segment'].points
+    assert [(p.x, p.y) for p in segment] == [(p[0], p[1]) for p in path]
+    assert all(m.header.frame_id == 'base_link' for m in markers.values())
+    for path in (None, [], [(-.5, 0., 0.), (-.1, 0., 0.)]):
+        roi.publish_control_points(path)
+        assert len(messages[-1].markers) == 1
+        assert messages[-1].markers[0].action == Marker.DELETEALL
+
+
+def test_scan_queue_keeps_latest_only(harness):
+    roi, *_ = harness
+    assert roi.scan_sub.qos_profile.depth == 1
+    assert roi.scan_sub.qos_profile.history == qos_profile_sensor_data.history
+    assert roi.scan_sub.qos_profile.reliability == qos_profile_sensor_data.reliability
+
+
+def test_stale_scan_skips_geometry_without_refreshing_watchdog(harness, monkeypatch):
+    roi, *_ = harness
+    previous_received = roi.control_received
+    previous_stamp = roi.control_scan_stamp
+    msg = scan([1., 1., 1.])
+    msg.header.stamp = (roi.get_clock().now()-rclpy.duration.Duration(seconds=.6)).to_msg()
+    monkeypatch.setattr(roi, 'scan_to_points',
+                        lambda *a, **k: pytest.fail('Stale scan started geometry processing'))
+    roi.scan_callback(msg)
+    assert roi.control_received == previous_received
+    assert roi.control_scan_stamp == previous_stamp

@@ -1,5 +1,6 @@
 """Ordered parallel-line offsets with loop trimming and bounded-curvature corners."""
 import math
+from cone_lane_follower.async_planner import check_budget
 
 
 def cross(a, b):
@@ -99,6 +100,7 @@ def offset(boundary, distance, step, minimum_radius, api, parameters, diagnostic
     limit=1/minimum_radius
     # Local quintic replacements use progressively larger observed windows.
     for iteration in range(12):
+        check_budget(parameters)
         values=curvature(path)
         peak=max(values,default=0.)
         if peak <= limit and acceptable(path):
@@ -110,6 +112,7 @@ def offset(boundary, distance, step, minimum_radius, api, parameters, diagnostic
         index=values.index(peak)+1 if values else len(path)//2
         best=None
         for span in range(3,len(path)):
+            check_budget(parameters)
             lo=max(0,index-span);hi=min(len(path)-1,index+span)
             if hi-lo<3:continue
             bridge=api.quintic_bridge(path,lo,path,hi,step)
