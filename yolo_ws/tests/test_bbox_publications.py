@@ -8,7 +8,7 @@ import pytest
 
 SOURCE = Path(__file__).resolve().parents[1] / 'src/yolo_detect.py'
 tree = ast.parse(SOURCE.read_text())
-constants = {'PRESENCE_TOPICS', 'LR_TOPIC', 'BBOX_COLOURS', 'UNPUBLISHED_COLOUR'}
+constants = {'PRESENCE_TOPICS', 'LR_TOPIC', 'SIGNAL_TOPIC', 'BBOX_COLOURS', 'UNPUBLISHED_COLOUR'}
 functions = {'bbox_is_published', 'draw_bbox_publications'}
 nodes = [node for node in tree.body if
          (isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in constants for t in node.targets))

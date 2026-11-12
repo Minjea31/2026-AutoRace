@@ -7,8 +7,8 @@ import pytest
 SOURCE = Path(__file__).resolve().parents[1] / 'src/yolo_detect.py'
 tree = ast.parse(SOURCE.read_text())
 selected = [n for n in tree.body if
-    isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'CLASS_THRESHOLDS' for t in n.targets)
-    or isinstance(n, ast.FunctionDef) and n.name == 'filter_detections']
+    isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id in {'CLASS_THRESHOLDS', 'SIGNAL_CLASS_IDS'} for t in n.targets)
+    or isinstance(n, ast.FunctionDef) and n.name in {'filter_detections', 'detection_class_name'}]
 klass = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'YoloDetect')
 method = next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name == 'classify_detections')
 selected.append(ast.ClassDef(name='Classifier', bases=[], keywords=[], body=[method], decorator_list=[]))

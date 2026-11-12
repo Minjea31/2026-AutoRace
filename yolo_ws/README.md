@@ -153,3 +153,33 @@ bbox 아래 작은 글씨로 최종 클래스, bbox 가로×세로, 면적(px²)
 LEFT의 `/yolo/LR_sign=False`는 정상 방향 발행으로 취급합니다.
 구독자가 있을 때만 그리기·JPEG 인코딩을 수행합니다. Bool 검출 신호와 터미널 로그 정책은 유지합니다.
 웹 뷰어는 '카메라' 원본과 'YOLO 검출'을 별도 패널로 표시합니다.
+
+## 8클래스 신호등 모델과 TensorRT 실행 (2026-11-12)
+
+`model/best.pt`, `best.onnx`, `best.engine`은 YOLO26n 200 epoch 학습 결과입니다.
+클래스 ID는 `0=slow, 1=bump, 2=crosswalk, 3=left, 4=right, 5=parking, 6=red, 7=green`입니다.
+모델 원본은 `/home/a/annotation/bbox/models/yolo26n_red_green_200ep.pt`이며,
+SHA-256은 `c2b39d49797a7d606576e7f3ff52746871731cc72e0675eb901e7941eacf8683`입니다.
+기본 경로는 계속 `model/best.engine`을 사용합니다.
+
+`/yolo/signal`은 `std_msgs/msg/Bool`이며 **빨강=False, 초록=True**입니다.
+confidence 0.60 이상, 원본 영상 bbox 면적 2000px² 이상인 신호등이 서로 다른 영상에서
+2회 연속 검출되어야 발행합니다. 빨강·초록 동시 검출 시에는 발행하지 않고 확인 횟수를 초기화합니다.
+미검출·반복 영상·만료 영상·추론 오류 때도 신호등 메시지를 발행하지 않습니다.
+미검출에 False를 발행하면 빨간불로 해석되므로 일반 표지판의 주기적 presence 발행과 구분합니다.
+빨강 False의 로그와 디버그 bbox 색상도 실제 신호등 발행으로 처리합니다.
+`signal_ws`의 기존 구독 코드와 같은 의미이며 실제 거리·조명에서 검출 기준은 추가 확인이 필요합니다.
+
+엔진은 대상 Jetson의 TensorRT 10.3에서 생성한 FP16 최적화 결과를 복원했습니다.
+고정 입력은 **1×3×640×640**, batch 1, workspace 512MiB, FP32 입출력입니다.
+`~/LANE_FPS_OPTIMIZATION.md`의 이전 480×640 엔진 예제와 입력 크기가 다릅니다.
+이 모델에는 `IMAGE_SIZE=640`, `rect=False`를 사용하며 해상도와 기존 표지판 면적 기준을 유지합니다.
+카메라 수신은 별도 callback group과 2스레드 executor에서 수행합니다.
+최신 영상과 수신 시각을 한 쌍으로 교체하고 추론·상태 갱신은 같은 callback group에서 순차 실행합니다.
+OpenCV 창 처리는 main thread에서 수행해 Qt 창이 executor worker thread 사이를 이동하지 않게 합니다.
+시작 시 backend를 미리 준비한 뒤 10Hz 추론 타이머를 생성합니다.
+화면이 필요 없으면 `--ros-args -p show_image:=false`를 사용합니다.
+
+원격 교체 전 백업, 검증 스크립트와 결과는 `/home/wego/yolo_update_20261112_215156/`에 있습니다.
+소스와 모델을 바꾼 뒤 설치본에도 적용하려면 `yolo_ws`에서 ROS 환경을 source하고
+`colcon build --packages-select yolo_detect`를 실행한 뒤 YOLO 노드를 재시작합니다.

@@ -12,6 +12,8 @@ import numpy as np
 import rclpy
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from rclpy.node import Node
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.clock import Clock, ClockType
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage, Image
@@ -53,6 +55,8 @@ CLASS_THRESHOLDS = {
     'parking': {'confidence': 0.60, 'min_area_pixels': 2000},
     'right': {'confidence': 0.65, 'min_area_pixels': 1000},
     'slow': {'confidence': 0.55, 'min_area_pixels': 2500},
+    'red': {'confidence': 0.60, 'min_area_pixels': 2000},
+    'green': {'confidence': 0.60, 'min_area_pixels': 2000},
 }
 
 PRESENCE_TOPICS = {
@@ -62,6 +66,8 @@ PRESENCE_TOPICS = {
     '/yolo/parking_sign': ('parking',),
 }
 LR_TOPIC = '/yolo/LR_sign'  # False=LEFT/A, True=RIGHT/B. No detection: no message.
+SIGNAL_TOPIC = '/yolo/signal'  # False=red, True=green; no message on absence/ambiguity.
+SIGNAL_CLASS_IDS = {6: 'red', 7: 'green'}
 # Published with every /yolo/LR_sign: the box that confirmed it, for logs and
 # the lane fork snapshot. [right(1)/left(0), area_px2, width, height, yolo_confidence,
 # x0, y0, x1, y1, stamp_sec, stamp_nanosec] in original-image pixels.
@@ -71,6 +77,7 @@ BBOX_COLOURS = {
     'bump': (70, 170, 255), 'slow': (90, 220, 150),
     'parking': (255, 175, 80), 'crosswalk': (80, 220, 255),
     'left': (240, 140, 180), 'right': (170, 220, 80),
+    'red': (70, 70, 255), 'green': (70, 220, 70),
 }
 UNPUBLISHED_COLOUR = (140, 140, 140)
 
@@ -81,6 +88,8 @@ def bbox_is_published(box, values):
     name = box['class']
     if name in ('left', 'right'):
         return LR_TOPIC in values and values[LR_TOPIC] == (name == 'right')
+    if name in ('red', 'green'):
+        return SIGNAL_TOPIC in values and values[SIGNAL_TOPIC] == (name == 'green')
     topic = next((topic for topic, classes in PRESENCE_TOPICS.items() if name in classes), None)
     return bool(topic and values.get(topic, False))
 
@@ -102,13 +111,26 @@ def draw_bbox_publications(image, boxes, values):
     return preview
 
 
+def detection_class_name(class_id, names):
+    """Use the eight-class model's fixed light IDs and reject invalid class IDs."""
+    if not np.isfinite(class_id) or class_id < 0 or class_id != int(class_id):
+        return None
+    class_id = int(class_id)
+    if class_id not in names:
+        return None
+    if class_id in SIGNAL_CLASS_IDS:
+        return SIGNAL_CLASS_IDS[class_id]
+    name = names[class_id].strip().lower()
+    return None if name in ('red', 'green') else name
+
+
 def filter_detections(rows, names, width, height):
     """Return highest confidence per class passing confidence and size thresholds."""
     detected = {}
     for x0, y0, x1, y1, confidence, class_id in rows:
         if not np.isfinite((x0, y0, x1, y1, confidence, class_id)).all():
             continue
-        name = names[int(class_id)].strip().lower()
+        name = detection_class_name(class_id, names)
         threshold = CLASS_THRESHOLDS.get(name)
         if threshold is None:
             continue
@@ -130,12 +152,17 @@ class DetectionState:
     def update(self, detected):
         for name in self.counts:
             self.counts[name] = min(CONFIRM_FRAMES, self.counts[name]+1) if name in detected else 0
+        # An ambiguous light must acquire two fresh unambiguous frames again.
+        if 'red' in detected and 'green' in detected:
+            self.counts['red'] = self.counts['green'] = 0
         confirmed = {name for name, count in self.counts.items() if count >= CONFIRM_FRAMES}
         values = {topic: bool(confirmed.intersection(classes))
                   for topic, classes in PRESENCE_TOPICS.items()}
         # Two opposite signs passing the thresholds is an ambiguous direction.
         if ('left' in confirmed) != ('right' in confirmed):
             values[LR_TOPIC] = 'right' in confirmed
+        if ('red' in confirmed) != ('green' in confirmed):
+            values[SIGNAL_TOPIC] = 'green' in confirmed
         return values
 
 
@@ -147,6 +174,7 @@ class YoloDetect(Node):
         self.declare_parameter('device', 'auto')
         self.declare_parameter('image_transport', 'compressed')
         self.declare_parameter('camera_timeout_sec', 2.0)
+        self.declare_parameter('show_image', SHOW_IMAGE)
         self.image_transport = self.get_parameter('image_transport').value
         if self.image_transport not in ('raw', 'compressed'):
             raise ValueError('image_transport must be raw or compressed')
@@ -154,7 +182,7 @@ class YoloDetect(Node):
         if not np.isfinite(self.camera_timeout) or self.camera_timeout <= 0:
             raise ValueError('camera_timeout_sec must be finite and positive')
         self.bridge = CvBridge()
-        self.show_image = SHOW_IMAGE
+        self.show_image = self.get_parameter('show_image').value
         self.preview_frame = None
         self.preview_dirty = False
         self.window_open = False
@@ -168,21 +196,30 @@ class YoloDetect(Node):
         self.device = ('0' if torch.cuda.is_available() else 'cpu') if device == 'auto' else device
         self.model = YOLO(str(model_path), task='detect')
         self.names = self.model.names
+        if any(self.names.get(ident, '').strip().lower() != name
+               for ident, name in SIGNAL_CLASS_IDS.items()):
+            raise ValueError('Expected the eight-class model with class 6=red and 7=green')
         model_classes = {name.strip().lower() for name in self.names.values()}
         missing = set(CLASS_THRESHOLDS)-model_classes
         if missing:
             raise ValueError(f'Model is missing configured classes: {sorted(missing)}')
         self.minimum_confidence = min(t['confidence'] for t in CLASS_THRESHOLDS.values())
+        # Create/warm the backend before timers start, so the first camera image
+        # does not expire while TensorRT initializes. Keep the engine's 640x640 input.
+        self.model.predict(source=np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), np.uint8),
+                           imgsz=IMAGE_SIZE, rect=False, conf=self.minimum_confidence,
+                           device=self.device, verbose=False, save=False)
         self.state = DetectionState()
         self.presence_values = dict.fromkeys(PRESENCE_TOPICS, False)
-        self.latest_image = None
-        self.latest_received = 0.
+        # Replace the pair together: inference must never combine an old image
+        # with the receipt time of a new image from the camera callback thread.
+        self.latest_frame = (None, 0.)
         self.last_stamp = None
         self.last_processed_time = 0.
         output_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                                 durability=DurabilityPolicy.VOLATILE)
         self.publishers_by_topic = {topic: self.create_publisher(Bool, topic, output_qos)
-                                    for topic in (*PRESENCE_TOPICS, LR_TOPIC)}
+                                    for topic in (*PRESENCE_TOPICS, LR_TOPIC, SIGNAL_TOPIC)}
         self.bbox_pub = self.create_publisher(CompressedImage, '/yolo/debug/compressed', output_qos)
         self.lr_detail_pub = self.create_publisher(Float32MultiArray, LR_DETAIL_TOPIC, output_qos)
         self.box_details = []
@@ -190,16 +227,18 @@ class YoloDetect(Node):
         # camera's Reliable publisher and SensorDataQoS publishers alike.
         input_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
                                durability=DurabilityPolicy.VOLATILE)
+        self.camera_callback_group = MutuallyExclusiveCallbackGroup()
         self.subscription = self.create_subscription(
             Image if self.image_transport == 'raw' else CompressedImage,
-            self.get_parameter('image_topic').value, self.on_image, input_qos)
+            self.get_parameter('image_topic').value, self.on_image, input_qos,
+            callback_group=self.camera_callback_group)
         self.camera_started = time.monotonic()
         self.camera_missing = False
         self.last_camera_error = None
         # Detect outages even when simulation time is paused.
         self.watchdog_clock = Clock(clock_type=ClockType.STEADY_TIME)
-        self.preview_timer = self.create_timer(
-            0.05, self.update_preview, clock=self.watchdog_clock)
+        # main() pumps the GUI on its own thread; Qt windows must not move
+        # between the executor's camera/inference worker threads.
         self.camera_watchdog = self.create_timer(
             0.5, self.check_camera, clock=self.watchdog_clock)
         self.get_logger().info(
@@ -208,12 +247,12 @@ class YoloDetect(Node):
         self.get_logger().info(f'Model: {model_path}; device: {self.device}; output: {PUBLISH_HZ:g} Hz')
 
     def on_image(self, message):
-        if self.latest_image is None or self.camera_missing:
+        received = time.monotonic()
+        if self.latest_frame[0] is None or self.camera_missing:
             self.get_logger().info(f'Camera receiving: {self.subscription.topic_name}')
         self.camera_missing = False
         self.last_camera_error = None
-        self.latest_image = message
-        self.latest_received = time.monotonic()
+        self.latest_frame = (message, received)
 
     def update_preview(self):
         if not self.show_image or self.preview_frame is None:
@@ -250,7 +289,8 @@ class YoloDetect(Node):
 
     def check_camera(self):
         now = time.monotonic()
-        last_received = self.latest_received if self.latest_image is not None else self.camera_started
+        message, received = self.latest_frame
+        last_received = received if message is not None else self.camera_started
         silence = now - last_received
         if silence < self.camera_timeout:
             return
@@ -265,13 +305,15 @@ class YoloDetect(Node):
 
     def log_detections(self, detected, values):
         for name, confidence in sorted(detected.items()):
-            topic = next((topic for topic, classes in PRESENCE_TOPICS.items()
-                          if name in classes), LR_TOPIC)
+            topic = SIGNAL_TOPIC if name in ('red', 'green') else next(
+                (topic for topic, classes in PRESENCE_TOPICS.items() if name in classes), LR_TOPIC)
             if topic not in values:
                 continue
             if topic in PRESENCE_TOPICS and not values[topic]:
                 continue
             if topic == LR_TOPIC and values[topic] != (name == 'right'):
+                continue
+            if topic == SIGNAL_TOPIC and values[topic] != (name == 'green'):
                 continue
             self.get_logger().info(
                 f'Detection: class={name}; output_topic={topic}; '
@@ -285,7 +327,9 @@ class YoloDetect(Node):
         for row in rows:
             if not np.isfinite(row).all():
                 continue
-            name = self.names[int(row[5])].strip().lower()
+            name = detection_class_name(row[5], self.names)
+            if name is None:
+                continue
             confidence = float(row[4])
             x0, y0, x1, y1 = row[:4]
             x0, x1 = np.clip((int(x0), int(x1)), 0, width)
@@ -342,7 +386,7 @@ class YoloDetect(Node):
         return -.05 <= age <= MAX_IMAGE_AGE_SEC and time.monotonic()-received <= MAX_IMAGE_AGE_SEC
 
     def publish_presence(self, clear=False):
-        """Presence is a continuous Bool state; direction remains an event."""
+        """Repeat presence only; lights/direction require a fresh confirmed image."""
         if clear:
             self.state.reset()
             self.presence_values = dict.fromkeys(PRESENCE_TOPICS, False)
@@ -350,7 +394,7 @@ class YoloDetect(Node):
             self.publishers_by_topic[topic].publish(Bool(data=value))
 
     def detect(self):
-        message, received = self.latest_image, self.latest_received
+        message, received = self.latest_frame
         if message is None:
             self.publish_presence(clear=True)
             return
@@ -373,7 +417,7 @@ class YoloDetect(Node):
                 image = cv2.imdecode(np.frombuffer(message.data, dtype=np.uint8), cv2.IMREAD_COLOR)
             if image is None:
                 raise ValueError('Cannot decode compressed camera image')
-            result = self.model.predict(source=image, imgsz=IMAGE_SIZE, conf=self.minimum_confidence,
+            result = self.model.predict(source=image, imgsz=IMAGE_SIZE, rect=False, conf=self.minimum_confidence,
                                         device=self.device, verbose=False, save=False)[0]
             rows = result.boxes.data.cpu().numpy() if result.boxes is not None else []
             detected, annotations = self.classify_detections(rows, image)
@@ -405,13 +449,19 @@ class YoloDetect(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = None
+    node, executor = None, None
     try:
         node = YoloDetect()
-        rclpy.spin(node)
+        executor = MultiThreadedExecutor(num_threads=2)
+        executor.add_node(node)
+        while rclpy.ok():
+            executor.spin_once(timeout_sec=0.02)
+            node.update_preview()
     except KeyboardInterrupt:
         pass
     finally:
+        if executor is not None:
+            executor.shutdown()
         if node is not None:
             node.destroy_node()
         if rclpy.ok():
