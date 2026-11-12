@@ -11,7 +11,7 @@ from rosidl_runtime_py.utilities import get_message
 BASE_NODES = ('/parking_node', '/slow_node', '/crosswalk_node', '/yolo_detect')
 LANE_NODES = {  # same as tensor_bringup.launch.py
     'fusion': ('/lane_fusion_deep_mask', '/lane_fusion_node', '/lane_fusion_pid_controller'),
-    'opencv': ('/lane_fusion_node', '/lane_fusion_pid_controller'),
+    'opencv': ('/lane_lite_node', '/lane_pid_controller'),
     'deep': ('/lane_fusion_deep_mask', '/lane_fusion_node', '/lane_fusion_pid_controller'),
 }
 BASE_TOPICS = (
