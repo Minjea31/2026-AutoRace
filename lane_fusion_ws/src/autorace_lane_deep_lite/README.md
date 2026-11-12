@@ -1,6 +1,6 @@
 # autorace_lane_deep_lite
 
-**검출은 딥, 차선 로직은 lane_ws** (2026-11-12). lanedeep U-Net 클래스 마스크(`0 배경 / 1 노란(주황) 차선 / 2 흰 점선`)가 lane_ws의 HSV 색 특징 단계를 대신하고, 그 뒤는 lane_ws `autorace_lane_lite` 코드를 그대로 씁니다(`src/lane_ws.cpp`, `include/autorace_lane_deep_lite/lane_ws.hpp` = lane_ws main `00e18a1` 복사본, 바뀐 곳은 마스크 입력 한 군데). 히스토그램/추적 시드 → 방향 추종 슬라이딩 윈도우 → 차로 폭 확인 → 추적(평활·3프레임 확인·유지) → 중앙 경로 → 목표점, 유지 경로는 `/odom`으로 이동. lane_ws 쪽 로직을 바꾸면 이 복사본도 같이 맞춰야 합니다.
+**검출은 딥, 차선 로직은 lane_ws** (2026-11-12). lanedeep U-Net 클래스 마스크(`0 배경 / 1 노란(주황) 차선 / 2 흰 점선`)가 lane_ws의 HSV 색 특징 단계를 대신하고, 그 뒤는 lane_ws `autorace_lane_lite` 코드를 그대로 씁니다(`src/lane_ws.cpp`, `include/autorace_lane_deep_lite/lane_ws.hpp` = lane_ws main `00e18a1` 복사본. 다른 점: 2단계가 딥 마스크, 딥 모드에서 안 쓰는 HSV 필터·HSV 파라미터·thin band·lane_lite YAML 입출력 제거). 히스토그램/추적 시드 → 방향 추종 슬라이딩 윈도우 → 차로 폭 확인 → 추적(평활·3프레임 확인·유지) → 중앙 경로 → 목표점, 유지 경로는 `/odom`으로 이동. lane_ws 쪽 로직을 바꾸면 이 복사본도 같이 맞춰야 합니다.
 
 - 설정 `config/<profile>/lane.yaml`(`lane_deep_lite:`) = lane_ws 같은 프로필 값에서 HSV 전용 키(색 범위·top-hat·흰 선 폭/길이·`min_area`)를 뺀 것. lane_ws YAML(`lane_lite:`)도 그대로 읽힘. 예전 셀 체인 방식 키(`cell`, `max_gap` 등)는 무시
 - 출력 `/lane_deep/target`은 `/lane_lite/target`과 같은 형식 → lane_ws PID(`autorace_lane_pid`, `target_topic:=/lane_deep/target`)가 받음

@@ -2,28 +2,11 @@
 #include "autorace_lane_deep_lite/deep_lane.hpp"
 #include <algorithm>
 #include <fstream>
-#include <set>
 #include <stdexcept>
 #include <yaml-cpp/yaml.h>
 
 namespace deep_lite {
-namespace {
-// lane_ws keys that only tune the HSV colour features (unused with the mask).
-const std::set<std::string> kHsvOnly = {"yellow_h_min", "yellow_h_max", "yellow_s_min", "yellow_v_min",
-                                        "white_s_max",  "white_v_min",  "white_tophat", "white_max_width",
-                                        "white_max_length", "min_area"};
-} // namespace
-
-const std::vector<Spec> &specs() {
-  static const std::vector<Spec> s = [] {
-    std::vector<Spec> out;
-    for (const auto &p : lane_lite::specs())
-      if (!kHsvOnly.count(p.name))
-        out.push_back(p);
-    return out;
-  }();
-  return s;
-}
+const std::vector<Spec> &specs() { return lane_lite::specs(); } // lane_ws keys without the HSV ones
 Config::Config() : values(lane_lite::Config().values) {}
 lane_lite::Config Config::lane() const {
   lane_lite::Config c;

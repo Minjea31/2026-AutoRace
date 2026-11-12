@@ -1,4 +1,7 @@
-// COPY of lane_ws autorace_lane_lite src/lane.cpp (main 00e18a1); only step 2 takes the deep mask.
+// lane_ws autorace_lane_lite src/lane.cpp (main 00e18a1), copied for the
+// deep-only mode. Differences from lane_ws: step 2 is the deep class mask
+// instead of the HSV colour filters, so the HSV parameters, the thin-band
+// filter and the lane_lite YAML load/save (deep_lite has its own) are removed.
 #include "autorace_lane_deep_lite/lane_ws.hpp"
 #include <algorithm>
 #include <chrono>
@@ -6,7 +9,6 @@
 #include <fstream>
 #include <opencv2/imgproc.hpp>
 #include <stdexcept>
-#include <yaml-cpp/yaml.h>
 
 namespace lane_lite {
 const std::vector<const char *> &groups() {
@@ -19,16 +21,7 @@ const std::vector<Spec> &specs() {
       {"width", "입력", "처리 영상 너비(px). BEV도 같은 크기", 640, 160, 1280, 1},
       {"height", "입력", "처리 영상 높이(px)", 480, 120, 960, 1},
       {"yellow_enabled", "색상", "노란 차선 사용: 0=끔, 1=켬", 1, 0, 1, 1},
-      {"yellow_h_min", "색상", "노랑 Hue 하한(OpenCV 0-179)", 15, 0, 179, 1},
-      {"yellow_h_max", "색상", "노랑 Hue 상한", 40, 0, 179, 1},
-      {"yellow_s_min", "색상", "노랑 최소 채도(S)", 80, 0, 255, 1},
-      {"yellow_v_min", "색상", "노랑 최소 밝기(V)", 80, 0, 255, 1},
       {"white_enabled", "색상", "흰 차선 사용: 0=끔, 1=켬", 1, 0, 1, 1},
-      {"white_s_max", "색상", "흰색 최대 채도(S)", 70, 0, 255, 1},
-      {"white_v_min", "색상", "흰색 최소 밝기(V), 절대 하한", 120, 0, 255, 1},
-      {"white_tophat", "색상",
-       "흰색이 주변 노면보다 밝아야 하는 정도(Top-hat). 넓은 반사광·조명 변화 제거",
-       30, 0, 200, 1},
       {"roi_top", "ROI·BEV", "검출 영역 위쪽(0=영상 위)", .45, 0, 1, .01},
       {"roi_bottom", "ROI·BEV", "검출 영역 아래쪽", 1, 0, 1, .01},
       {"roi_left", "ROI·BEV", "검출 영역 왼쪽", 0, 0, 1, .01},
@@ -39,14 +32,8 @@ const std::vector<Spec> &specs() {
       {"bev_top_right", "ROI·BEV", "BEV 위 오른쪽 x", .65, 0, 1, .001},
       {"bev_bottom_left", "ROI·BEV", "BEV 아래 왼쪽 x(화면 밖 가능)", -.64, -2, 1, .001},
       {"bev_bottom_right", "ROI·BEV", "BEV 아래 오른쪽 x(화면 밖 가능)", 1.62, 0, 3, .001},
-      {"white_max_width", "색상",
-       "이보다 두꺼운 흰 덩어리(BEV px) 제거: 횡단보도 블록·노면 글자. 0=끔", 0, 0, 120, 1},
-      {"white_max_length", "색상",
-       "이보다 긴 흰 선(BEV px, 덩어리의 긴 변)은 실선으로 보고 제거해 흰 점선만 남김. 0=끔",
-       0, 0, 2000, 1},
       {"line_width_max", "Sliding Window",
        "BEV에서 차선 띠의 최대 두께(px). Top-hat 크기와 윈도우 안 띠 폭", 40, 4, 120, 1},
-      {"min_area", "Sliding Window", "BEV 특징 연결요소 최소 면적(px²)", 60, 0, 3000, 1},
       {"windows", "Sliding Window", "아래→위 윈도우 개수", 12, 4, 30, 1},
       {"margin", "Sliding Window", "윈도우 반폭(px)", 50, 10, 200, 1},
       {"min_pixels", "Sliding Window", "윈도우를 관측으로 인정할 최소 픽셀 수", 30, 3, 3000, 1},
@@ -92,59 +79,8 @@ void Config::validate() const {
       c["bev_top_y"] + .05 >= c["bev_bottom_y"] ||
       c["bev_top_left"] + .05 >= c["bev_top_right"] ||
       c["bev_bottom_left"] + .05 >= c["bev_bottom_right"] ||
-      c["yellow_h_min"] > c["yellow_h_max"] ||
       c["bev_near_m"] + .05 >= c["bev_far_m"])
-    throw std::invalid_argument("Inverted ROI/BEV/colour/distance limits");
-}
-Config Config::load(const std::string &path) {
-  Config c;
-  const auto root = YAML::LoadFile(path);
-  if (const auto n = root["lane_lite"]) {
-    if (!n.IsMap())
-      throw std::invalid_argument("lane_lite must be a map");
-    for (const auto &kv : n) {
-      const auto key = kv.first.as<std::string>();
-      if (!c.values.count(key))
-        throw std::invalid_argument("Unknown lane_lite parameter: " + key);
-      c.values[key] = kv.second.as<double>();
-    }
-  } else {
-    // Reuse a calibration saved by the old lane GUI.
-    const bool sliding = root["algorithm"] &&
-                         root["algorithm"].as<std::string>() == "sliding_window";
-    auto legacy = root[sliding && root["sliding_window"] ? "sliding_window" : "lane"];
-    if (!legacy || !legacy.IsMap())
-      throw std::invalid_argument("YAML needs a lane_lite (or legacy lane) map");
-    const bool hsv = !legacy["color_space"] || legacy["color_space"].as<double>() == 0;
-    const std::map<std::string, std::string> rename = {
-        {"yellow_sat_min", "yellow_s_min"},
-        {"yellow_light_min", "yellow_v_min"},
-        {"white_sat_max", "white_s_max"},
-        {"white_light_min", "white_v_min"}};
-    for (const auto &kv : legacy) {
-      auto key = kv.first.as<std::string>();
-      const bool colour = key.rfind("yellow_h", 0) == 0 || rename.count(key);
-      if (rename.count(key))
-        key = rename.at(key);
-      if (c.values.count(key) && (hsv || !colour) && key != "white_tophat")
-        c.values[key] = kv.second.as<double>();
-    }
-  }
-  c.validate();
-  return c;
-}
-void Config::save(const std::string &path) const {
-  validate();
-  YAML::Emitter e;
-  e << YAML::BeginMap << YAML::Key << "lane_lite" << YAML::Value
-    << YAML::BeginMap;
-  for (const auto &s : specs())
-    e << YAML::Key << s.name << YAML::Value << values.at(s.name);
-  e << YAML::EndMap << YAML::EndMap;
-  std::ofstream f(path);
-  f << e.c_str() << '\n';
-  if (!f)
-    throw std::runtime_error("Cannot save YAML: " + path);
+    throw std::invalid_argument("Inverted ROI/BEV/distance limits");
 }
 const char *name(LineState state) {
   return state == LineState::Detected    ? "DETECTED"
@@ -258,30 +194,6 @@ std::vector<Peak> findPeaks(const cv::Mat &mask, const cv::Mat &yellow, int y0,
         .setTo(0);
   }
   return out;
-}
-// Keep pixels on a thin run along a row OR a column. Painted lines of any
-// direction are thin across; broad glare and floor patches are thin in neither.
-cv::Mat thinBands(const cv::Mat &mask, int max_width) {
-  auto rows = [max_width](const cv::Mat &src) {
-    cv::Mat dst = cv::Mat::zeros(src.size(), CV_8U);
-    for (int y = 0; y < src.rows; ++y) {
-      const uchar *s = src.ptr<uchar>(y);
-      uchar *d = dst.ptr<uchar>(y);
-      for (int x = 0; x < src.cols;) {
-        int end = x;
-        while (end < src.cols && s[end])
-          ++end;
-        if (end > x && end - x <= max_width)
-          std::fill(d + x, d + end, 255);
-        x = std::max(end, x + 1);
-      }
-    }
-    return dst;
-  };
-  cv::Mat transposed, columns;
-  cv::transpose(mask, transposed);
-  cv::transpose(rows(transposed), columns);
-  return rows(mask) | columns;
 }
 
 struct Search {
@@ -486,8 +398,8 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const cv::
   const auto start_clock = std::chrono::steady_clock::now();
   if (bgr.empty() || bgr.type() != CV_8UC3 || !std::isfinite(time))
     throw std::invalid_argument("Expected a BGR8 image and finite time");
-  if (!classes.empty() && classes.type() != CV_8U)
-    throw std::invalid_argument("Deep mask must be CV_8U class ids");
+  if (classes.empty() || classes.type() != CV_8U)
+    throw std::invalid_argument("Expected the deep mask (CV_8U class ids)");
   const auto &c = config_;
   if (last_time_ >= 0 && (time <= last_time_ ||
                           time - last_time_ > std::max(.5, c["track_memory"])))
@@ -521,13 +433,11 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const cv::
   cv::warpPerspective(valid, bev_valid, H, {w, h}, cv::INTER_NEAREST);
   cv::erode(bev_valid, bev_valid, cv::Mat(), {-1, -1}, 2);
 
-  // 2. Colour features in BEV. White must be a thin band brighter than its
-  // own surroundings (top-hat); both colours must be thin along a row or a
-  // column, so broad glare on a glossy floor does not pass.
-  // Deep input: the network's class mask is already only lane paint (yellow
-  // lines, white dashes), so it replaces these colour filters as it is.
-  cv::Mat hsv, blurred, yellow, yellow_raw, white, white_raw, tophat, value, mask;
-  if (!classes.empty()) {
+  // 2. Lane features in BEV: the deep class mask (0 background, 1 yellow,
+  // 2 white dashed) replaces lane_ws's HSV colour filters (top-hat, width,
+  // length, thin bands, min_area): the network output is lane paint only.
+  cv::Mat yellow, yellow_raw, white, white_raw, mask;
+  {
     cv::Mat scaled, bev_classes;
     cv::resize(classes, scaled, {w, h}, 0, 0, cv::INTER_NEAREST);
     cv::warpPerspective(scaled, bev_classes, H, {w, h}, cv::INTER_NEAREST, cv::BORDER_CONSTANT, 0);
@@ -542,66 +452,6 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const cv::
     yellow_raw = yellow.clone();
     white_raw = white.clone();
     mask = yellow | white;
-  } else {
-    cv::GaussianBlur(r.bev, blurred, {5, 5}, 0);
-    cv::cvtColor(blurred, hsv, cv::COLOR_BGR2HSV);
-    cv::inRange(hsv, cv::Scalar(c["yellow_h_min"], c["yellow_s_min"], c["yellow_v_min"]),
-                cv::Scalar(c["yellow_h_max"], 255, 255), yellow);
-    cv::inRange(hsv, cv::Scalar(0, 0, c["white_v_min"]),
-                cv::Scalar(179, c["white_s_max"], 255), white_raw);
-    cv::extractChannel(hsv, value, 2);
-    const int k = 2 * int(c["line_width_max"]) + 1;
-    cv::morphologyEx(value, tophat, cv::MORPH_TOPHAT,
-                     cv::getStructuringElement(cv::MORPH_RECT, {k, k}));
-    white = white_raw & (tophat >= c["white_tophat"]);
-    // Crosswalk stripes and road text are white like a lane line but much
-    // thicker; their long edges otherwise pass as a parallel boundary.
-    if (const int t = c["white_max_width"]; t > 0) {
-      cv::Mat thick;
-      cv::morphologyEx(white, thick, cv::MORPH_OPEN,
-                       cv::getStructuringElement(cv::MORPH_RECT, {t, t}));
-      cv::dilate(thick, thick, cv::getStructuringElement(cv::MORPH_RECT, {7, 7}));
-      white &= ~thick;
-    }
-    // Only the white DASHED lines are lane boundaries; long continuous white
-    // lines (outer road edge, neighbouring road) are removed by their length.
-    if (const double limit = c["white_max_length"]; limit > 0) {
-      std::vector<std::vector<cv::Point>> parts;
-      cv::findContours(white.clone(), parts, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-      for (const auto &part : parts)
-        if (part.size() >= 2) {
-          const auto box = cv::minAreaRect(part).size;
-          if (std::max(box.width, box.height) > limit)
-            cv::drawContours(white, std::vector<std::vector<cv::Point>>{part}, 0, 0, cv::FILLED);
-        }
-    }
-    if (!c["yellow_enabled"])
-      yellow.setTo(0);
-    if (!c["white_enabled"])
-      white.setTo(0), white_raw.setTo(0);
-    yellow &= bev_valid;
-    white &= bev_valid;
-    yellow_raw = yellow.clone();
-    const auto open3 = cv::getStructuringElement(cv::MORPH_RECT, {3, 3});
-    cv::morphologyEx(yellow, yellow, cv::MORPH_OPEN, open3);
-    cv::morphologyEx(white, white, cv::MORPH_OPEN, open3);
-    // Per colour, so glare touching a yellow line does not widen it. A line of
-    // thickness t has min(row, column) run <= t*sqrt(2) at any angle.
-    const int run = cvRound(c["line_width_max"] * 1.45);
-    mask = thinBands(yellow, run) | thinBands(white, run);
-    if (c["min_area"] > 0) {
-      cv::Mat labels, stats, centroids;
-      const int count = cv::connectedComponentsWithStats(mask, labels, stats, centroids);
-      std::vector<uchar> keep(count, 0);
-      for (int i = 1; i < count; ++i)
-        keep[i] = stats.at<int>(i, cv::CC_STAT_AREA) >= c["min_area"];
-      for (int y = 0; y < h; ++y) {
-        const int *label = labels.ptr<int>(y);
-        uchar *m = mask.ptr<uchar>(y);
-        for (int x = 0; x < w; ++x)
-          m[x] = keep[label[x]] ? m[x] : 0;
-      }
-    }
   }
   yellow &= mask;
   r.bev_mask = mask;

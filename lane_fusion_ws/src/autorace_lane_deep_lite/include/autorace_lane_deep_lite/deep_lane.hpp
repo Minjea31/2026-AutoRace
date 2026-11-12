@@ -17,12 +17,11 @@
 
 namespace deep_lite {
 using Spec = lane_lite::Spec;
-// The lane_ws parameters without the HSV-only ones (hue/saturation/value,
-// top-hat, white width/length, min_area): the mask needs no colour filter.
+// The lane_ws parameters without the HSV-only ones (the copy has none).
 const std::vector<Spec> &specs();
 
 struct Config {
-  std::map<std::string, double> values; // every lane_ws key (HSV ones keep their defaults)
+  std::map<std::string, double> values; // = specs() keys
   Config();
   double operator[](const std::string &key) const { return values.at(key); }
   void validate() const;

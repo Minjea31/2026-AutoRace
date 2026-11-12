@@ -1,8 +1,9 @@
 #pragma once
-// COPY of lane_ws autorace_lane_lite (include/autorace_lane_lite/lane.hpp,
-// src/lane.cpp, main 00e18a1) so the deep-only lane keeping runs the lane_ws
-// logic without touching lane_ws. Only change: process() takes the deep class
-// mask, which replaces the HSV colour features (step 2). Keep in sync by hand.
+// lane_ws autorace_lane_lite (include/autorace_lane_lite/lane.hpp, src/lane.cpp,
+// main 00e18a1) copied so the deep-only mode runs the lane_ws logic without
+// touching lane_ws. Differences: process() needs the deep class mask (it
+// replaces the HSV colour features), no HSV parameters, no YAML I/O
+// (deep_lite::Config). Keep the rest in sync with lane_ws by hand.
 // Compact single-corridor lane perception. Everything after the colour masks
 // runs in BEV pixels (x right, y down); boundaries are smooth polylines, so
 // steep and transverse (hairpin) markings share one representation.
@@ -25,10 +26,6 @@ struct Config {
   Config();
   double operator[](const std::string &key) const { return values.at(key); }
   void validate() const;
-  // Reads `lane_lite:`. A legacy lane GUI YAML (`lane:` or
-  // `sliding_window:`) is accepted; only its ROI/BEV/width/colour are reused.
-  static Config load(const std::string &path);
-  void save(const std::string &path) const;
 };
 
 enum class LineState { Lost = 0, Predicted = 1, Detected = 2 };
@@ -76,9 +73,9 @@ public:
   // views=false skips every display image (search/path/overlay/masks); the
   // driving node uses it when nobody needs the debug picture.
   // classes: deep lane mask of this frame (CV_8U class ids in source image
-  // coordinates, any size: 0 background, 1 yellow, 2 white dashed). Given, it
-  // replaces the HSV colour features; everything after is the lane_ws code.
-  Result process(const cv::Mat &bgr, double time, bool views = true, const cv::Mat &classes = cv::Mat());
+  // coordinates, any size: 0 background, 1 yellow, 2 white dashed), required.
+  // bgr is only drawn on (any BGR picture of the same frame, or black).
+  Result process(const cv::Mat &bgr, double time, bool views, const cv::Mat &classes);
   // Vehicle motion (odometry) since the previous call: forward distance (m)
   // and yaw change (rad, left +). Accumulated and applied only to a HELD
   // centre path, so a short dropout keeps the path on the road.
