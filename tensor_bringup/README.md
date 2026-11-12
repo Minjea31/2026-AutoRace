@@ -52,18 +52,18 @@ source install/setup.bash
 ros2 launch tensor_bringup tensor_bringup.launch.py
 # Override lane speed when needed (default: 0.5 m/s).
 ros2 launch tensor_bringup tensor_bringup.launch.py lane_speed:=0.5
-# Lane mode (default fusion). fusion/deep run lane_fusion_node + fusion PID, opencv runs lane_ws:
+# Lane mode (default fusion). fusion runs lane_fusion_node + fusion PID; opencv and deep run the lane_ws logic + lane_ws PID:
 ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=fusion   # deep mask + HSV
-source ~/2026-AutoRace/lane_ws/install/setup.bash                       # opencv needs lane_ws too
+source ~/2026-AutoRace/lane_ws/install/setup.bash                       # opencv and deep need lane_ws too
 ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=opencv   # lane_ws: lane_lite + lane PID
-ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=deep     # deep mask only (HSV detector off)
+ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=deep     # deep mask -> lane_deep_lite (lane_ws logic) + lane PID
 ```
 `lane_mode` picks the lane stack; readiness checks that mode's nodes
-(fusion/deep: `lane_fusion_deep_mask`, `lane_fusion_node`, `lane_fusion_pid_controller` + `/lane_fusion/deep_mask`,
-opencv: `lane_lite_node`, `lane_pid_controller`). fusion/deep PID: `autorace_lane_fusion_pid/config/real/pid.yaml`;
+(fusion: `lane_fusion_deep_mask`, `lane_fusion_node`, `lane_fusion_pid_controller` + `/lane_fusion/deep_mask`,
+deep: `lane_fusion_deep_mask`, `lane_deep_lite_node`, `lane_pid_controller` + `/lane_fusion/deep_mask`,
+opencv: `lane_lite_node`, `lane_pid_controller`). fusion PID: `autorace_lane_fusion_pid/config/real/pid.yaml`;
 opencv uses lane_ws as-is (`autorace_lane_lite/config/real/lane.yaml`, `autorace_lane_pid/config/real/pid.yaml`,
-lane_lite debug on, tuners off). `deep_lite` is no longer launched here.
-In deep mode the lane tuner's Apply sends `yellow_enabled`/`white_enabled` too: keep them 0 there.
+lane_lite debug on, tuners off). deep uses `autorace_lane_deep_lite/config/real/lane.yaml` (lane_ws values) and the same lane_ws PID with `target_topic:=/lane_deep/target`.
 `lane_speed` applies to all three.
 After mux starts, readiness checks all mission nodes (8 with fusion/deep, 7 with opencv) and fresh input topics for two seconds.
 The final startup line is `[bringup 결과] 전체 노드 8/8 실행 확인 완료` on success;

@@ -20,11 +20,12 @@ from launch_ros.parameter_descriptions import ParameterValue
 # lane_mode: which lane-keeping stack publishes /mission/lane.
 #   fusion: lane_fusion_ws  deep mask + HSV -> lane_fusion_node -> fusion PID   (default)
 #   opencv: lane_ws         lane_lite (HSV/OpenCV) -> lane PID   (source lane_ws too)
-#   deep:   lane_fusion_ws  deep mask only (HSV detector off) -> fusion PID
+#   deep:   lane_fusion_ws  deep mask -> lane_deep_lite (lane_ws logic on the mask) -> lane PID
+#                           (source lane_ws too: the PID is lane_ws autorace_lane_pid)
 LANE_NODES = {
     'fusion': ('/lane_fusion_deep_mask', '/lane_fusion_node', '/lane_fusion_pid_controller'),
     'opencv': ('/lane_lite_node', '/lane_pid_controller'),
-    'deep': ('/lane_fusion_deep_mask', '/lane_fusion_node', '/lane_fusion_pid_controller'),
+    'deep': ('/lane_fusion_deep_mask', '/lane_deep_lite_node', '/lane_pid_controller'),
 }
 
 
@@ -45,12 +46,28 @@ def _lane(mode, speed_text, model):
                  parameters=[pid + '/config/real/pid.yaml',
                              {'use_sim_time': False, 'enable_vehicle_output': True}, speed]),
         ]
+    if mode == 'deep':
+        # Detection = deep mask, everything after = lane_ws (lane_deep_lite), lane_ws PID.
+        deep_lite, pid = share('autorace_lane_deep_lite'), share('autorace_lane_pid')
+        speed = {'speed': float(speed_text)} if speed_text.strip() else {}
+        return [
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(share('autorace_lane_fusion_deep') + '/launch/deep_mask.launch.py'),
+                launch_arguments={'model_path': model, 'use_sim_time': 'false'}.items(),
+            ),
+            Node(package='autorace_lane_deep_lite', executable='lane_deep_lite_node', output='screen',
+                 parameters=[{'config_file': deep_lite + '/config/real/lane.yaml', 'use_sim_time': False,
+                              'debug': True}]),
+            Node(package='autorace_lane_pid', executable='lane_pid_controller', output='screen',
+                 parameters=[pid + '/config/real/pid.yaml',
+                             {'use_sim_time': False, 'enable_vehicle_output': True,
+                              'target_topic': '/lane_deep/target'}, speed]),
+        ]
     return [IncludeLaunchDescription(
         PythonLaunchDescriptionSource(share('autorace_lane_fusion_pid') + '/launch/lane_fusion_pid.launch.py'),
         launch_arguments={
             'profile': 'real', 'use_sim_time': 'false',
-            'deep': 'true',
-            'hsv': 'false' if mode == 'deep' else 'true',
+            'deep': 'true', 'hsv': 'true',
             'model_path': model, 'debug': 'true', 'gui': 'false', 'lane_gui': 'false',
             'lane_speed': speed_text,
         }.items(),
@@ -65,9 +82,9 @@ def _setup(context):
     try:
         lane = _lane(mode, C('lane_speed').perform(context), C('lane_model').perform(context))
     except PackageNotFoundError as error:
-        ws = 'lane_ws' if mode == 'opencv' else 'lane_fusion_ws'
-        raise RuntimeError(f'lane_mode:={mode}: lane package not found, '
-                           f'source ~/2026-AutoRace/{ws}/install/setup.bash') from error
+        ws = {'opencv': ['lane_ws'], 'deep': ['lane_fusion_ws', 'lane_ws']}.get(mode, ['lane_fusion_ws'])
+        raise RuntimeError(f'lane_mode:={mode}: lane package not found, source '
+                           + ' and '.join(f'~/2026-AutoRace/{w}/install/setup.bash' for w in ws)) from error
     node_count = 4 + len(LANE_NODES[mode]) + 1  # parking, slow, crosswalk, YOLO, lane, mux
 
     def include(package, filename, arguments):
@@ -153,7 +170,7 @@ def generate_launch_description():
     return LaunchDescription([
         *[DeclareLaunchArgument(key, default_value=value,
                                 **({'choices': list(LANE_NODES),
-                                    'description': 'fusion (deep+HSV) | opencv (lane_ws lane_lite + lane PID) | deep (deep mask only)'}
+                                    'description': 'fusion (deep+HSV) | opencv (lane_ws lane_lite + lane PID) | deep (deep mask + lane_ws logic + lane PID)'}
                                    if key == 'lane_mode' else {}))
           for key, value in _defaults().items()],
         OpaqueFunction(function=_setup),

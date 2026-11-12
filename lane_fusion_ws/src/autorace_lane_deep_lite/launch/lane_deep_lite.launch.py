@@ -1,4 +1,4 @@
-"""Deep-only lane keeping: U-Net mask -> lane_deep_lite (no HSV) -> fusion PID.
+"""Deep-only lane keeping: U-Net mask -> lane_deep_lite (lane_ws logic, no HSV) -> lane_ws PID.
 
   ros2 launch autorace_lane_deep_lite lane_deep_lite.launch.py profile:=real
   ros2 launch autorace_lane_deep_lite lane_deep_lite.launch.py profile:=real pid:=false   # perception only
@@ -7,9 +7,9 @@
 Nodes:
   lane_fusion_deep_mask  camera -> /lane_fusion/deep_mask    (deep:=false if already running)
   lane_deep_lite_node    /lane_fusion/deep_mask -> /lane_deep/target
-  lane_fusion_pid_controller  /lane_deep/target -> /mission/lane   (pid:=true)
+  lane_pid_controller    /lane_deep/target -> /mission/lane   (pid:=true, lane_ws autorace_lane_pid)
 
-Do not run lane_fusion_pid.launch.py at the same time: both would publish /mission/lane.
+Source lane_ws too (the PID). Do not run another lane launch at the same time: both would publish /mission/lane.
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -23,7 +23,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     share = FindPackageShare('autorace_lane_deep_lite')
-    pid_share = FindPackageShare('autorace_lane_fusion_pid')
+    pid_share = FindPackageShare('autorace_lane_pid')
     deep_share = FindPackageShare('autorace_lane_fusion_deep')
     arg = LaunchConfiguration
     profile = arg('profile')
@@ -40,8 +40,8 @@ def generate_launch_description():
         DeclareLaunchArgument('deep', default_value='true', description='start lane_fusion_deep_mask'),
         DeclareLaunchArgument('model_path', default_value=''),
         DeclareLaunchArgument('deep_device', default_value='auto'),
-        DeclareLaunchArgument('pid', default_value='true', description='start the fusion PID on /lane_deep/target'),
-        DeclareLaunchArgument('gui', default_value='false', description='lane_fusion_pid_tuner window'),
+        DeclareLaunchArgument('pid', default_value='true', description='start the lane_ws PID on /lane_deep/target'),
+        DeclareLaunchArgument('gui', default_value='false', description='lane_pid_tuner window'),
         DeclareLaunchArgument('enable_vehicle_output', default_value='true'),
         DeclareLaunchArgument('debug', default_value='false', description='publish /lane_deep/debug'),
         IncludeLaunchDescription(
@@ -53,12 +53,12 @@ def generate_launch_description():
         Node(package='autorace_lane_deep_lite', executable='lane_deep_lite_node', output='screen',
              parameters=[{'config_file': arg('config_file'), 'use_sim_time': sim_time,
                           'debug': ParameterValue(arg('debug'), value_type=bool)}]),
-        Node(package='autorace_lane_fusion_pid', executable='lane_fusion_pid_controller', output='screen',
+        Node(package='autorace_lane_pid', executable='lane_pid_controller', output='screen',
              condition=IfCondition(arg('pid')),
              parameters=[arg('pid_config'), {
                  'use_sim_time': sim_time, 'target_topic': '/lane_deep/target',
                  'enable_vehicle_output': ParameterValue(arg('enable_vehicle_output'), value_type=bool)}]),
-        Node(package='autorace_lane_fusion_pid', executable='lane_fusion_pid_tuner', output='screen',
+        Node(package='autorace_lane_pid', executable='lane_pid_tuner', output='screen',
              condition=IfCondition(PythonExpression(["'", arg('pid'), "' == 'true' and '", arg('gui'), "' == 'true'"])),
              arguments=['--config', arg('pid_config')]),
     ])

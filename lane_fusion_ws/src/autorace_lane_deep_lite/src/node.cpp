@@ -1,13 +1,16 @@
-// Deep-only lane perception: /lane_fusion/deep_mask -> /lane_deep/target.
-// No camera image is decoded here; the mask carries the camera header.
+// Deep-only lane perception with the lane_ws logic:
+// /lane_fusion/deep_mask -> /lane_deep/target. No camera image is decoded
+// here; the mask carries the camera header. /odom moves a held centre path
+// (as lane_lite_node).
 //
-// /lane_deep/target layout = /lane_fusion/target (metres/radians, left +):
+// /lane_deep/target layout = /lane_lite/target = /lane_fusion/target (metres/radians, left +):
 // [valid, lateral_m, heading_rad, lookahead_m, curvature_1pm, confidence,
 //  left_state, right_state, near_lateral_m, near_heading_rad, near_m]
 // state: 0=lost 1=held 2=detected.
 #include "autorace_lane_deep_lite/deep_lane.hpp"
 #include <cv_bridge/cv_bridge.h>
 #include <mutex>
+#include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
@@ -29,6 +32,17 @@ public:
     if (declare_parameter<bool>("debug", false))
       debug_ = create_publisher<sensor_msgs::msg::Image>("/lane_deep/debug",
                                                          rclcpp::SensorDataQoS().keep_last(1));
+    const auto odom = declare_parameter<std::string>("odom_topic", "/odom");
+    if (!odom.empty())
+      odom_ = create_subscription<nav_msgs::msg::Odometry>(
+          odom, rclcpp::QoS(10), [this](nav_msgs::msg::Odometry::ConstSharedPtr m) {
+            const double t = steady();
+            std::lock_guard<std::mutex> lock(mutex_);
+            const double dt = odom_time_ > 0 ? std::clamp(t - odom_time_, 0., .1) : 0.;
+            odom_time_ = t;
+            forward_ += m->twist.twist.linear.x * dt;
+            yaw_ += m->twist.twist.angular.z * dt;
+          });
     mask_ = create_subscription<sensor_msgs::msg::Image>(
         mask_topic, rclcpp::SensorDataQoS().keep_last(1),
         [this](sensor_msgs::msg::Image::ConstSharedPtr m) { onMask(*m); });
@@ -86,6 +100,8 @@ private:
       const cv::Mat classes(int(m.height), int(m.width), CV_8U, const_cast<uint8_t *>(m.data.data()),
                             m.step);
       const bool views = debug_ && debug_->get_subscription_count() > 0;
+      pipeline_.move(forward_, yaw_);
+      forward_ = yaw_ = 0;
       const auto r = pipeline_.process(classes, stamp, views);
       publish(&r);
       processed_ = steady();
@@ -115,6 +131,8 @@ private:
   std::mutex mutex_;
   double timeout_ = .3, processed_ = 0, reported_ = 0, ms_ = 0;
   size_t count_ = 0;
+  double odom_time_ = 0, forward_ = 0, yaw_ = 0; // odometry since the last mask
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr mask_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr target_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_;

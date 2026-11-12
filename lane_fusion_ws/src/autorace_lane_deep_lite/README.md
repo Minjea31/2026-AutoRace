@@ -1,15 +1,11 @@
 # autorace_lane_deep_lite
 
-lanedeep U-Net **클래스 마스크만** 써서 차선을 인식하는 경량 패키지입니다(HSV 없음). 마스크 클래스가 `0 배경 / 1 노란(주황) 차선 / 2 흰 점선`이라 흰 실선·횡단보도·정지선·반사광은 처음부터 배경입니다. 그래서 `autorace_lane_fusion`의 HSV 노이즈 제거 단계(top-hat, 두께 필터, `white_max_*`, 가로 흰 선 제거, 방향 검사, 슬라이딩 윈도우)를 모두 빼고 아래만 합니다.
+**검출은 딥, 차선 로직은 lane_ws** (2026-11-12). lanedeep U-Net 클래스 마스크(`0 배경 / 1 노란(주황) 차선 / 2 흰 점선`)가 lane_ws의 HSV 색 특징 단계를 대신하고, 그 뒤는 lane_ws `autorace_lane_lite` 코드를 그대로 씁니다(`src/lane_ws.cpp`, `include/autorace_lane_deep_lite/lane_ws.hpp` = lane_ws main `00e18a1` 복사본, 바뀐 곳은 마스크 입력 한 군데). 히스토그램/추적 시드 → 방향 추종 슬라이딩 윈도우 → 차로 폭 확인 → 추적(평활·3프레임 확인·유지) → 중앙 경로 → 목표점, 유지 경로는 `/odom`으로 이동. lane_ws 쪽 로직을 바꾸면 이 복사본도 같이 맞춰야 합니다.
 
-1. 클래스 마스크 → BEV (최근접 보간, 카메라 JPEG 디코딩 없음)
-2. 격자 칸(`cell`)마다 클래스별 중심점 1개
-3. 같은 클래스 중심점을 방향을 유지하며 체인으로 연결(`max_gap`으로 흰 점선 빈칸을 건넘, `max_turn_deg`), 끊긴 체인 잇기, 같은 띠의 중복 체인 제거
-4. 체인마다 곡선 피팅 → 후보 경계
-5. 좌우 선택: 차량에 가장 가까운 선(차량이 안쪽에 있는 선) + 추적 가산점, 두 선이 차로 폭이 안 맞으면 추적 중인/긴 쪽을 남김. 차가 선 위에 있어도 추적 중인 선은 좌우가 뒤집히지 않음
-6. 추적(평활·3프레임 확인·유지), 중앙 경로(한 번 더 매끄럽게 피팅), 목표점. 곡률은 중앙 경로 `curvature_span_m` 구간의 원 맞춤(`max_curvature`로 제한)
-
-출력 `/lane_deep/target`은 `/lane_fusion/target`과 같은 형식이라 `autorace_lane_fusion_pid`가 그대로 받습니다.
+- 설정 `config/<profile>/lane.yaml`(`lane_deep_lite:`) = lane_ws 같은 프로필 값에서 HSV 전용 키(색 범위·top-hat·흰 선 폭/길이·`min_area`)를 뺀 것. lane_ws YAML(`lane_lite:`)도 그대로 읽힘. 예전 셀 체인 방식 키(`cell`, `max_gap` 등)는 무시
+- 출력 `/lane_deep/target`은 `/lane_lite/target`과 같은 형식 → lane_ws PID(`autorace_lane_pid`, `target_topic:=/lane_deep/target`)가 받음
+- 통합 실행: `ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=deep` (lane_ws도 source)
+- bag 4개(프레임별 마스크): 5 cm 튐 234303 48 / 191317 56 / fast 74 / slow 104 (lane_ws HSV 76 / 53 / 90 / 112), CV 약 5.5 ms
 
 ## 실행 (실차)
 
