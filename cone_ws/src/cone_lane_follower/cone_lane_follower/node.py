@@ -20,7 +20,7 @@ from cone_lane_follower.path_memory import PathMemory
 from cone_lane_follower.corner_offset import offset as corner_offset, curvature as path_curvature
 
 
-ROI_DEFAULTS = dict(roi_x_min=-0.3, roi_x_max=1.5, roi_y_min=-0.8, roi_y_max=0.8)
+ROI_DEFAULTS = dict(roi_x_min=-0.3, roi_x_max=1.0, roi_y_min=-0.8, roi_y_max=0.8)
 CLUSTER_DEFAULTS = dict(cluster_threshold=0.10, min_cluster_points=2,
                         max_cluster_width=0.28, cluster_point_size=0.05,
                         cone_center_size=0.08)

@@ -23,7 +23,7 @@ cone_lane_roi:
     boundary_distance_weight: 1.0
     boundary_direction_weight: 2.0
     control_speed: 0.4
-    control_reference_x: 0.30
+    control_reference_x: 0.28
     control_lateral_gain: 2.0
     control_heading_gain: 1.0
     control_max_steering: 1.3962634015954636  # 80 degrees in radians
