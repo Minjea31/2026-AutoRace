@@ -23,12 +23,12 @@ cone_lane_roi:
     boundary_distance_weight: 1.0
     boundary_direction_weight: 2.0
     control_speed: 0.4
-    control_reference_x: 0.28
+    control_reference_x: 0.29
     control_lateral_gain: 2.0
     control_heading_gain: 1.0
     control_max_steering: 1.3962634015954636  # 80 degrees in radians
     control_speed_reference_steering: 0.48  # Full slowdown at about 27.5 degrees
-    control_max_steering_rate: 3.6
+    control_max_steering_rate: 5.0
     control_timeout: 0.50
     control_memory_tf_timeout: 0.20
     control_max_path_distance: 0.50

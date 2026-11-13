@@ -278,15 +278,40 @@ inline bool boundary_width_matches(const Point&q, const Path&opposite, double si
   return w > 0&&std::abs(w - width) <= width * tol;
 }
 
-inline std::pair<Path, Path> select_boundaries(const Path&cones, const Params&p,
-                                               std::optional<double>width = {}, double tol = .25)
+inline bool strict_seed_matches(const Point&q, const Path&line, double side, double width, double tol)
 {
+  bool comparable=false;
+  for(size_t i=1;i<line.size();++i){
+    auto&a=line[i-1];auto&b=line[i];
+    double dx=b[0]-a[0],dy=b[1]-a[1],n=dx*dx+dy*dy;
+    if(n<1e-12)continue;
+    double t=((q[0]-a[0])*dx+(q[1]-a[1])*dy)/n;
+    if(t>=0&&t<=1)comparable=true;
+  }
+  return comparable&&boundary_width_matches(q,line,side,width,tol);
+}
+
+inline std::pair<Path, Path> select_boundaries_tracked(const Path&cones, const Params&p,
+                                               std::optional<double>width = {}, double tol = .25,
+                                               const std::array<Path, 2>&anchors = {},
+                                               std::array<bool, 2> bootstrap = {true, true})
+{
+  (void)bootstrap;
   auto rem = unique_nearest(cones);
   std::array<Path, 2> chains, dirs;
   for (int i = 0; i < 2; i++) {
     double side = i == 0?1:-1;
     auto it = rem.end();
-    for (auto j = rem.begin(); j != rem.end(); j++) if (side * (*j)[1] > 0) {
+    auto locked = unique_nearest(anchors[i]);
+    if (!locked.empty()) {
+      auto seed = std::find_if(locked.begin(), locked.end(), [](const Point&q){return q[0] >= 0;});
+      if (seed == locked.end()) seed = locked.begin();
+      it = std::find(rem.begin(), rem.end(), *seed);
+    }
+    if (it == rem.end())
+    for (auto j = rem.begin(); j != rem.end(); j++) if ((anchors[1-i].size() >= 2&&width ?
+          strict_seed_matches(*j, anchors[1-i], side, *width, tol) : side * (*j)[1] > 0)&&
+        std::find(anchors[1 - i].begin(), anchors[1 - i].end(), *j) == anchors[1 - i].end()) {
         if (it == rem.end()) it = j;
         if (std::abs(std::atan2((*j)[1], (*j)[0])) <= pi / 2) {
           it = j;
@@ -303,6 +328,7 @@ inline std::pair<Path, Path> select_boundaries(const Path&cones, const Params&p,
     for (int i = 0; i < 2; i++) {
       if (chains[i].empty()) continue;
       for (auto&o: boundary_options(chains[i], dirs[i], rem, p, chains[1 - i])) {
+        if (std::find(anchors[1 - i].begin(), anchors[1 - i].end(), o.q) != anchors[1 - i].end()) continue;
         if (width&&!boundary_width_matches(o.q, chains[1 - i], i == 0?1:-1, *width, tol)) continue;
         proposals.emplace_back(o.score, i, o.q, o.direction);
       }
@@ -312,6 +338,13 @@ inline std::pair<Path, Path> select_boundaries(const Path&cones, const Params&p,
     dirs[i].push_back(dir);
     rem.erase(std::find(rem.begin(), rem.end(), q));
   } return {chains[0], chains[1]};
+}
+
+// Preserve the stateless API used by the reference parity bindings.
+inline std::pair<Path, Path> select_boundaries(const Path&cones, const Params&p,
+                                               std::optional<double>width = {}, double tol = .25)
+{
+  return select_boundaries_tracked(cones, p, width, tol);
 }
 
 inline Pairs match_cross_sections(const Path&left, const Path&right, double step, double minimum, double

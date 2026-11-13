@@ -79,3 +79,8 @@ RViz의 기존 중앙 경로 MarkerArray에는 남은 저장 경로가 주황색
 진단에는 corners, trimmed_loops, max_curvature_per_m, min_radius_m,
 corner_smoothing 또는 corner_failure가 출력된다. 이는 궤적 기하 검사이며
 차량 동역학이나 전체 차체 충돌 검증을 대체하지 않는다.
+
+## 독립 경계 재탐색
+직전 스캔의 odom 좌표와 현재 콘을 0.12m 이내 일대일 대응해 소속을 유지한다.
+미검출 점을 보관하지 않는다. 끊긴 쪽 첫 점은 유지된 쪽의 대응 선분과 학습 차폭 ±25%로 검증한다.
+유효 선분 또는 학습 차폭이 없으면 이미 대응된 반대쪽 콘을 제외한 y 부호 초기화를 사용한다.

@@ -1,0 +1,66 @@
+cmake_minimum_required(VERSION 3.16)
+project(cone_lane_follower)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rcl_interfaces REQUIRED)
+find_package(ackermann_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(Threads REQUIRED)
+add_executable(roi_node cpp/roi_node.cpp)
+target_include_directories(roi_node PRIVATE include)
+target_compile_options(roi_node PRIVATE -Wall -Wextra -Wpedantic -Wno-misleading-indentation -ffp-contract=off)
+target_link_libraries(roi_node Threads::Threads)
+ament_target_dependencies(roi_node rclcpp rcl_interfaces ackermann_msgs sensor_msgs geometry_msgs visualization_msgs tf2_ros)
+install(TARGETS roi_node DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY launch config rviz DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY include/ DESTINATION include)
+if(BUILD_TESTING)
+  enable_testing()
+  add_executable(test_sparse test_cpp/test_sparse.cpp)
+  target_include_directories(test_sparse PRIVATE include)
+  add_test(NAME sparse_boundaries COMMAND test_sparse)
+  add_executable(test_independent test_cpp/test_independent.cpp)
+  target_include_directories(test_independent PRIVATE include)
+  add_test(NAME independent_boundaries COMMAND test_independent)
+  add_executable(test_async test_cpp/test_async.cpp)
+  target_include_directories(test_async PRIVATE include)
+  target_link_libraries(test_async Threads::Threads)
+  target_compile_options(test_async PRIVATE -ffp-contract=off)
+  add_test(NAME async_planner COMMAND test_async)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+  find_package(pybind11 QUIET)
+  if(pybind11_FOUND)
+    pybind11_add_module(cone_native test_cpp/bindings.cpp)
+    target_include_directories(cone_native PRIVATE include)
+    target_compile_options(cone_native PRIVATE -ffp-contract=off)
+    add_test(NAME python_cpp_parity COMMAND ${Python3_EXECUTABLE} -m pytest
+      ${CMAKE_CURRENT_SOURCE_DIR}/test_cpp/test_parity.py -q)
+    add_test(NAME reference_kernel_parity COMMAND ${Python3_EXECUTABLE} -m pytest
+      -p reference_parity_plugin ${CMAKE_CURRENT_SOURCE_DIR}/reference/python/test -q)
+    set_tests_properties(reference_kernel_parity PROPERTIES RUN_SERIAL TRUE
+      ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:cone_native>:${CMAKE_CURRENT_SOURCE_DIR}/test_cpp:${CMAKE_CURRENT_SOURCE_DIR}/reference/python:${CMAKE_CURRENT_SOURCE_DIR}/reference/python/test:$ENV{PYTHONPATH}")
+    set_tests_properties(python_cpp_parity PROPERTIES
+      ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:cone_native>:${CMAKE_CURRENT_SOURCE_DIR}/reference/python:$ENV{PYTHONPATH}")
+  endif()
+  add_test(NAME ros_output_parity COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_cpp/ros_compare.py
+    --binary $<TARGET_FILE:roi_node>
+    --config ${CMAKE_CURRENT_SOURCE_DIR}/config/clustering.yaml
+    --reference ${CMAKE_CURRENT_SOURCE_DIR}/reference/python)
+  set_tests_properties(ros_output_parity PROPERTIES TIMEOUT 150 RUN_SERIAL TRUE)
+  add_test(NAME native_entry_threshold COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_cpp/ros_compare.py
+    --binary $<TARGET_FILE:roi_node>
+    --config ${CMAKE_CURRENT_SOURCE_DIR}/config/clustering.yaml
+    --reference ${CMAKE_CURRENT_SOURCE_DIR}/reference/python --entry-eight-only)
+  set_tests_properties(native_entry_threshold PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+endif()
+ament_package()

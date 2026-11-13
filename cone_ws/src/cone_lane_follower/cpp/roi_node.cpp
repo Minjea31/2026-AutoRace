@@ -1,4 +1,5 @@
 #include "cone_lane_follower/core.hpp"
+#include "cone_lane_follower/boundary_tracker.hpp"
 #include "cone_lane_follower/path_memory.hpp"
 #include "cone_lane_follower/async_planner.hpp"
 #include <rclcpp/rclcpp.hpp>
@@ -110,6 +111,7 @@ std::optional<ackermann_msgs::msg::AckermannDriveStamped> exit_lane_cmd_;
 std::optional<double> exit_lane_received_, exit_lane_until_;
 Diag path_diagnostics_;
 PathMemory path_memory_;
+BoundaryTracker boundary_tracker_;
 double value(const std::string&name)const
 {
   auto p = get_parameter(name);
@@ -348,8 +350,25 @@ void update_boundary_markers(const Path&centers, const Stamp&stamp)
   std::optional<double> width;
   if (lane_width_is_fresh(cp))
     width = lane_width_mean_.value();
-  auto bounds = mission_cone_?select_boundaries(centers, p, width, cp["center_width_relative_tolerance"]):
-                std::make_pair(Path{}, Path{});
+  std::pair<Path, Path> bounds;
+  if (!mission_cone_||control_fault_) {
+    boundary_tracker_.clear();
+  }else{
+    try{
+      // Both detections and saved identities use odom at the exact scan timestamp.
+      auto tf = memory_transform("odom", "base_link", time_at(ns(stamp)));
+      auto world = transform_points(centers, tf);
+      bounds = boundary_tracker_.update(centers, world, ns(stamp) / 1e9, p, width,
+                                        cp["center_width_relative_tolerance"]);
+    }catch (const std::exception&e) {
+      // No valid motion transform: never compare coordinates from different frames.
+      boundary_tracker_.clear();
+      if (steady() - last_warning_ >= 1) {
+        RCLCPP_WARN(get_logger(), "Boundary tracking skipped: %s", e.what());
+        last_warning_ = steady();
+      }
+    }
+  }
   left_boundary_ = std::move(bounds.first);
   right_boundary_ = std::move(bounds.second);
   auto markers = marker_array(stamp);
@@ -655,6 +674,7 @@ void control_tick()
     else if (wall - saved_wall >= p["control_exit_timeout"]&&(current - saved_ros) / 1e9 >=
              p["control_exit_timeout"]) {
       mission_cone_ = false;
+      boundary_tracker_.clear();
       clear_path_memory();
       reset_lane_width();
       mission_exit_since_.reset();
@@ -690,13 +710,13 @@ void control_tick()
   last_steering_ += clamp(target - last_steering_, -step, step);
   last_steering_ = clamp(last_steering_, -limit, limit);
   double slowdown = std::min(1., std::abs(target) / p["control_speed_reference_steering"]), speed =
-    p["control_speed"] * (1 - .25 * slowdown);
+    p["control_speed"] * (1 - .60 * slowdown);
   auto&active = memory_following_?memory_local_path_:center_path_;
   publish_control_points(active);
   double peak = peak_curvature(active);
   if (peak > 1e-9) {
     double ratio = std::min(1., peak * value("center_min_turn_radius"));
-    speed = std::min(speed, p["control_speed"] * (1 - .25 * ratio));
+    speed = std::min(speed, p["control_speed"] * (1 - .60 * ratio));
   } if (memory_following_)
     speed = std::min(speed, p["control_memory_speed"]);
   control_mode_ = memory_following_?"Memory Path Feedback":"Path Feedback";
