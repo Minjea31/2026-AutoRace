@@ -52,8 +52,9 @@ def prepare(roi, monkeypatch, yaw=0.):
 
     roi.command_pub = Capture()
     tick(roi)
-    assert roi.control_mode == 'Memory Path Feedback'
-    assert roi.path_memory.points and roi.memory_status == 'stored'
+    assert roi.control_mode == 'Path Feedback'
+    assert not roi.memory_following
+    assert roi.path_memory.points and roi.memory_status == 'refreshed'
     return tf, messages
 
 
@@ -111,44 +112,36 @@ def test_memory_cannot_override_sensor_or_transform_faults(harness, monkeypatch,
         assert not roi.path_memory.points
 
 
-def test_shorter_or_shifted_observation_cannot_replace_saved_path(harness, monkeypatch):
+@pytest.mark.parametrize('offset', [.03, .4])
+def test_shorter_shifted_live_path_takes_priority_and_refreshes_backup(harness, monkeypatch, offset):
     roi, *_ = harness
-    prepare(roi, monkeypatch)
+    _, messages = prepare(roi, monkeypatch)
     roi.center_path = []
     tick(roi)
     assert roi.memory_following
-    roi.center_path = [(.1, .4, 0.), (.8, .4, 0.)]
+    roi.center_path = [(x, offset, 0.) for x in (.1, .2, .3, .4, .5)]
+    tick(roi)
+    assert roi.control_mode == 'Path Feedback'
+    assert not roi.memory_following
+    assert roi.control_lateral_error == pytest.approx(offset)
+    assert roi.path_memory.points[0] == pytest.approx((2.1, 3.+offset, 0.))
+    assert messages[-1].drive.speed > 0
+    roi.center_path = []
     tick(roi)
     assert roi.control_mode == 'Memory Path Feedback'
-    assert roi.memory_status == 'kept_no_aligned_extension'
-    roi.center_path = [(.1, .03, 0.), (.8, .03, 0.)]
-    tick(roi)
-    assert roi.control_mode == 'Memory Path Feedback'
-    assert roi.memory_following and roi.memory_status == 'kept_no_aligned_extension'
-    assert roi.control_lateral_error == pytest.approx(0.)
+    assert roi.control_lateral_error == pytest.approx(offset)
 
 
-def test_memory_extends_goal_but_ignores_shorter_live_paths(harness, monkeypatch):
+def test_latest_prefix_preserves_compatible_old_tail(harness, monkeypatch):
     roi, *_ = harness
-    tf, messages = prepare(roi, monkeypatch)
-    original = roi.path_memory.points[:]
-    roi.center_path = [(.1, .1, 0.), (.5, .1, 0.)]
+    prepare(roi, monkeypatch)
+    roi.center_path = [(x, .01, 0.) for x in (.1, .2, .3, .4, .5)]
     tick(roi)
-    assert roi.path_memory.points == original
-    assert roi.control_lateral_error == pytest.approx(0.)
-    # The new live route observes beyond the old 1.1 m goal.
-    roi.center_path = [(.5, 0., 0.), (.9, 0., 0.), (1.2, 0., 0.), (1.5, 0., 0.)]
-    tick(roi)
-    assert roi.memory_status == 'extended'
-    assert roi.path_memory.points[:len(original)] == original
-    assert roi.path_memory.points[-1] == pytest.approx((3.5, 3., 0.))
-    assert roi.control_mode == 'Memory Path Feedback'
-    # Seeing only the old part must not reset the endpoint or path order.
-    tf.x = 2.4
-    roi.center_path = [(.1, 0., 0.), (.5, 0., 0.)]
-    tick(roi)
-    assert roi.path_memory.points[-1] == pytest.approx((3.5, 3., 0.))
-    assert 0. < messages[-1].drive.speed <= .15
+    assert roi.control_mode == 'Path Feedback'
+    assert roi.memory_update_reason == 'refreshed_with_tail'
+    assert roi.path_memory.points[0] == pytest.approx((2.1, 3.01, 0.))
+    assert roi.path_memory.points[-1] == pytest.approx((3.1, 3., 0.))
+    assert roi.control_lateral_error == pytest.approx(.01)
 
 
 @pytest.mark.parametrize('failure', ['receive', 'stamp'])
@@ -226,21 +219,20 @@ def test_invalid_live_path_cannot_override_memory_tf_error(harness, monkeypatch)
     assert messages[-1].drive.speed == 0.
 
 
-def test_update_failure_remains_visible_after_goal_status_overwrites_memory(harness, monkeypatch):
+def test_finished_backup_does_not_block_live_path_refresh(harness, monkeypatch):
     roi, *_ = harness
     prepare(roi, monkeypatch)
     roi.path_memory.finished = True
     roi.center_path = [(.3, 0., 0.), (.4, 0., 0.)]
     tick(roi)
-    assert roi.memory_status == 'memory_goal_reached'
-    assert roi.control_stop_reason == 'memory_goal_reached'
-    assert roi.memory_update_reason == 'recovery_too_far_from_vehicle'
-    summary = roi.control_log_summary()
-    assert 'memory=memory_goal_reached' in summary
-    assert 'Path update: recovery_too_far_from_vehicle' in summary
+    assert roi.control_mode == 'Path Feedback'
+    assert roi.control_stop_reason is None
+    assert roi.memory_update_reason == 'refreshed'
+    assert not roi.path_memory.finished
     roi.center_path = []
     tick(roi)
     assert roi.memory_update_reason == 'not_attempted: empty_path'
+    assert roi.control_mode == 'Memory Path Feedback'
 
 
 def test_update_log_reports_unusable_new_path_and_tf_failure(harness, monkeypatch):
@@ -280,20 +272,20 @@ def test_unusable_memory_is_replaced_by_connected_live_path(harness, monkeypatch
         tf.y += 1.
     else:
         roi.path_memory.finished = True
-    roi.center_path = [(.1, 0., 0.), (.3, 0., 0.), (.6, 0., 0.)]
+    roi.center_path = [(x, 0., 0.) for x in (.1, .2, .3, .4, .5, .6)]
     tick(roi)
-    assert roi.control_mode == 'Memory Path Feedback'
-    assert roi.memory_update_reason == 'replaced_unusable_memory'
+    assert roi.control_mode == 'Path Feedback'
+    assert roi.memory_update_reason == 'refreshed'
     assert roi.path_memory.points != old and not roi.path_memory.finished
     assert roi.control_stop_reason is None
-    assert 0. < messages[-1].drive.speed <= .15
+    assert messages[-1].drive.speed > 0
 
 
 @pytest.mark.parametrize('live_path,reason', [
     ([(.3, 0., 0.), (.8, 0., 0.)], 'recovery_too_far_from_vehicle'),
     ([(.05, .05, 0.), (.25, .4, 0.)], 'recovery_direction_mismatch'),
 ])
-def test_unusable_memory_and_disconnected_live_path_stop(harness, monkeypatch, live_path, reason):
+def test_valid_live_path_bypasses_old_memory_recovery_restrictions(harness, monkeypatch, live_path, reason):
     roi, *_ = harness
     tf, messages = prepare(roi, monkeypatch)
     old = roi.path_memory.points[:]
@@ -301,12 +293,12 @@ def test_unusable_memory_and_disconnected_live_path_stop(harness, monkeypatch, l
     roi.center_path = live_path
     assert roi.path_errors(live_path, .25) is not None
     tick(roi)
-    assert roi.control_mode == 'Stopped' and messages[-1].drive.speed == 0.
-    assert roi.path_memory.points == old
-    assert roi.memory_update_reason == reason
+    assert roi.control_mode == 'Path Feedback' and messages[-1].drive.speed > 0.
+    assert not roi.memory_following
+    assert roi.control_stop_reason is None
 
 
-def test_valid_live_path_cannot_replace_memory_during_tf_failure(harness, monkeypatch):
+def test_live_path_keeps_driving_when_backup_tf_fails(harness, monkeypatch):
     roi, *_ = harness
     tf, messages = prepare(roi, monkeypatch)
     old = roi.path_memory.points[:]
@@ -314,8 +306,10 @@ def test_valid_live_path_cannot_replace_memory_during_tf_failure(harness, monkey
     roi.center_path = [(.1, 0., 0.), (.5, 0., 0.)]
     tick(roi)
     assert roi.path_memory.points == old
-    assert roi.control_stop_reason == 'memory_tf_unavailable_or_stale'
-    assert messages[-1].drive.speed == 0.
+    assert roi.control_stop_reason is None
+    assert roi.control_mode == 'Path Feedback'
+    assert not roi.memory_following
+    assert messages[-1].drive.speed > 0.
 
 
 @pytest.mark.parametrize('length', [.1, .2])
@@ -325,10 +319,10 @@ def test_completed_memory_can_switch_to_short_new_path(harness, monkeypatch, len
     roi.path_memory.finished = True
     roi.center_path = [(.1, 0., 0.), (.1+length, 0., 0.)]
     tick(roi)
-    assert roi.memory_update_reason == 'replaced_unusable_memory'
-    assert roi.control_mode == 'Memory Path Feedback'
+    assert roi.memory_update_reason == 'refreshed'
+    assert roi.control_mode == 'Path Feedback'
     assert not roi.path_memory.finished
-    assert 0. < messages[-1].drive.speed <= .15
+    assert messages[-1].drive.speed > 0.
 
 
 def test_scan_tolerates_277ms_gap_while_memory_tf_limit_stays_200ms(harness, monkeypatch):
@@ -353,3 +347,19 @@ def test_scan_tolerates_277ms_gap_while_memory_tf_limit_stays_200ms(harness, mon
     tick(roi)
     assert roi.control_stop_reason == 'memory_tf_unavailable_or_stale'
     assert messages[-1].drive.speed == 0.
+
+
+def test_live_backup_live_transition_preserves_steering_rate(harness, monkeypatch):
+    roi, *_ = harness
+    _, messages = prepare(roi, monkeypatch)
+    roi.center_path = []
+    tick(roi)
+    assert roi.memory_following
+    before = messages[-1].drive.steering_angle
+    roi.center_path = [(x, .1, 0.) for x in (.1, .2, .3, .4, .5)]
+    tick(roi)
+    assert roi.control_mode == 'Path Feedback'
+    assert roi.control_lateral_error == pytest.approx(.1)
+    assert not roi.memory_following
+    assert abs(messages[-1].drive.steering_angle-before) <= .1+1e-9
+    assert all(message.drive.speed > 0 for message in messages)

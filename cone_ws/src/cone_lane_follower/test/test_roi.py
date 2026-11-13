@@ -672,7 +672,7 @@ def test_learn_lane_width_and_drive_with_one_boundary(harness, side):
         roi.left_boundary = []
         roi.right_boundary = [(.1, -.35, 0.), (.45, -.35, 0.), (.8, -.35, 0.)]
     roi.update_center_path(stamp)
-    assert roi.center_path_mode == f'{side.title()} Boundary Offset'
+    assert roi.center_path_mode == 'Unified'
     assert roi.center_path and all(abs(q[1]) < 1e-8 for q in roi.center_path)
     assert roi.lane_width_mean == pytest.approx(.7)
     assert roi.lane_width_samples == 2*samples
@@ -695,7 +695,7 @@ def test_learn_lane_width_and_drive_with_one_boundary(harness, side):
 
 @pytest.mark.parametrize('visible_side', ['left', 'right'])
 @pytest.mark.parametrize('failure', [None, 'stale', 'clock_reverse', 'conflict', 'missing'])
-def test_single_opposite_point_uses_only_fresh_consistent_width(harness, visible_side, failure):
+def test_single_opposite_point_checks_width_without_expiry(harness, visible_side, failure):
     roi, *_ = harness
     roi.mission_cone = True
     stamp = roi.get_clock().now().to_msg()
@@ -727,12 +727,12 @@ def test_single_opposite_point_uses_only_fresh_consistent_width(harness, visible
     roi.control_scan_stamp = roi.get_clock().now().nanoseconds
     roi.update_control_activation()
     roi.control_tick()
-    if failure:
+    if failure in ('conflict', 'missing'):
         assert not roi.center_path and roi.control_mode == 'Stopped'
-        expected = 'boundary_width_conflict' if failure == 'conflict' else 'lane_width_unavailable_or_stale'
+        expected = 'boundary_width_conflict' if failure == 'conflict' else 'empty_path'
         assert roi.control_stop_reason == expected
     else:
-        assert roi.center_path_mode == f'{visible_side.title()} Boundary Offset'
+        assert roi.center_path_mode == 'Unified'
         assert all(abs(q[1]) < 1e-8 for q in roi.center_path)
         assert roi.control_mode == 'Path Feedback'
 
@@ -749,16 +749,6 @@ def test_inconsistent_cross_sections_are_not_learned(harness, monkeypatch):
     assert roi.lane_width_mean is None and roi.lane_width_updated is None
 
 
-@pytest.mark.parametrize('left,right,reason', [
-    ([(.1, .3, 0.)], [(.1, -.3, 0.), (.8, -.3, 0.)], 'insufficient_boundary_points'),
-    ([(.1, .8, 0.), (.8, .8, 0.)], [(.1, -.8, 0.), (.8, -.8, 0.)], 'width_out_of_range'),
-    ([(.1, .3, 0.), (.8, .3, 0.)], [(.8, -.3, 0.), (.1, -.3, 0.)], 'opposing_tangents'),
-    ([(.1, -.3, 0.), (.8, -.3, 0.)], [(.1, .3, 0.), (.8, .3, 0.)], 'connector_not_inward'),
-])
-def test_projection_reports_rejection_reason(left, right, reason):
-    diagnostics = {}
-    assert not RoiNode.match_projected_sections(left, right, .05, .1, 1.5, diagnostics)
-    assert diagnostics[reason] > 0
 
 
 def test_control_log_summary_contains_only_requested_status(harness):
@@ -770,10 +760,10 @@ def test_control_log_summary_contains_only_requested_status(harness):
     roi.update_center_path(roi.get_clock().now().to_msg())
     summary = roi.control_log_summary()
     assert 'mission=True | roi_candidates=2' in summary
-    assert 'Path       : Width Unavailable or Stale' in summary
+    assert 'Path       : Invalid' in summary
     assert 'Control    : active=' in summary and 'state=' in summary
     assert 'Stop reason:' in summary
-    assert 'Projection : not_attempted: requires_3_points_per_boundary' in summary
+    assert 'Projection : not_attempted' in summary
     assert 'LiDAR Points' not in summary and 'Cone Candidate' not in summary
     roi.left_boundary = [(.1, .3, 0.), (.45, .3, 0.), (.8, .3, 0.)]
     roi.update_center_path(roi.get_clock().now().to_msg())
@@ -794,14 +784,14 @@ def test_three_point_boundary_selection_rules(harness, left_count, right_count):
     roi.left_boundary, roi.right_boundary = left[:left_count], right[:right_count]
     roi.update_center_path(stamp)
     if left_count >= 3 and right_count >= 3:
-        assert roi.center_path_mode == 'Normal Sections' and roi.center_path
+        assert roi.center_path_mode == 'Unified' and roi.center_path
     elif left_count >= 3 or right_count >= 3:
-        expected = 'Left Boundary Offset' if left_count >= 3 else 'Right Boundary Offset'
+        expected = 'Unified'
         assert roi.center_path_mode == expected and roi.center_path
-        assert roi.projection_status == 'not_attempted: requires_3_points_per_boundary'
+        assert roi.projection_status == 'not_attempted'
     else:
         assert not roi.center_path
-        assert roi.projection_status == 'not_attempted: requires_3_points_per_boundary'
+        assert roi.projection_status == 'not_attempted'
 
 
 @pytest.mark.parametrize('visible_side', ['left', 'right'])
@@ -820,7 +810,7 @@ def test_both_remaining_opposite_points_must_match_width(harness, visible_side):
     assert not roi.center_path and roi.center_path_mode == 'Boundary Width Conflict'
 
 
-@pytest.mark.parametrize('age,accepted', [(10., True), (29., True), (31., False)])
+@pytest.mark.parametrize('age,accepted', [(10., True), (31., True), (300., True)])
 def test_trusted_lane_width_survives_longer_single_boundary_loss(harness, age, accepted):
     roi, *_ = harness
     roi.mission_cone = True
@@ -1016,80 +1006,19 @@ def test_missing_boundaries_use_learned_width_only_when_one_remains(harness, mis
         assert not roi.center_pairs and not roi.center_points and not roi.center_path
     else:
         assert roi.center_path
-        assert roi.center_path_mode == ('Right Boundary Offset' if missing_side == 'left'
-                                        else 'Left Boundary Offset')
+        assert roi.center_path_mode == 'Unified'
 
 
-def test_projection_uses_segment_interiors_and_preserves_order():
-    left = [(0.2, .3, 0.), (.8, .3, 0.)]
-    right = [(0., -.3, 0.), (1., -.3, 0.)]
-    pairs = RoiNode.match_projected_sections(left, right, .05, .1, 1.5)
-    assert len(pairs) > 5
-    assert all(a[0] == pytest.approx(b[0]) for a, b in pairs)
-    assert all(0. < b[0] < 1. for _, b in pairs)
-    assert all(a[1][0] < b[1][0] for a, b in zip(pairs, pairs[1:]))
-    assert RoiNode.match_projected_sections(left, right, .05, .7, 1.5) == []
-    assert RoiNode.match_projected_sections(left, list(reversed(right)), .05, .1, 1.5) == []
-    assert RoiNode.match_projected_sections(left, [], .05, .1, 1.5) == []
 
 
-def test_projection_endpoint_clamps_without_overrun_gate():
-    left = [(.15, .3, 0.), (.5, .3, 0.)]
-    right = [(.2, -.3, 0.), (.4, -.3, 0.)]
-    pairs = RoiNode.match_projected_sections(left, right, .05, .1, 1.5)
-    assert pairs and all(.2 <= b[0] <= .4 for _, b in pairs)
-    assert pairs[0][1][0] == pytest.approx(.2)
-    assert len({round(b[0], 8) for _, b in pairs}) < len(pairs)
-    far_pairs = RoiNode.match_projected_sections([(-1., .3, 0.), (-.5, .3, 0.)], right, .05, .1, 1.5)
-    assert far_pairs and all(b == right[0] for _, b in far_pairs)
 
 
-def test_projection_fallback_after_invalid_primary_path(harness, monkeypatch):
-    roi, *_ = harness
-    roi.left_boundary = [(x, .3, 0.) for x in (.1, .4, .7)]
-    roi.right_boundary = [(x, -.3, 0.) for x in (.1, .4, .7)]
-    # Even a nonempty primary correspondence set may fail to form a path.
-    monkeypatch.setattr(roi, 'match_cross_sections', lambda *args: [((.2,.3,0.), (.2,-.3,0.))])
-    roi.update_center_path(roi.get_clock().now().to_msg())
-    assert roi.center_path and roi.center_path_mode == 'Nearest Projection'
-    assert all(abs(q[1]) < 1e-8 for q in roi.center_path)
 
 
-def test_normal_path_has_priority_over_projection(harness, monkeypatch):
-    roi, *_ = harness
-    roi.left_boundary = [(x, .3, 0.) for x in (.1, .4, .7)]
-    roi.right_boundary = [(x, -.3, 0.) for x in (.1, .4, .7)]
-    def unexpected(*args):
-        raise AssertionError('Projection must only run after primary path failure')
-    monkeypatch.setattr(roi, 'match_projected_sections', unexpected)
-    roi.update_center_path(roi.get_clock().now().to_msg())
-    assert roi.center_path and roi.center_path_mode == 'Normal Sections'
 
 
-def test_projection_reported_corner_and_crossing_rejection(harness):
-    roi, *_ = harness
-    roi.left_boundary = [(.132, .195, 0.), (.197, .359, 0.)]
-    roi.left_boundary.insert(1, tuple((a+b)/2 for a, b in zip(roi.left_boundary[0], roi.left_boundary[1])))
-    roi.right_boundary = [(.166, -.189, 0.), (.352, -.164, 0.), (.479, -.030, 0.)]
-    assert not roi.match_cross_sections(roi.left_boundary, roi.right_boundary, .05, .1, 1.5)
-    roi.update_center_path(roi.get_clock().now().to_msg())
-    assert roi.center_path and roi.center_path_mode == 'Nearest Projection'
-    roi.left_boundary = [(.1, .3, 0.), (.7, -.3, 0.)]
-    roi.right_boundary = [(.1, -.3, 0.), (.7, .3, 0.)]
-    roi.update_center_path(roi.get_clock().now().to_msg())
-    assert not roi.center_path and roi.center_path_mode == 'Invalid'
 
 
-def test_projection_accepts_reported_endpoint_overrun(harness):
-    roi, *_ = harness
-    roi.left_boundary = [(.131, .305, 0.), (.236, .448, 0.)]
-    roi.left_boundary.insert(1, tuple((a+b)/2 for a, b in zip(roi.left_boundary[0], roi.left_boundary[1])))
-    roi.right_boundary = [(.087, -.237, 0.), (.250, -.160, 0.), (.360, -.022, 0.)]
-    pairs = roi.match_projected_sections(roi.left_boundary, roi.right_boundary, .05, .1, 1.5)
-    assert len(pairs) >= 2
-    assert all(b == pytest.approx(roi.right_boundary[-1]) for _, b in pairs)
-    roi.update_center_path(roi.get_clock().now().to_msg())
-    assert roi.center_path and roi.center_path_mode == 'Nearest Projection'
 
 
 @pytest.mark.parametrize('speed', [.1, .4])
@@ -1126,8 +1055,8 @@ def test_path_loss_stops_immediately_and_recovers(harness, speed):
     assert roi.control_stop_reason is None
 
 
-@pytest.mark.parametrize('target,expected_speed', [(0., .4), (.24, .26),
-    (-.24, .26), (.48, .12), (-.48, .12), (1.3, .12), (-1.3, .12)])
+@pytest.mark.parametrize('target,expected_speed', [(0., .4), (.24, .35),
+    (-.24, .35), (.48, .3), (-.48, .3), (1.3, .3), (-1.3, .3)])
 def test_corner_slowdown_independent_of_maximum_steering(harness, monkeypatch, target, expected_speed):
     roi, *_ = harness
     messages = []
@@ -1230,3 +1159,78 @@ def test_control_stops_on_fault_or_unusable_path(harness, failure):
         roi.center_path = [(-.8, .1, 0.), (-.1, .1, 0.)]
     roi.control_tick()
     assert messages[-1].drive.speed == messages[-1].drive.steering_angle == 0.
+
+
+@pytest.mark.parametrize('scenario', ['equal', 'left_long', 'right_long', 'disjoint', 'left_only', 'right_only'])
+def test_unified_node_geometry_matches_straight_lane(harness, scenario):
+    roi, *_ = harness
+    roi.mission_cone = True
+    stamp = roi.get_clock().now().to_msg()
+    roi.left_boundary = [(x, .3, 0.) for x in (.1, .4, .7, 1.)]
+    roi.right_boundary = [(x, -.3, 0.) for x in (.1, .4, .7, 1.)]
+    roi.update_center_path(stamp)
+    assert roi.lane_width_mean == pytest.approx(.6)
+    samples = roi.lane_width_samples
+    if scenario == 'left_long':
+        roi.left_boundary += [(1.3, .3, 0.), (1.6, .3, 0.)]
+    elif scenario == 'right_long':
+        roi.right_boundary += [(1.3, -.3, 0.), (1.6, -.3, 0.)]
+    elif scenario == 'disjoint':
+        roi.right_boundary = [(x+3, y, z) for x,y,z in roi.right_boundary]
+    elif scenario == 'left_only':
+        roi.right_boundary = []
+    elif scenario == 'right_only':
+        roi.left_boundary = []
+    roi.update_center_path(stamp)
+    assert roi.center_path_mode == 'Unified'
+    assert all(abs(y) < 1e-8 for x,y,z in roi.center_path)
+    expected_end = 1.6 if scenario.endswith('long') else 1.
+    assert roi.center_path[-1][0] == pytest.approx(expected_end, abs=.051)
+    assert roi.path_errors(roi.center_path, .25) is not None
+    if scenario in ('disjoint', 'left_only', 'right_only'):
+        assert not roi.center_pairs
+        assert roi.lane_width_samples == samples
+
+
+def test_control_points_match_error_projection_and_clear(harness):
+    roi, *_ = harness
+    messages = []
+    class Capture:
+        def publish(self, msg):
+            messages.append(msg)
+    roi.control_points_pub = Capture()
+    path = [(.1, .1, 0.), (.8, .3, 0.)]
+    geometry = roi.path_control_geometry(path, .25)
+    assert geometry[:2] == roi.path_errors(path, .25)
+    roi.publish_control_points(path)
+    markers = {m.ns: m for m in messages[-1].markers if m.action == Marker.ADD}
+    projection = markers['projection'].pose.position
+    assert (projection.x, projection.y) == pytest.approx(geometry[2:4])
+    assert markers['reference'].pose.position.x == .25
+    segment = markers['selected_segment'].points
+    assert [(p.x, p.y) for p in segment] == [(p[0], p[1]) for p in path]
+    assert all(m.header.frame_id == 'base_link' for m in markers.values())
+    for path in (None, [], [(-.5, 0., 0.), (-.1, 0., 0.)]):
+        roi.publish_control_points(path)
+        assert len(messages[-1].markers) == 1
+        assert messages[-1].markers[0].action == Marker.DELETEALL
+
+
+def test_scan_queue_keeps_latest_only(harness):
+    roi, *_ = harness
+    assert roi.scan_sub.qos_profile.depth == 1
+    assert roi.scan_sub.qos_profile.history == qos_profile_sensor_data.history
+    assert roi.scan_sub.qos_profile.reliability == qos_profile_sensor_data.reliability
+
+
+def test_stale_scan_skips_geometry_without_refreshing_watchdog(harness, monkeypatch):
+    roi, *_ = harness
+    previous_received = roi.control_received
+    previous_stamp = roi.control_scan_stamp
+    msg = scan([1., 1., 1.])
+    msg.header.stamp = (roi.get_clock().now()-rclpy.duration.Duration(seconds=.6)).to_msg()
+    monkeypatch.setattr(roi, 'scan_to_points',
+                        lambda *a, **k: pytest.fail('Stale scan started geometry processing'))
+    roi.scan_callback(msg)
+    assert roi.control_received == previous_received
+    assert roi.control_scan_stamp == previous_stamp
