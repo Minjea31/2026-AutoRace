@@ -30,7 +30,7 @@ Rendering is limited to 15 fps. TF and fused odometry displays are optional and 
 The helper only publishes `/missions_viz/*`; it never publishes motion, mission starts or TF.
 Sensors must already be running. Stop individual mission launches first.
 
-Startup is staggered by default. Parking starts immediately, slow, crosswalk and signal at 2 s,
+Startup is staggered by default. Parking starts immediately, slow, crosswalk, signal and cone at 2 s,
 lane/TensorRT at 4 s, YOLO at 8 s. Input readiness monitoring starts at 8 s, so its
 `startup_timeout` still measures the readiness phase rather than the initial stagger.
 Mux starts only after the required input checks pass; output topics, speed settings
@@ -45,7 +45,7 @@ There are no additional launch arguments.
 
 ```bash
 source /opt/ros/humble/setup.bash
-for ws in sensor_ws mux_ws lane_ws lane_fusion_ws parking_ws slow_ws crosswalk_ws signal_ws yolo_ws; do source ~/2026-AutoRace/$ws/install/setup.bash; done
+for ws in sensor_ws mux_ws lane_ws lane_fusion_ws parking_ws slow_ws crosswalk_ws signal_ws cone_ws yolo_ws; do source ~/2026-AutoRace/$ws/install/setup.bash; done
 cd ~/2026-AutoRace/tensor_bringup
 colcon build --base-paths .
 source install/setup.bash
@@ -65,8 +65,8 @@ opencv: `lane_lite_node`, `lane_pid_controller`). fusion PID: `autorace_lane_fus
 opencv uses lane_ws as-is (`autorace_lane_lite/config/real/lane.yaml`, `autorace_lane_pid/config/real/pid.yaml`,
 lane_lite debug on, tuners off). deep uses `autorace_lane_deep_lite/config/real/lane.yaml` (lane_ws values) and the same lane_ws PID with `target_topic:=/lane_deep/target`.
 `lane_speed` applies to all three.
-After mux starts, readiness checks all mission nodes (9 with fusion/deep, 8 with opencv) and fresh input topics for two seconds.
-The final startup line is `[bringup 결과] 전체 노드 9/9 실행 확인 완료` on success;
+After mux starts, readiness checks all mission nodes (10 with fusion/deep, 9 with opencv) and fresh input topics for two seconds.
+The final startup line is `[bringup 결과] 전체 노드 10/10 실행 확인 완료` on success;
 timeouts list missing nodes and missing/stale input topics before reporting failure.
 `startup_timeout` (default 60 seconds) applies to each startup check.
 `lane_speed` overrides the lane PID base speed only; the default is 0.5 m/s.
@@ -94,4 +94,23 @@ cd crosswalk_ws
 colcon build --symlink-install --packages-select autorace_crosswalk
 source install/setup.bash
 # Source the other mission overlays listed above, then rebuild tensor_bringup.
+```
+
+
+Cone starts automatically at 2 s through `cone_lane_follower/roi.launch.py`, with
+`use_sim_time:=false`, `rviz:=false` and the installed cone2 `clustering.yaml`.
+Override its tuning with `cone_params:=/absolute/path/to/clustering.yaml`.
+Readiness requires `/cone_lane_roi` and fresh `/cone_lane/control_status` messages,
+alongside the existing `/scan` and `/odometry/filtered` checks. It never waits for
+`/mission/cone/command_04`: commands begin only after LiDAR cone entry detection.
+The existing mux already handles that topic at cone priority 4.
+
+Build and source the cone overlay before rebuilding bringup:
+
+```bash
+cd ~/2026-AutoRace/cone_ws
+source /opt/ros/humble/setup.bash
+colcon build --symlink-install --packages-select cone_lane_follower
+source install/setup.bash
+# Source the other overlays above, then rebuild tensor_bringup.
 ```

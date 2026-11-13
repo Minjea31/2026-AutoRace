@@ -85,7 +85,7 @@ def _setup(context):
         ws = {'opencv': ['lane_ws'], 'deep': ['lane_fusion_ws', 'lane_ws']}.get(mode, ['lane_fusion_ws'])
         raise RuntimeError(f'lane_mode:={mode}: lane package not found, source '
                            + ' and '.join(f'~/2026-AutoRace/{w}/install/setup.bash' for w in ws)) from error
-    node_count = 5 + len(LANE_NODES[mode]) + 1  # parking, slow, crosswalk, signal, YOLO, lane, mux
+    node_count = 6 + len(LANE_NODES[mode]) + 1  # parking, slow, crosswalk, signal, cone, YOLO, lane, mux
 
     def include(package, filename, arguments):
         return IncludeLaunchDescription(
@@ -94,7 +94,8 @@ def _setup(context):
         )
 
     needed = {'lane_model': C('lane_model').perform(context), 'yolo_model': C('yolo_model').perform(context),
-              'parking_params': C('parking_params').perform(context)}
+              'parking_params': C('parking_params').perform(context),
+              'cone_params': C('cone_params').perform(context)}
     if mode == 'opencv':
         del needed['lane_model']
     for path in needed.values():
@@ -135,7 +136,7 @@ def _setup(context):
 
     return [
         LogInfo(msg=f'Lane mode: {mode} ({", ".join(LANE_NODES[mode])})'),
-        LogInfo(msg='Mission startup stagger: parking 0s, slow/crosswalk/signal 2s, lane 4s, YOLO 8s'),
+        LogInfo(msg='Mission startup stagger: parking 0s, slow/crosswalk/signal/cone 2s, lane 4s, YOLO 8s'),
         RegisterEventHandler(OnProcessExit(target_action=ready, on_exit=inputs_ready)),
         RegisterEventHandler(OnProcessExit(target_action=report, on_exit=reported)),
         heavy(include('autorace_parking', 'parking.launch.py', {
@@ -145,6 +146,9 @@ def _setup(context):
         heavy(include('autorace_crosswalk', 'crosswalk.launch.py', {'use_sim_time': 'false'}), 2.),
         # Traffic light: red /yolo/signal (x2) -> stop on /mission/signal/command_02 (mux priority 2).
         heavy(include('autorace_signal', 'signal.launch.py', {'use_sim_time': 'false'}), 2.),
+        heavy(include('cone_lane_follower', 'roi.launch.py', {
+            'use_sim_time': 'false', 'rviz': 'false', 'params_file': C('cone_params'),
+        }), 2.),
         heavy(GroupAction(actions=lane), 4.),
         heavy(Node(
             package='yolo_detect', executable='yolo_detect',
@@ -162,6 +166,7 @@ def _defaults():
         'lane_model': str(repo / 'lane_fusion_ws/src/autorace_lane_fusion_deep/model/lane_640_mask.engine'),
         'yolo_model': str(repo / 'yolo_ws/model/best.engine'),
         'parking_params': share('autorace_parking') + '/config/parking_real.yaml',
+        'cone_params': share('cone_lane_follower') + '/config/clustering.yaml',
         'startup_timeout': '60.0', 'output_topic': '/cmd_vel',
         'lane_speed': '0.5',
         'lane_mode': 'fusion',
