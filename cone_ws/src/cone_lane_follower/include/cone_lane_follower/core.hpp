@@ -799,12 +799,12 @@ inline Path unified_path(const Path&left, const Path&right, const Pairs&pairs, c
                          std::optional<double>width, const Params&p, Diag*d = nullptr)
 {
   Boundaries valid;
-  if (left.size() >= 3)
+  if (left.size() >= 2)
     valid.emplace_back(left, -1);
-  if (right.size() >= 3)
+  if (right.size() >= 2)
     valid.emplace_back(right, 1);
   if (valid.empty()||!width) {
-    reject(d, "offset_unavailable", "requires boundary >=3 points and learned width");
+    reject(d, "offset_unavailable", "requires boundary >=2 points and learned width");
     return measured;
   }
   auto distance = [](const Path&line){
@@ -817,7 +817,9 @@ inline Path unified_path(const Path&left, const Path&right, const Pairs&pairs, c
                                                                              .distance);
                     return best;
                   };
-  if (pairs.empty()) {
+  if (pairs.empty()||!valid_center_geometry(measured, p)) {
+    if (!pairs.empty())
+      reject(d, "offset_fallback", "sections exist but measured center path is invalid");
     auto it = std::min_element(valid.begin(), valid.end(), [&](auto&a, auto&b){
         return distance(a.first) < distance(b.first);
       });
@@ -864,7 +866,7 @@ inline Path unified_path(const Path&left, const Path&right, const Pairs&pairs, c
   std::vector<Tail>tails;
   for (int idx = 0; idx < 2; idx++) {
     auto&line = idx == 0?left:right;
-    if (line.size() < 3) continue;
+    if (line.size() < 2) continue;
     double side = idx == 0?-1:1;
     auto refs = sample_boundary(line, p.at("center_sample_step"));
     auto point = idx == 0?pairs.back().first:pairs.back().second;

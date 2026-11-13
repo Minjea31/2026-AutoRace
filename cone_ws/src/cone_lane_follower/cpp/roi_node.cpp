@@ -397,7 +397,7 @@ void update_center_path(const Stamp&stamp)
     reset_lane_width();
   width_mission_active_ = mission_cone_;
   auto p = values(CENTER_DEFAULTS);
-  bool both = left_boundary_.size() >= 3&&right_boundary_.size() >= 3;
+  bool both = left_boundary_.size() >= 2&&right_boundary_.size() >= 2;
   center_pairs_ = both?match_cross_sections(left_boundary_, right_boundary_, p["center_sample_step"],
                                             p["center_min_width"], p["center_max_width"]):Pairs{};
   center_points_.clear();
@@ -448,7 +448,7 @@ void update_center_path(const Stamp&stamp)
     async_planner_->request(std::move(payload), {ns(stamp), tf, p, steady()});
     use_async_path();
   }
-  if (center_path_.empty()&&lane_width_mean_&&(left_boundary_.size() >= 3) != (right_boundary_.size() >= 3)&&
+  if (center_path_.empty()&&lane_width_mean_&&(left_boundary_.size() >= 2) != (right_boundary_.size() >= 2)&&
       !left_boundary_.empty()&&!right_boundary_.empty()&&path_diagnostics_.count("width_conflict"))
     center_path_mode_ = "Boundary Width Conflict";
   publish_center_path_markers(stamp);
