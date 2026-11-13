@@ -1,1 +1,1 @@
-/home/wego/2026-AutoRace/cone_ws/build/cone_lane_follower/launch/roi.launch.py
+/home/wego/2026-AutoRace/cone_ws/src/cone_lane_follower/launch/roi.launch.py

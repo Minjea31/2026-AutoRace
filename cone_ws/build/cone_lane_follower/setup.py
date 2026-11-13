@@ -1,1 +1,0 @@
-/home/wego/2026-AutoRace/cone_ws/src/cone_lane_follower/setup.py

@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: cone_lane_follower
-Version: 0.1.0
-Summary: LiDAR ROI filtering, scan clustering, and cone candidate visualization.
-Maintainer: Minjea31
-Maintainer-email: kimminjea31@naver.com
-License: Apache-2.0
-Requires-Dist: setuptools

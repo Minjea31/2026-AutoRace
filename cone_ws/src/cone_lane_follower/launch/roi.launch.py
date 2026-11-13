@@ -6,7 +6,8 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-from cone_lane_follower.node import ROI_DEFAULTS
+# Match the native node defaults; no Python runtime implementation is imported.
+ROI_DEFAULTS = dict(roi_x_min=-0.3, roi_x_max=1.0, roi_y_min=-0.8, roi_y_max=0.8)
 
 
 def generate_launch_description():
