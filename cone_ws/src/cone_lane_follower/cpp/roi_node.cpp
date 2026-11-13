@@ -104,6 +104,10 @@ std::optional<std::pair<double, int64_t> >mission_exit_since_, lane_width_update
 double last_steering_ = 0, command_speed_ = 0, command_steering_ = 0, control_lateral_error_ = 0,
        control_heading_error_ = 0, last_warning_ = -INFINITY;
 size_t lane_width_samples_ = 0;
+// Cone exit: follow the lane command's steering at a capped speed (see follow_lane_on_exit).
+rclcpp::Subscription<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr exit_lane_sub_;
+std::optional<ackermann_msgs::msg::AckermannDriveStamped> exit_lane_cmd_;
+std::optional<double> exit_lane_received_, exit_lane_until_;
 Diag path_diagnostics_;
 PathMemory path_memory_;
 double value(const std::string&name)const
@@ -151,6 +155,15 @@ explicit RoiNode(const rclcpp::NodeOptions&options = rclcpp::NodeOptions()) : No
     throw std::invalid_argument("planner_budget_sec must be finite and > 0");
   if (get_parameter("planner_async").as_bool())
     async_planner_ = std::make_unique<AsyncPlanner<Metadata> >();
+  // Cone exit lane follow: 0 speed disables it (exit wait then just yields).
+  declare_parameter<double>("exit_lane_speed", .3, descriptor);
+  declare_parameter<double>("exit_lane_hold_sec", 1., descriptor);
+  declare_parameter<double>("exit_lane_timeout", .25, descriptor);
+  declare_parameter<std::string>("exit_lane_topic", "/mission/lane", descriptor);
+  for (auto name: {"exit_lane_speed", "exit_lane_hold_sec", "exit_lane_timeout"}) {
+    double v = value(name);
+    if (!std::isfinite(v)||v < 0) throw std::invalid_argument(std::string(name) + " must be finite and >= 0");
+  }
   auto reason = validate_roi(values(ROI_DEFAULTS));
   if (reason.empty())
     reason = validate_parameters(non_roi_values());
@@ -231,6 +244,12 @@ explicit RoiNode(const rclcpp::NodeOptions&options = rclcpp::NodeOptions()) : No
   scan_sub_ = create_subscription<Scan>("/scan", rclcpp::QoS(1).best_effort().durability_volatile(), [this](
                                           Scan::ConstSharedPtr msg){
         scan_callback(*msg);
+      });
+  exit_lane_sub_ = create_subscription<ackermann_msgs::msg::AckermannDriveStamped>(
+    get_parameter("exit_lane_topic").as_string(), 1,
+    [this](ackermann_msgs::msg::AckermannDriveStamped::ConstSharedPtr msg){
+        exit_lane_cmd_ = *msg;
+        exit_lane_received_ = steady();
       });
   // ROS-clock timers preserve rclpy create_timer behavior under /clock.
   timers_.push_back(rclcpp::create_timer(this, get_clock(), std::chrono::milliseconds(200), [this] {
@@ -486,6 +505,48 @@ void stop_control(const std::string&reason = "unspecified")
   control_stop_reason_ = reason;
 }
 
+// Exit wait / mission end: publish nothing so the mux drops this input after its
+// timeout and the lower-priority lane command takes over without a stop. A zero
+// command here would be an active stop that outranks lane for the whole wait.
+void yield_control(const std::string&reason)
+{
+  publish_control_points({});
+  last_steering_ = 0;
+  control_mode_ = "Yielding";
+  if (reason != control_stop_reason_)
+    RCLCPP_INFO(get_logger(), "Control yielded to lower-priority missions: reason=%s", reason.c_str());
+  control_stop_reason_ = reason;
+}
+
+// Cone exit (exit wait, then exit_lane_hold_sec after the mission ends): the
+// vehicle leaves the cones at an angle to the lane, so instead of handing lane
+// full speed at once, keep cone priority and send the fresh lane command's
+// steering with the speed capped to exit_lane_speed (a lane stop stays a stop).
+// Without a fresh lane command this yields, so the mux falls through as before.
+bool follow_lane_on_exit(const std::string&reason)
+{
+  double cap = value("exit_lane_speed"), timeout = value("exit_lane_timeout");
+  if (cap > 0&&exit_lane_cmd_&&exit_lane_received_) {
+    auto&d = exit_lane_cmd_->drive;
+    double wall_age = steady() - *exit_lane_received_;
+    double ros_age = (now().nanoseconds() - ns(exit_lane_cmd_->header.stamp)) / 1e9;
+    if (wall_age >= 0&&wall_age <= timeout&&ros_age >= -.05&&ros_age <= timeout&&std::isfinite(d.speed)&&
+        std::isfinite(d.steering_angle)&&d.speed >= 0) {
+      publish_control_points({});
+      last_steering_ = 0;
+      publish_drive(std::min<double>(d.speed, cap), d.steering_angle);
+      if (control_mode_ != "Exit Lane Follow"||reason != control_stop_reason_)
+        RCLCPP_INFO(get_logger(), "Exit lane follow: lane steering, speed <= %.2f m/s (reason=%s)", cap,
+                    reason.c_str());
+      control_mode_ = "Exit Lane Follow";
+      control_stop_reason_ = reason;
+      return true;
+    }
+  }
+  yield_control(reason);
+  return false;
+}
+
 void update_control_activation()
 {
   if (!mission_cone_||control_fault_||candidate_clusters_.size() > 4||path_control_geometry(center_path_,
@@ -513,6 +574,11 @@ void control_tick()
     clear_path_memory();
     mission_exit_since_.reset();
     last_steering_ = 0;
+    if (exit_lane_until_&&!mission_cone_&&wall < *exit_lane_until_) {
+      follow_lane_on_exit("exit_lane_hold");
+      return;
+    }
+    exit_lane_until_.reset();
     control_mode_ = "Idle";
     return;
   } auto p = values(CONTROL_DEFAULTS);
@@ -592,11 +658,17 @@ void control_tick()
       clear_path_memory();
       reset_lane_width();
       mission_exit_since_.reset();
-      stop_control("mission_exit_detection_loss");
+      if (value("exit_lane_speed") > 0) exit_lane_until_ = wall + value("exit_lane_hold_sec");
+      follow_lane_on_exit("mission_exit_detection_loss");
       control_engaged_ = false;
       RCLCPP_INFO(get_logger(), "Cone mission ended: insufficient candidates and no valid path");
       return;
     }
+    // Waiting for exit with no path and few cones: never a zero stop. Follow the
+    // lane steering at a capped speed (or yield without a fresh lane command).
+    // Live cones (a path) re-take control at once.
+    follow_lane_on_exit("mission_exit_wait");
+    return;
   }else
     mission_exit_since_.reset();
   if (!errors) {

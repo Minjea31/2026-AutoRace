@@ -48,3 +48,23 @@ The archived Python reference retains the original >= 6 entry threshold.
 
 Post-migration tuning: no-path mission exit now requires <= 4 ROI candidates
 for the existing 1.5 second timeout; > 4 resets the exit timer.
+
+Post-migration change (2026-11-13): while the no-path exit timer runs (no live or
+saved path, <= 4 ROI candidates) and when the mission ends, the node publishes no
+`/mission/cone/command_04` instead of a zero stop. The mux treats zero speed as an
+active stop that outranks lane, which held the car still for the whole 1.5 s wait
+plus the mux input timeout. Now the mux drops the cone input after 0.25 s and lane
+drives on; if cones reappear and a path is found the node publishes again and, being
+higher priority, re-takes control. Stops for TF errors, scan timeouts or a missing
+path with > 4 candidates are unchanged. The Python reference keeps zero stops, so
+`ros_output_parity` skips the command of its final empty-scan phase and
+`native_entry_threshold` asserts that no command is sent during the exit wait.
+
+Exit lane follow (2026-11-13, car 06 bags): the car leaves the cones at an angle to
+the lane (45-70 degrees in the bag) and lane took over at 0.8 m/s, too fast to turn
+back with 0.6 rad steering, so it left the lane. During the exit wait and for
+`exit_lane_hold_sec` (1.0 s) after the mission ends the node now subscribes to
+`exit_lane_topic` (`/mission/lane`) and, at cone priority, publishes that command's
+steering with speed `min(lane speed, exit_lane_speed)` (0.3 m/s); a lane stop stays a
+stop. A lane command older than `exit_lane_timeout` (0.25 s) means yield as above.
+`exit_lane_speed: 0.0` disables it (pure yield); `ros_output_parity` runs that way.
