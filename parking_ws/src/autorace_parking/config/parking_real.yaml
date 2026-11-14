@@ -81,11 +81,11 @@ parking_node:
     recovery_front_clearance: 0.10
     recovery_left_when_goal_right: false
     recovery_straight_distance: 0.10
-    recovery_speed: 0.12
+    recovery_speed: 0.30
     # User-confirmed clear rear space; mission-total blind reverse allowance.
     blind_reverse_distance: 0.30
     max_recovery_attempts: 5
-    parking_speed: 0.20
+    parking_speed: 0.40
     min_turn_speed: 0.05
     parking_hold_seconds: 3.0
     exit_heading_tolerance: 0.05
@@ -101,7 +101,7 @@ parking_node:
     parking_calibration_timeout: 10.0
     localization_preserve_timeout: 1.0
     search_enabled: true
-    search_speed: 0.10
+    search_speed: 0.20
     search_max_distance: 1.5
     search_timeout: 20.0
     search_resume_scans: 2
@@ -144,7 +144,7 @@ parking_node:
     path_clearance_candidates: 8
     terminal_recovery_guard_distance: 0.12
     terminal_approach_distance: 0.15
-    terminal_approach_speed: 0.06
+    terminal_approach_speed: 0.40
     respect_steering_settle_speed: true
     entry_obstacle_slowdown: true
     replan_while_following: false
@@ -185,7 +185,7 @@ parking_node:
     exit_lane_tolerance: 0.20
     exit_arrival_yaw_tolerance: 0.35
     exit_planning_timeout: 1.2
-    exit_start_speed: 0.05
+    exit_start_speed: 0.40
     exit_steering_settle_time: 0.40
     arrival_use_rear_axle: true
     rear_axle_offset_x: -0.10
