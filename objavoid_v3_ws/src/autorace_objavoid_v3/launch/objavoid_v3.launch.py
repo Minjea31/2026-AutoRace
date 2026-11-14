@@ -4,6 +4,7 @@
   ros2 launch autorace_objavoid_v3 objavoid_v3.launch.py profile:=real rviz:=true  # 실차: 시스템 시간, 실차 BEV(lane_fusion real/lane.yaml)
   ros2 launch autorace_objavoid_v3 objavoid_v3.launch.py profile:=real car:=04     # 04번: config/real_car04.yaml(바닥 투영·IMU 방향·v_max 0.2)
   ... observe:=true   # 관찰 모드: 수동 조종하며 경로만 확인(DONE·이탈 정지 없이 계속 계획)
+  ... impl:=py        # Python 노드(기본은 C++ autorace_objavoid_v3_cpp, 같은 토픽·파라미터·설정 파일)
   ... command_topic:=/mission/objavoid/command_05   # MUX 연결(기존 objavoid_node를 끈 뒤). 기본은 V3 전용 /objavoid_v3/cmd
 """
 import os
@@ -38,7 +39,8 @@ def _nodes(context):
         'observe_mode': get('observe') == 'true'}]
     if get('v_max'):
         params.append({'v_max': float(get('v_max'))})
-    out = [Node(package='autorace_objavoid_v3', executable='objavoid_v3_node', name='objavoid_v3_node',
+    pkg = 'autorace_objavoid_v3_cpp' if get('impl') == 'cpp' else 'autorace_objavoid_v3'
+    out = [Node(package=pkg, executable='objavoid_v3_node', name='objavoid_v3_node',
                 output='screen', parameters=params)]
     if get('rviz') == 'true':
         rv = 'objavoid_v3_base.rviz' if car else 'objavoid_v3.rviz'
@@ -53,6 +55,6 @@ def generate_launch_description():
     args = [('profile', 'sim'), ('use_sim_time', ''), ('command_topic', '/objavoid_v3/cmd'), ('scan_topic', '/scan'),
             ('odom_topic', '/odom'), ('auto_activate', 'false'), ('v_max', ''), ('use_lane', 'true'), ('car', ''), ('observe', 'false'),
             ('lane_config', ''), ('params_file', os.path.join(share, 'config', 'objavoid_v3.yaml')),
-            ('rviz', 'false')]
+            ('rviz', 'false'), ('impl', 'cpp')]
     return LaunchDescription([DeclareLaunchArgument(k, default_value=v) for k, v in args] +
                              [OpaqueFunction(function=_nodes)])

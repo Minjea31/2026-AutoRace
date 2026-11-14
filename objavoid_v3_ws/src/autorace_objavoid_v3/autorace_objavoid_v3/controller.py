@@ -98,7 +98,7 @@ class PathTracker:
             v = max(v, self.v - p.decel * 2 * dt)
         self.v = max(0.0, v)
         info = {'ref_s': rs, 'ref_d': rd, 'ref_psi': rpsi, 'ey': ey, 'epsi': epsi,
-                'k_ff': k_ff, 'c_min': c_min, 'room': room}
+                'k_ff': k_ff, 'c_min': c_min, 'room': room, 's_ff': s_ff}
         return self.v, self.delta, info
 
     def hold_stop(self, dt):

@@ -171,6 +171,50 @@ class Params:
     decel: float = 0.8
     stop_buffer: float = 0.12
 
+    # --- 갈림길 A/B(C++ 노드만 구현): /yolo/LR_sign(false=왼쪽 A, true=오른쪽 B)으로 섬 왼쪽/오른쪽 갈래 진입 ---
+    fork_enable: bool = True
+    fork_island_s: float = 0.0       # 섬 시작 s(실측). 0이면 모름: 표지판을 볼 때까지 계속 주행하고, 본 위치로 섬을 추정
+    fork_sign_to_island: float = 2.0  # 표지판 결정 순간 차 앞끝에서 섬 시작까지 추정 거리(YOLO 발행 면적 1000 px2 ≈ 2.3 m)
+    fork_island_len: float = 1.75    # 섬 길이(도면 1.75 m): 이 구간 가운데를 가상 장애물로
+    fork_island_half: float = 0.26   # 섬 반폭(도면 ±0.26 m)
+    fork_plan_beyond: float = 1.0    # 방향이 정해지면 섬 시작 너머 이만큼까지 계획
+    fork_enter_len: float = 0.3      # 차 앞끝이 섬 시작 + 이 값을 지나고 정한 갈래에 있으면 DONE
+    fork_wait_dist: float = 0.7      # fork_island_s를 준 경우만: 표지판 없이 차 앞끝이 섬 이 거리 앞이면 정지·대기
+    fork_sign_timeout: float = 8.0   # 대기 최대 시간. 넘으면 DONE(no_sign)으로 차선 주행에 넘김
+    fork_sign_min: int = 2           # 같은 방향 메시지가 이 개수 이상이고 반대보다 많으면 결정
+    fork_lock_dist: float = 0.8      # 차 앞끝이 섬 시작 이 거리 안이면 결정 고정(늦은 오인으로 바꾸지 않음)
+    fork_use_sign_post: bool = True  # 표지판 받침(LiDAR 박스) 기준: A면 받침 왼쪽, B면 오른쪽으로만 지나가게 반대쪽을 가상 벽으로
+    fork_cam_fx: float = 487.3       # 표지판 방향 계산용 카메라(04번 camera_info, 640x480)
+    fork_cam_cx: float = 321.5
+    fork_cam_x: float = 0.133        # base_link 기준 카메라 위치(전방, 왼쪽)
+    fork_cam_y: float = -0.05
+    fork_bearing_tol: float = 0.10   # YOLO 박스 방향과 LiDAR 박스 방향 차이 허용(rad)
+    fork_post_max_dist: float = 3.5
+    fork_post_center_d: float = 0.4  # 받침이 도로 가운데(|d| < 이 값)일 때만 갈림길 표지판으로 사용
+
+    # --- 자동 시작(C++ 노드만): 흰 정지선 + 그 너머 흰 점선(3차선에만 있음) + 전방 장애물이 연속으로 보이면 활성화 ---
+    start_auto: bool = True
+    start_line_x_min: float = 0.15   # 정지선을 찾는 차 앞 거리 범위(m, base_link 전방)
+    start_line_x_max: float = 1.0
+    start_line_thick: float = 0.06   # 정지선 앞뒤 두께 이내(가로로 놓인 얇은 띠)
+    start_line_span: float = 0.5     # 정지선 좌우 폭 이상
+    start_line_fill: float = 0.7     # 정지선 좌우 폭 중 흰 점이 있는 비율(5 cm 칸) 이상(점선 머리 두 개 오인 방지)
+    start_line_min_pts: int = 15
+    start_dash_dist: float = 2.0     # 정지선 너머 이 거리 안에서 점선 조각을 찾음
+    start_dash_tol: float = 0.08     # 점선 위치 |y| = lane_dash_offset ± 이 값
+    start_dash_max_width: float = 0.06  # 점선 조각 좌우 폭 이하(횡단보도 줄무늬는 넓어서 제외)
+    start_dash_min_len: float = 0.05
+    start_dash_max_len: float = 0.40
+    start_dash_min: int = 2          # 점선 조각 최소 개수(좌우 합)
+    start_obs_x_max: float = 3.0     # 전방 장애물 범위
+    start_obs_y: float = 0.8
+    start_obs_min: int = 1
+    start_clutter_y: float = 0.6     # 정지선 너머 |y| 이 안에서 점선 자리 밖 흰 점(횡단보도 줄무늬 등)
+    start_clutter_max: int = 40      # 이보다 많으면 시작 아님(횡단보도·정지선만 있는 곳 거부)
+    start_confirm: int = 2           # 연속 판정 횟수
+    start_rearm: float = 20.0        # 완료·비활성 뒤 이 시간 지나야 다시 자동 시작
+    start_origin_at_line: bool = True  # 도로 좌표 원점을 정지선에(section_end·fork_island_s = 정지선부터 거리)
+
     # --- 안전 ---
     scan_timeout: float = 0.40
     odom_timeout: float = 0.25

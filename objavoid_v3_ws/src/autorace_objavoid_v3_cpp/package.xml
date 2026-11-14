@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>autorace_objavoid_v3_cpp</name>
+  <version>0.1.0</version>
+  <description>장애물 회피 V3 C++(rclcpp) 노드: Python autorace_objavoid_v3와 같은 토픽·파라미터·설정 파일</description>
+  <maintainer email="autorace@example.com">autorace</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>ackermann_msgs</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>yaml_cpp_vendor</depend>
+  <depend>libopencv-dev</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

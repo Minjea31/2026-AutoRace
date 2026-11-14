@@ -78,7 +78,7 @@ def build_markers(core, stamp, t):
     # 선택 경로
     path = core.path
     if path is not None:
-        pm = _m('path', 0, Marker.LINE_STRIP, stamp, (0.0, 1.0, 1.0, 1.0), (0.025, 0, 0))
+        pm = _m('path', 0, Marker.LINE_STRIP, stamp, (1.0, 0.2, 0.6, 1.0), (0.035, 0, 0))  # 선택 경로: 진한 분홍(후보 회색·통로 초록과 구분)
         for s, d in zip(path.s[::2], path.d[::2]):
             pm.points.append(_pt(f, s, d, 0.04))
         arr.markers.append(pm)
@@ -104,6 +104,20 @@ def build_markers(core, stamp, t):
             tm = _m('target', 0, Marker.SPHERE, stamp, (0.1, 0.3, 1.0, 1.0), (0.05, 0.05, 0.05))
             tm.pose.position = _pt(f, info['ref_s'], info['ref_d'], 0.05)
             arr.markers.append(tm)
+            if path is not None and 's_ff' in info:
+                # LFD: 곡률을 읽는 앞 점(기준점 + 속도 x ff_preview_time). 차 기준점에서 그 점까지 선 + 거리
+                sf = min(max(info['s_ff'], float(path.s[0])), float(path.s[-1]))
+                df = float(np.interp(sf, path.s, path.d))
+                lm = _m('lookahead', 0, Marker.LINE_STRIP, stamp, (1.0, 0.6, 0.0, 1.0), (0.012, 0, 0))
+                lm.points = [_pt(f, s, d, 0.06), _pt(f, sf, df, 0.06)]
+                arr.markers.append(lm)
+                pm2 = _m('lookahead', 1, Marker.SPHERE, stamp, (1.0, 0.6, 0.0, 1.0), (0.045, 0.045, 0.045))
+                pm2.pose.position = _pt(f, sf, df, 0.06)
+                arr.markers.append(pm2)
+                lt = _m('lookahead', 2, Marker.TEXT_VIEW_FACING, stamp, (1.0, 0.7, 0.2, 1.0), (0, 0, 0.06))
+                lt.pose.position = _pt(f, sf, df, 0.15)
+                lt.text = f'LFD {math.hypot(sf - s, df - d):.2f} m (k_ff {info["k_ff"]:+.2f})'
+                arr.markers.append(lt)
 
     # 도로 경계: 카메라로 관측된 노란 실선 구간(노랑) / 관측 안 된 사전 경계(회색)
     bd = core.boundary

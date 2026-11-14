@@ -1,7 +1,9 @@
 # 04번 실차 덮어쓰기(launch car:=04). 근거: 메모 car-04 / objavoid_test real_car04.yaml(2026-11-13 bag 분석)
 objavoid_v3_node:
   ros__parameters:
-    v_max: 0.20                 # 첫 실차 시험은 낮게
+    v_max: 0.30               # 첫 실차 시험은 낮게
+    curve_slow: 0.2
+    ff_preview_time: 0.2
     # 04번 카메라 바닥 투영: camera_info(fx 487.3, cx 321.5, cy 220.4) + 장착(앞 0.133, 좌 -0.05, 높이 0.21 m)
     #   + 콘 238쌍으로 맞춘 숙임 1.5°·yaw 1.4°, 오차 중앙값 3.4 cm(06번 BEV 값은 25 cm)
     ground_homography: [-2.47236832e-05, -0.000614188775, -0.357702092, 0.00101162912, 0.000241500626, -0.387454879, 0.0, -0.00481706871, 1.0]
@@ -17,7 +19,7 @@ objavoid_v3_node:
     lane_align_max: 0.35        # 활성화는 도로와 거의 나란한 자세에서(뒤쪽 콘 줄 등 오인 방지)
     lane_align_min_len: 0.4      # 04번 시야에서 한 번에 보이는 외곽선이 짧음(약 0.45 m)
     # 실차 트랙에는 시뮬 입구 깔때기가 없음: 사전 경계를 처음부터 3차로 폭(±0.768)으로
-    boundary_s: [-1.0, 5.8]
+    boundary_s: [-1.0, 8.0]      # 갈림길: 표지판 받침(약 5.5 m) 너머 갈래 안까지 경로를 그리도록(5.8이면 받침 앞에서 끝남)
     # 실차 트랙: 차로 폭 0.50 m(사용자 실측) -> 3차로 노란선 안쪽 ±0.75
     #   04번 카메라는 같은 점선 간격을 0.57 m, 외곽선을 0.86 m로 잼(좌우 약 14% 과대) -> 좌우 0.877 보정
     ground_scale: [1.0, 0.877]
@@ -57,7 +59,7 @@ objavoid_v3_node:
     steer_trim: 0.0
     plan_min_radius: 0.6        # 속도 감속 기준(좌우 반경은 아래)
     # 11-15 01:21 bag(상한 0.42): 명령 -0.5 -> 실제 -0.34(반경 0.58 m), +0.5 -> +0.40(0.48 m). 리모컨(우 0.40 m)만큼은 안 나옴
-    plan_min_radius_left: 0.5
+    plan_min_radius_left: 0.5   # 0.4는 실측(좌 0.48 / 우 0.58 m)보다 작아 못 따라감
     plan_min_radius_right: 0.6
     max_heading: 1.4
     escape_min_radius: 0.55
@@ -66,7 +68,12 @@ objavoid_v3_node:
     observe_min_radius: 0.55
     # 여유: 0.04/0.18이면 default7·3단 슬라롬이 후진 없이 막힘 -> 0.03/0.15(22:04의 0.025/0.12보다는 넓게)
     margin_obstacle: 0.03
-    clearance_soft: 0.15
+    clearance_soft: 0.18        # 11-15 차에서 조정한 값 유지
+    # 뒷바퀴가 지난 콘에 스침: 지난 장애물을 더 오래 기억(0.08 -> 0.2, 차 뒤끝 판정도 가장 뒤 모서리 기준으로 수정)
+    pass_margin: 0.2
+    # 11-15 차에서 조정한 값(공통 objavoid_v3.yaml에서 04번 설정으로 옮김)
+    max_steering_rate: 1.3
+    v_min: 0.1
     # 후진 탈출: MUX(mux_ws core.py:97)가 parking 외 입력의 후진을 거부하고 그 입력을 버림 -> 낮은 우선순위(lane) 명령이
     #   있으면 그쪽으로 넘어가 전진할 수 있음. MUX에서 objavoid 후진을 허용하기 전까지 끈다.
     reverse_enable: false

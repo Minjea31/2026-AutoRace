@@ -367,7 +367,8 @@ class ObjAvoidCore:
         c, sn = math.cos(yaw), math.sin(yaw)
         lp = (x + c * p.lidar_x - sn * p.lidar_y, y + sn * p.lidar_x + c * p.lidar_y, yaw + p.lidar_yaw)
         sv, dv, psiv = self.frame.pose_to_road(x, y, yaw)
-        s_rear = sv - p.body_rear * math.cos(psiv)
+        # 가장 뒤 모서리(크게 꺾여 있으면 안쪽 뒷모서리가 중심선보다 (폭/2)·|sin ψ| 더 뒤): 지난 장애물을 이보다 먼저 지우지 않음
+        s_rear = sv - p.body_rear * abs(math.cos(psiv)) - 0.5 * p.body_width * abs(math.sin(psiv))
         boxes, pts = detect(ranges, angle_min, angle_inc, lp, self.frame, self.boundary, sv, p)
         dt = 0.1 if self.last_scan_t is None else max(0.0, stamp - self.last_scan_t)
         beam = {'frame': self.frame, 'lidar_pose': lp, 'angle_min': angle_min, 'angle_inc': angle_inc, 'dt': dt}
