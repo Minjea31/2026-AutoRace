@@ -23,13 +23,6 @@ function _colcon_prefix_chain_powershell_source_script {
 
 # source chained prefixes
 _colcon_prefix_chain_powershell_source_script "/opt/ros/humble\local_setup.ps1"
-_colcon_prefix_chain_powershell_source_script "/home/wego/2026-AutoRace/sensor_ws/install\local_setup.ps1"
-_colcon_prefix_chain_powershell_source_script "/home/wego/2026-AutoRace/mux_ws/install\local_setup.ps1"
-_colcon_prefix_chain_powershell_source_script "/home/wego/2026-AutoRace/lane_fusion_ws/install\local_setup.ps1"
-_colcon_prefix_chain_powershell_source_script "/home/wego/2026-AutoRace/parking_ws/install\local_setup.ps1"
-_colcon_prefix_chain_powershell_source_script "/home/wego/2026-AutoRace/slow_ws/install\local_setup.ps1"
-_colcon_prefix_chain_powershell_source_script "/home/wego/2026-AutoRace/yolo_ws/install\local_setup.ps1"
-_colcon_prefix_chain_powershell_source_script "/home/wego/2026-AutoRace/tensor_bringup/install\local_setup.ps1"
 
 # source this prefix
 $env:COLCON_CURRENT_PREFIX=(Split-Path $PSCommandPath -Parent)

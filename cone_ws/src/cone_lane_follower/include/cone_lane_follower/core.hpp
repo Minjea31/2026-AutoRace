@@ -75,7 +75,7 @@ inline const Params CENTER_DEFAULTS = {{"center_min_turn_radius", .2630871384}, 
 inline const Params BOUNDARY_DEFAULTS = {{"boundary_connect_distance", .30}, {"boundary_max_turn", 80.},
   {"boundary_initial_max_turn", 110.}, {"boundary_direction_window", 3}, {"boundary_distance_weight", 1.},
   {"boundary_direction_weight", 2.}};
-inline const Params CONTROL_DEFAULTS = {{"control_speed", .15}, {"control_reference_x", .25},
+inline const Params CONTROL_DEFAULTS = {{"control_speed", .15}, {"steering_gain", .60}, {"curvature_gain", .60}, {"control_reference_x", .25},
   {"control_lateral_gain", 2.}, {"control_heading_gain", 1.}, {"control_max_steering", 80. * pi / 180},
   {"control_max_steering_rate", 1.}, {"control_speed_reference_steering", .48}, {"control_timeout", .5},
   {"control_memory_tf_timeout", .2}, {"control_max_path_distance", .5}, {"control_memory_speed", .15},
@@ -976,6 +976,8 @@ inline std::string validate_parameters(const Params&p)
   for (auto&[name, value]: p) {
     if (name == "min_cluster_points"||name == "boundary_direction_window") {
       if (value < 1||std::floor(value) != value) return name + " must be an integer >= 1";
+    }else if (name == "steering_gain"||name == "curvature_gain") {
+      if (!std::isfinite(value)||value < 0||value > 1) return name + " must be finite and between 0 and 1";
     }else if (!std::isfinite(value)||value <= 0) return name + " must be finite and > 0";
   } if (p.at("center_min_width") >= p.at(
           "center_max_width")) return "center_min_width must be smaller than center_max_width";

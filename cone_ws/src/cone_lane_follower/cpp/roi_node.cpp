@@ -710,13 +710,13 @@ void control_tick()
   last_steering_ += clamp(target - last_steering_, -step, step);
   last_steering_ = clamp(last_steering_, -limit, limit);
   double slowdown = std::min(1., std::abs(target) / p["control_speed_reference_steering"]), speed =
-    p["control_speed"] * (1 - .60 * slowdown);
+    p["control_speed"] * (1 - p["steering_gain"] * slowdown);
   auto&active = memory_following_?memory_local_path_:center_path_;
   publish_control_points(active);
   double peak = peak_curvature(active);
   if (peak > 1e-9) {
     double ratio = std::min(1., peak * value("center_min_turn_radius"));
-    speed = std::min(speed, p["control_speed"] * (1 - .60 * ratio));
+    speed = std::min(speed, p["control_speed"] * (1 - p["curvature_gain"] * ratio));
   } if (memory_following_)
     speed = std::min(speed, p["control_memory_speed"]);
   control_mode_ = memory_following_?"Memory Path Feedback":"Path Feedback";

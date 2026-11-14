@@ -22,7 +22,9 @@ cone_lane_roi:
     boundary_direction_window: 3
     boundary_distance_weight: 1.0
     boundary_direction_weight: 2.0
-    control_speed: 0.4
+    control_speed: 0.8
+    steering_gain: 0.6  # Steering slowdown fraction (0..1)
+    curvature_gain: 0.5  # Curvature slowdown fraction (0..1)
     control_reference_x: 0.30
     control_lateral_gain: 2.0
     control_heading_gain: 1.0
