@@ -146,3 +146,18 @@ def test_two_confirmations_require_same_colour_without_long_gap():
     assert s.stopping
     s.receive(True, 1.9)
     assert not s.stopping
+
+
+def test_stop_generation_changes_only_for_a_new_stop_including_timeout_restart():
+    s = SignalState(1, .5, .5)
+    assert s.stop_generation == 0
+    s.receive(False, 0.)
+    assert s.stopping and s.stop_generation == 1
+    s.receive(False, .1)
+    assert s.stop_generation == 1
+    s.receive(False, .7)  # Expire and immediately enter a new stop with quorum=1.
+    assert s.stopping and s.stop_generation == 2
+    s.receive(True, .8)
+    assert not s.stopping and s.stop_generation == 2
+    s.receive(False, .9)
+    assert s.stopping and s.stop_generation == 3

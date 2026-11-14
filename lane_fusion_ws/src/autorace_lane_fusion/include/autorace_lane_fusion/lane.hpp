@@ -110,7 +110,9 @@ public:
   void reset();
   // bgr: this frame (any size, resized to width x height). views=false skips
   // every display image (the driving node when nobody watches).
-  Result process(const cv::Mat &bgr, double time, bool views = true, const DeepInput &deep = {});
+  // cone_exit_side: transient recovery prior (-1 none, 0 left, 1 right).
+  Result process(const cv::Mat &bgr, double time, bool views = true, const DeepInput &deep = {},
+                 int cone_exit_side = -1);
   // Vehicle motion (odometry) since the previous call. The next process()
   // moves the remembered centre path into the new vehicle frame.
   void move(double forward_m, double yaw_rad); // along an arc

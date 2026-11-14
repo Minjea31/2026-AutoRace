@@ -1,5 +1,6 @@
 // Synthetic BEV-space checks with an identity-like BEV (full-frame trapezoid).
 #include "autorace_lane_fusion/lane.hpp"
+#include "autorace_lane_fusion/cone_exit_prior.hpp"
 #include <cmath>
 #include <gtest/gtest.h>
 #include <opencv2/imgproc.hpp>
@@ -416,4 +417,103 @@ TEST(LaneLite, ConfigRoundTrip) {
   const auto path = testing::TempDir() + "/lane_lite.yaml";
   c.save(path);
   EXPECT_EQ(lane_lite::Config::load(path)["merge_px"], 12);
+}
+
+TEST(ConeExitPrior, LatchesRecentTurnAndRequiresFreshExplicitExitSignal) {
+  lane_lite::ConeExitPrior prior;
+  for (int i = 0; i <= 100; ++i)
+    prior.add(i * .02, .3, i < 60 ? -.5 : 0.);
+  EXPECT_EQ(prior.side(2.), -1); // a normal road bend must not activate recovery
+  prior.signal(true, 2.);
+  EXPECT_EQ(prior.side(2.), 0);
+  for (int i = 101; i <= 180; ++i) {
+    prior.add(i * .02, .3, 0.);
+    prior.signal(true, i * .02);
+  }
+  EXPECT_EQ(prior.side(3.6), 0); // remember the turn after the wheel has straightened
+  EXPECT_EQ(prior.side(3.9), -1); // odometry stale even with a recently fresh signal
+  prior.signal(false, 3.6);
+  EXPECT_EQ(prior.side(3.6), -1);
+}
+TEST(ConeExitPrior, MirrorsLeftTurnsAndRejectsStationaryOrAmbiguousMotion) {
+  for (auto values : {std::pair<double, double>{.3, .5}, {.0, -.5}, {.3, .0}}) {
+    lane_lite::ConeExitPrior prior;
+    for (int i = 0; i <= 100; ++i)
+      prior.add(i * .02, values.first, values.second);
+    prior.signal(true, 2.);
+    EXPECT_EQ(prior.side(2.), values.first > 0 && values.second > 0 ? 1 : -1);
+  }
+  lane_lite::ConeExitPrior weave;
+  for (int i = 0; i <= 100; ++i)
+    weave.add(i * .02, .3, i < 50 ? -.5 : .5);
+  weave.signal(true, 2.);
+  EXPECT_EQ(weave.side(2.), -1);
+}
+TEST(ConeExitPrior, LostSignalClockRewindAndSensorGapDisablePrior) {
+  lane_lite::ConeExitPrior prior;
+  for (int i = 0; i <= 100; ++i) prior.add(i * .02, .3, -.5);
+  prior.signal(true, 2.);
+  for (int i = 101; i <= 135; ++i) prior.add(i * .02, .3, 0.);
+  EXPECT_EQ(prior.side(2.7), -1); // exit publisher disappeared
+  prior.signal(true, 2.7);
+  prior.add(3.2, .3, 0.); // sensor gap resets the latched turn
+  EXPECT_EQ(prior.side(3.2), -1);
+  prior.add(1., .3, -.5); // bag loop
+  EXPECT_EQ(prior.side(1.), -1);
+}
+TEST(ConeExitRecovery, AmbiguousSingleBoundaryUsesRecentTurnRole) {
+  auto run = [](int side) {
+    auto c = identity(); c.values["cone_exit_role_bias"] = .8;
+    lane_lite::Pipeline p(c);
+    lane_lite::Result result;
+    for (int i = 0; i < 8; ++i)
+      result = p.process(scene(380, 300, true, false), i * .05, false, {}, side);
+    return result;
+  };
+  const auto normal = run(-1), recovery = run(0);
+  ASSERT_TRUE(normal.valid && recovery.valid);
+  EXPECT_EQ(normal.state, "right only");
+  EXPECT_EQ(recovery.state, "left only");
+  EXPECT_GT(recovery.target_x, normal.target_x + 200);
+}
+TEST(ConeExitRecovery, NoSignalIsIdenticalToOriginalAndPairsAreUnchanged) {
+  auto c = identity(), enabled = c;
+  enabled.values["cone_exit_role_bias"] = .8;
+  lane_lite::Pipeline original(c), no_signal(enabled), pair_hint(enabled);
+  for (int i = 0; i < 40; ++i) {
+    const auto image = scene(170 + i / 4, 300);
+    const auto a = original.process(image, i * .05, false);
+    const auto b = no_signal.process(image, i * .05, false);
+    const auto d = pair_hint.process(image, i * .05, false, {}, 1);
+    ASSERT_TRUE(a.valid && b.valid && d.valid);
+    EXPECT_EQ(a.state, b.state);
+    EXPECT_DOUBLE_EQ(a.lateral_m, b.lateral_m);
+    EXPECT_DOUBLE_EQ(a.heading, b.heading);
+    EXPECT_EQ(a.state, d.state);
+    EXPECT_DOUBLE_EQ(a.lateral_m, d.lateral_m);
+    EXPECT_DOUBLE_EQ(a.heading, d.heading);
+  }
+}
+TEST(ConeExitRecovery, ZeroGainAndDistantBoundaryIgnoreHint) {
+  lane_lite::Pipeline disabled(identity());
+  auto r = disabled.process(scene(380, 300, true, false), 0., false, {}, 0);
+  EXPECT_EQ(r.left.state, lane_lite::LineState::Lost);
+  auto c = identity(); c.values["cone_exit_role_bias"] = .8;
+  lane_lite::Pipeline distant(c);
+  r = distant.process(scene(540, 300, true, false), 0., false, {}, 0);
+  EXPECT_EQ(r.left.state, lane_lite::LineState::Lost);
+}
+TEST(ConeExitRecovery, LeftTurnPriorMirrorsRightTurnRecovery) {
+  auto c = identity(); c.values["cone_exit_role_bias"] = .8;
+  lane_lite::Pipeline normal(c), recovery(c);
+  lane_lite::Result a, b;
+  for (int i = 0; i < 8; ++i) {
+    const auto image = scene(240, 300, true, false);
+    a = normal.process(image, i * .05, false);
+    b = recovery.process(image, i * .05, false, {}, 1);
+  }
+  ASSERT_TRUE(a.valid && b.valid);
+  EXPECT_EQ(a.state, "left only");
+  EXPECT_EQ(b.state, "right only");
+  EXPECT_LT(b.target_x, a.target_x - 200);
 }

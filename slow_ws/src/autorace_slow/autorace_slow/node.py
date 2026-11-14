@@ -47,7 +47,7 @@ class SlowNode(Node):
             raise ValueError('white_roi_enabled must be a Bool')
         self.white_roi = WhiteROI(**{
             name: float(self.declare_parameter('white_roi_' + name, default, descriptor).value)
-            for name, default in (('left', .20), ('right', .80), ('top', .86), ('bottom', .92), ('minimum_ratio', .08))
+            for name, default in (('left', .05), ('right', .95), ('top', .961), ('bottom', 1.0), ('minimum_ratio', .08))
         })
         self.white_image_timeout = float(self.declare_parameter('white_image_timeout_sec', .3, descriptor).value)
         self.white_image_hz = float(self.declare_parameter('white_image_hz', 10., descriptor).value)
@@ -69,6 +69,7 @@ class SlowNode(Node):
         self.sign_subs = [self.create_subscription(Bool, topic, partial(self.on_sign, kind), qos)
                           for kind, topic in (('slow', '/yolo/slow_sign'), ('bump', '/yolo/bump_sign'))]
         self.crosswalk_sub = self.create_subscription(Bool, '/start_crosswalk', self.on_crosswalk, qos)
+        self.signal_stop_sub = self.create_subscription(Bool, '/start_signal', self.on_signal_stop, qos)
         self.white_query = None
         self.white_client = None
         if self.white_roi_enabled:
@@ -134,10 +135,21 @@ class SlowNode(Node):
             return
         self.lane, self.lane_received = copy.deepcopy(message), now
 
+    def stop_slow(self, reason):
+        mission = self.state.missions['slow']
+        was_pending = mission.deadline is not None or mission.armed or mission.count > 0
+        self.state.stop_slow()
+        self.white_arm_stamps.pop('slow', None)
+        if was_pending:
+            self.get_logger().info(f'서행 종료: {reason}')
+
     def on_crosswalk(self, message):
         if message.data:
-            self.state.stop_slow()
-            self.white_arm_stamps.pop('slow', None)
+            self.stop_slow('횡단보도 시작')
+
+    def on_signal_stop(self, message):
+        if message.data:
+            self.stop_slow('빨간불 정지')
 
     def on_sign(self, kind, message):
         self.state.tick(time.monotonic())

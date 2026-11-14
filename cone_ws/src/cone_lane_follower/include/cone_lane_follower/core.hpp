@@ -1025,4 +1025,14 @@ inline Point cluster_center(const Path&p)
   return q;
 }
 
+// Cone exit: candidate clusters whose centre lies ahead of x_min (base_link, m).
+// Zero means no cone remains in front of the vehicle (only beside/behind it).
+inline size_t count_front_clusters(const std::vector<Path>&clusters, double x_min)
+{
+  size_t n = 0;
+  for (auto&c: clusters)
+    if (!c.empty()&&cluster_center(c)[0] > x_min) n++;
+  return n;
+}
+
 } // namespace cone

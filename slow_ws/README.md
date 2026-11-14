@@ -56,6 +56,8 @@ ros2 run autorace_slow slow_node --ros-args   -p use_sim_time:=true -p hold_sec:
 | 구독 | `/yolo/slow_sign` | `std_msgs/msg/Bool` |
 | 구독 | `/yolo/bump_sign` | `std_msgs/msg/Bool` |
 | 구독 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` |
+| 구독 | `/start_crosswalk` | `std_msgs/msg/Bool` |
+| 구독 | `/start_signal` | `std_msgs/msg/Bool` |
 | 발행 | `/mission/slow/command_08` | `ackermann_msgs/msg/AckermannDriveStamped` |
 
 QoS는 Reliable / Volatile / KeepLast(1)이며 토픽은 ROS remapping으로 변경할 수 있습니다. `/mission/lane`이나 `/cmd_vel`에는 발행하지 않습니다.
@@ -149,3 +151,10 @@ ROI 확인 영상: `/slow/white_roi/debug/compressed`, 비율: `/slow/white_roi/
 초기화하며 False는 무시합니다. 이후 새 진입 조건으로 재시작할 수 있습니다.
 방지턱은 기존 hold_sec=8초 및 표지판 재감지 연장 정책을 유지합니다.
 이 절의 서행 동작이 위의 과거 8초·직진 설명을 대체합니다.
+
+## 횡단보도·신호등에서 서행 종료
+
+`/start_crosswalk=True` 또는 `/start_signal=True`를 받으면 서행 미션의
+타이머·표지판 확인 횟수·흰색 ROI 대기 상태를 초기화합니다. False는 무시합니다.
+`/start_signal`은 `signal_ws`가 빨강을 확정하고 첫 정지 명령을 발행할 때 보냅니다.
+방지턱 미션은 유지하며, 다음 서행은 새 표지판 확인과 새 흰색 영상이 필요합니다.

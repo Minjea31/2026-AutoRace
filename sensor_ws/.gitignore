@@ -1,7 +1,0 @@
-/build/
-/install/
-/log/
-__pycache__/
-*.pyc
-/Log/
-/.pytest_cache/

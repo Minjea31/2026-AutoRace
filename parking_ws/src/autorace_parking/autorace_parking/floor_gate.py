@@ -10,7 +10,6 @@ from rcl_interfaces.msg import ParameterDescriptor
 from rcl_interfaces.srv import GetParameters
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
-from std_msgs.msg import Float64MultiArray
 
 from .white_roi import WhiteROI, load_lane_white, validate_white
 from .core import Activation
@@ -24,8 +23,8 @@ class ParkingFloorGate:
             return node.declare_parameter(name, default, descriptor).value
         self.roi = WhiteROI(**{
             name: float(parameter('white_roi_' + name, default))
-            for name, default in (('left', .20), ('right', .80), ('top', .86),
-                                  ('bottom', .92), ('minimum_ratio', .08))})
+            for name, default in (('left', .05), ('right', .95), ('top', .961),
+                                  ('bottom', 1.0), ('minimum_ratio', .08))})
         self.timeout = float(parameter('white_image_timeout_sec', .3))
         self.hz = float(parameter('white_image_hz', 10.))
         if not all(math.isfinite(v) and v > 0 for v in (self.timeout, self.hz)):
@@ -48,9 +47,6 @@ class ParkingFloorGate:
             raise ValueError('Invalid parking start line confirmation settings')
         self.line_count = 0
         self.line_stamp = None
-        self.shared_received = -math.inf
-        self.shared_subscription = node.create_subscription(Float64MultiArray,
-            '/parking/floor_observation',self.on_observation,1)
         self.confirmation = Activation(node.required_detections, node.sign_timeout)
         self.armed_stamp = None
         self.ratio = None
@@ -65,7 +61,7 @@ class ParkingFloorGate:
         self.subscription = node.create_subscription(CompressedImage, camera, self.on_image, qos_profile_sensor_data)
         node.get_logger().info(
             f'주차 바닥 조건: YOLO {node.required_detections}회 후 새 흰색 ROI 1회, '
-            f'흰색 비율 >= {self.roi.minimum_ratio:.0%} (lane HSV 공유)')
+            f'흰색 비율 >= {self.roi.minimum_ratio:.0%} (주차 내부 HSV 계산)')
 
     @property
     def armed(self):
@@ -116,20 +112,7 @@ class ParkingFloorGate:
             self.reset()
             self.start()
 
-    def on_observation(self, message):
-        if (self.roi.left,self.roi.right,self.roi.top,self.roi.bottom)!=(.20,.80,.86,.92):return
-        a = message.data
-        if (len(a)!=5 or not all(math.isfinite(v) for v in a)
-                or a[0] < 0 or a[0]!=int(a[0]) or not 0 <= a[1] < 1e9 or a[1]!=int(a[1])
-                or not 0 <= a[2] <= 1 or not 0 <= a[3] <= 1 or abs(a[4]) > math.pi/2):return
-        stamp = int(a[0])*1_000_000_000+int(a[1])
-        if not -.05 <= (self.clock()-stamp)/1e9 <= self.timeout:return
-        self.shared_received = time.monotonic()
-        self.observe(stamp,*a[2:])
-
     def on_image(self, message):
-        if time.monotonic()-self.shared_received <= .5:
-            return
         now, wall = self.clock(), time.monotonic()
         if not self.armed or wall < self.node.sign_ignore_until:
             return

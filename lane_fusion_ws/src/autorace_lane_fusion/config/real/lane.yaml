@@ -57,6 +57,7 @@ lane_lite:
   track_jump_px: 35
   track_memory: 0.5
   role_frames: 3
+  cone_exit_role_bias: 0.8  # only while fresh /cone_lane/exit_lane_active + a coherent recent turn
   max_curvature: 3.0
   curvature_span_m: 0.6
   lane_width_m: 0.52

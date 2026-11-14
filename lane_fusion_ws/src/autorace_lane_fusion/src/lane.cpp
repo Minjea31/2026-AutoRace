@@ -85,6 +85,8 @@ const std::vector<Spec> &specs() {
        0, 0, 10, .1},
       {"role_frames", "차로·추적",
        "한쪽만 보일 때 그 선을 이만큼 연속 추적했어야 중앙 경로를 만듦(역할 확인)", 3, 1, 30, 1},
+      {"cone_exit_role_bias", "차로·추적",
+       "라바콘 탈출 신호와 최근 회전 이력이 있을 때만 모호한 단일 경계의 역할 가중치. 0=끔", 0, 0, 2, .05},
       {"lookahead_row", "출력", "목표점 BEV 세로 위치(0=먼 곳, 1=차량 앞)", .55, .05, .98, .01},
       {"max_curvature", "출력", "발행 곡률 상한(1/m)", 3, .2, 20, .1},
       {"curvature_span_m", "출력", "곡률을 원 맞춤할 중앙 경로 길이(m, 가까운 쪽부터)", .6, .15, 3, .05},
@@ -200,7 +202,7 @@ void Pipeline::move(double forward_m, double yaw_rad) { // chord of the arc, alo
   move(forward_m * std::cos(yaw_rad / 2), forward_m * std::sin(yaw_rad / 2), yaw_rad);
 }
 
-Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const DeepInput &deep) {
+Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const DeepInput &deep, int cone_exit_side) {
   const auto start_clock = std::chrono::steady_clock::now();
   if (bgr.empty() || bgr.type() != CV_8UC3 || !std::isfinite(time))
     throw std::invalid_argument("Expected a BGR8 image and finite time");
@@ -366,6 +368,8 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
         if (!gap.empty() && median(gap) > .5 * width_)
           outside[i] = 1;
       }
+    bool recovery = false;
+    const double exit_bias = (cone_exit_side == 0 || cone_exit_side == 1) ? c["cone_exit_role_bias"] : 0.;
     auto unary = [&](size_t i, int s) -> double {
       const auto &k = r.candidates[i];
       if (outside[i])
@@ -374,7 +378,8 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
       // The vehicle lies right of a left boundary; a tracked line keeps its
       // role while the vehicle straddles it (no flip on the line itself).
       const bool side_ok = s == 0 ? inner[i] > 0 : inner[i] < 0;
-      if (!side_ok && !(track && std::abs(inner[i]) < .5 * width_))
+      const bool ambiguous = std::abs(inner[i]) < .5 * width_;
+      if (!side_ok && !(track && ambiguous) && !(recovery && s == cone_exit_side && ambiguous))
         return kInf;
       if (std::abs(inner[i]) > 1.5 * width_)
         return kInf; // beyond the neighbouring lane
@@ -385,6 +390,8 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
         u -= .15;
       // Yellow paint is a solid boundary; a white piece is more often a
       // fragment (stop line, crosswalk, the other lane's dash): tie-break.
+      if (recovery && ambiguous)
+        u += s == cone_exit_side ? -exit_bias : exit_bias;
       return u + (k.cls == 2 ? .05 : 0);
     };
     auto pairCost = [&](size_t a, size_t b) -> double { // a left, b right
@@ -400,21 +407,30 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const Deep
       return .8 * std::abs(m - width_) / (tol * width_) + .3 * std::min(1., angle / c["max_angle_deg"]);
     };
     constexpr double kNone = 1.6;
-    std::vector<double> u[2] = {std::vector<double>(n), std::vector<double>(n)};
-    for (size_t i = 0; i < n; ++i)
-      u[0][i] = unary(i, 0), u[1][i] = unary(i, 1);
-    double best = 2 * kNone;
-    for (size_t i = 0; i < n; ++i)
-      for (int s = 0; s < 2; ++s)
-        if (u[s][i] + kNone < best)
-          best = u[s][i] + kNone, pick[s] = int(i), pick[1 - s] = -1;
-    for (size_t a = 0; a < n; ++a)
-      for (size_t b = 0; b < n; ++b)
-        if (a != b && u[0][a] + u[1][b] < best) {
-          const double cost = u[0][a] + u[1][b] + pairCost(a, b);
-          if (cost < best)
-            best = cost, pick[0] = int(a), pick[1] = int(b);
-        }
+    auto select = [&] {
+      pick[0] = pick[1] = -1;
+      std::vector<double> u[2] = {std::vector<double>(n), std::vector<double>(n)};
+      for (size_t i = 0; i < n; ++i)
+        u[0][i] = unary(i, 0), u[1][i] = unary(i, 1);
+      double best = 2 * kNone;
+      for (size_t i = 0; i < n; ++i)
+        for (int s = 0; s < 2; ++s)
+          if (u[s][i] + kNone < best)
+            best = u[s][i] + kNone, pick[s] = int(i), pick[1 - s] = -1;
+      for (size_t a = 0; a < n; ++a)
+        for (size_t b = 0; b < n; ++b)
+          if (a != b && u[0][a] + u[1][b] < best) {
+            const double cost = u[0][a] + u[1][b] + pairCost(a, b);
+            if (cost < best)
+              best = cost, pick[0] = int(a), pick[1] = int(b);
+          }
+    };
+    select();
+    // Keep a geometrically valid pair exactly as selected by the normal path.
+    if (exit_bias > 0 && (pick[0] < 0 || pick[1] < 0)) {
+      recovery = true;
+      select();
+    }
   }
   Line *lines[2] = {&r.left, &r.right};
   for (int s = 0; s < 2; ++s) {

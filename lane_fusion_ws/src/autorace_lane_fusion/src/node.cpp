@@ -2,6 +2,7 @@
 #include "autorace_lane_fusion/deep_latest.hpp"
 #include "autorace_lane_fusion/lane.hpp"
 #include "autorace_lane_fusion/odometry.hpp"
+#include "autorace_lane_fusion/cone_exit_prior.hpp"
 #include <condition_variable>
 #include <limits>
 #include <cv_bridge/cv_bridge.h>
@@ -18,7 +19,6 @@
 #include <atomic>
 #include <opencv2/imgproc.hpp>
 #include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/header.hpp>
 
 // /lane_fusion/target data layout (metres/radians, left positive):
@@ -68,12 +68,25 @@ public:
             const double t = steady();
             std::lock_guard<std::mutex> lock(mutex_);
             const bool fresh_gyro = t - gyro_time_ < .1;
-            odom_.add(t, m->twist.twist.linear.x, fresh_gyro ? gyro_ : m->twist.twist.angular.z);
+            const double w = fresh_gyro ? gyro_ : m->twist.twist.angular.z;
+            odom_.add(t, m->twist.twist.linear.x, w);
+            cone_exit_prior_.add(t, m->twist.twist.linear.x, w);
           });
+    // Cone exit: the cone node marks its exit wait + lane hold; with a coherent
+    // recent turn this supplies a role prior for an ambiguous single boundary.
+    cone_exit_sub_ = create_subscription<std_msgs::msg::Bool>(
+        "/cone_lane/exit_lane_active", rclcpp::QoS(1), [this](std_msgs::msg::Bool::ConstSharedPtr m) {
+          std::lock_guard<std::mutex> lock(mutex_);
+          const double t = steady();
+          const int before = cone_exit_prior_.side(t);
+          cone_exit_prior_.signal(m->data, t);
+          const int after = cone_exit_prior_.side(t);
+          if (before != after)
+            RCLCPP_INFO(get_logger(), "Cone exit boundary prior: %s",
+                        after == 0 ? "left (recent right turn)" : after == 1 ? "right (recent left turn)" : "off");
+        });
     yellow_ = create_publisher<nav_msgs::msg::Path>("/lane_fusion/yellow_boundary", rclcpp::QoS(1));
     target_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_fusion/target", rclcpp::QoS(1));
-    // Reuse the already decoded camera frame for parking's crosswalk-style ROI.
-    floor_ = create_publisher<std_msgs::msg::Float64MultiArray>("/parking/floor_observation", rclcpp::QoS(1));
     // Debug picture only on request: off, nothing is advertised or drawn.
     if (declare_parameter<bool>("debug", false))
       debug_ = create_publisher<sensor_msgs::msg::Image>("/lane_fusion/debug", rclcpp::SensorDataQoS().keep_last(1));
@@ -154,6 +167,7 @@ private:
       size_t revision;
       double rx, step[3] = {0, 0, 0};
       bool stepped = false;
+      int cone_exit_side = -1;
       {
         std::unique_lock<std::mutex> lock(mutex_);
         cv_.wait(lock, [this] { return stop_ || frame_; });
@@ -175,6 +189,8 @@ private:
           continue;
         done_stamp_ = stamp_ns;
         config = config_;
+        if (config["cone_exit_role_bias"] > 0)
+          cone_exit_side = cone_exit_prior_.side(steady());
         revision = revision_;
         bool own = false;
         double age = -1;
@@ -205,7 +221,7 @@ private:
         if (stepped)
           pipeline.move(step[0], step[1], step[2]);
         const bool debug_wanted = debug_ && debug_->get_subscription_count() > 0;
-        const auto r = pipeline.process(bgr, stamp, debug_wanted, deep);
+        const auto r = pipeline.process(bgr, stamp, debug_wanted, deep, cone_exit_side);
         nav_msgs::msg::Path boundary;
         boundary.header = frame->header;
         boundary.header.frame_id = "base_link";
@@ -228,8 +244,6 @@ private:
           }
         }
         yellow_->publish(boundary);
-        if (floor_->get_subscription_count() > 0 && steady() - floor_last_ >= .1)
-          observeFloor(bgr, frame->header.stamp, config);
         std::lock_guard<std::mutex> lock(mutex_);
         publish(&r);
         processed_ = steady();
@@ -253,20 +267,6 @@ private:
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "lane_fusion: %s", e.what());
       }
     }
-  }
-  void observeFloor(const cv::Mat &bgr, const builtin_interfaces::msg::Time &stamp, const lane_lite::Config &config) {
-    const int x0 = int(bgr.cols * .20), x1 = int(std::ceil(bgr.cols * .80));
-    const int y0 = int(bgr.rows * .86), y1 = int(std::ceil(bgr.rows * .92));
-    cv::Mat blur, hsv, white;
-    cv::GaussianBlur(bgr(cv::Rect(x0, y0, x1 - x0, y1 - y0)), blur, cv::Size(5, 5), 0);
-    cv::cvtColor(blur, hsv, cv::COLOR_BGR2HSV);
-    cv::inRange(hsv, cv::Scalar(0, 0, config["white_v_min"]), cv::Scalar(179, config["white_s_max"], 255), white);
-    std_msgs::msg::Float64MultiArray obs;
-    // [capture sec, capture nanosec, white ratio, unused, unused]
-    obs.data = {double(stamp.sec), double(stamp.nanosec), double(cv::countNonZero(white)) / white.total(),
-                0., 0.};
-    floor_->publish(obs);
-    floor_last_ = steady();
   }
   struct Stats {
     size_t frames = 0, valid = 0, offered = 0, used = 0, captured = 0;
@@ -299,14 +299,14 @@ private:
   bool stop_ = false;
   size_t revision_ = 0;
   double gyro_ = 0, gyro_time_ = -1e9; // newest IMU yaw rate
-  double floor_last_ = 0.;
-  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr floor_;
   double timeout_ = .3, max_rate_ = 0, processed_ = 0, reported_ = 0, frame_rx_ = 0;
   int64_t done_stamp_ = 0; // capture stamp of the last processed frame
   Stats stats_;
   sensor_msgs::msg::CompressedImage::ConstSharedPtr frame_;
   lane_lite::DeepLatest deep_;
   lane_lite::Odometry odom_;
+  lane_lite::ConeExitPrior cone_exit_prior_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr cone_exit_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr mask_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;

@@ -22,7 +22,7 @@ cone_lane_roi:
     boundary_direction_window: 3
     boundary_distance_weight: 1.0
     boundary_direction_weight: 2.0
-    control_speed: 0.8
+    control_speed: 0.6
     steering_gain: 0.6  # Steering slowdown fraction (0..1)
     curvature_gain: 0.5  # Curvature slowdown fraction (0..1)
     control_reference_x: 0.30
@@ -38,9 +38,14 @@ cone_lane_roi:
     control_memory_goal_tolerance: 0.08
     control_memory_recovery_distance: 0.15
     control_exit_timeout: 1.50
-    # Cone exit (exit wait + exit_lane_hold_sec after the mission ends): follow the
-    # /mission/lane steering with speed capped here, at cone priority, so the car
-    # leaving the cones at an angle turns back into the lane slowly. 0.0 = off (yield).
+    # Cone exit (exit wait + exit_lane_hold_sec after the mission ends): pass the
+    # /mission/lane command (speed and steering) through at cone priority.
+    # exit_lane_speed > 0 = on (the value no longer caps the speed), 0.0 = off (yield).
     exit_lane_speed: 0.3
     exit_lane_hold_sec: 1.0
     exit_lane_timeout: 0.25
+    # Front-clear exit: no candidate cone ahead of exit_front_x (m, base_link) for
+    # exit_front_scans scans while only the memory path remains -> skip it and follow
+    # the lane steering at once (needs a fresh lane command). 0 scans = off.
+    exit_front_x: 0.2
+    exit_front_scans: 2.0

@@ -7,6 +7,7 @@ class SignalState:
         self.max_wait = max_red_wait_sec
         self.gap = signal_gap_timeout_sec
         self.stopping = False
+        self.stop_generation = 0
         self.started_at = None
         self.release_reason = ''
         self.reset_confirmation()
@@ -44,4 +45,5 @@ class SignalState:
             self.release('green confirmed')
         elif not self.stopping:
             self.stopping, self.started_at = True, now
+            self.stop_generation += 1
             self.release_reason = ''

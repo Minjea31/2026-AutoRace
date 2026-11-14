@@ -6,6 +6,7 @@
 #include <rclcpp/create_timer.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <ackermann_msgs/msg/ackermann_drive_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -109,6 +110,12 @@ size_t lane_width_samples_ = 0;
 rclcpp::Subscription<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr exit_lane_sub_;
 std::optional<ackermann_msgs::msg::AckermannDriveStamped> exit_lane_cmd_;
 std::optional<double> exit_lane_received_, exit_lane_until_;
+// Consecutive scans with no candidate cone ahead of exit_front_x (front-clear exit).
+size_t front_clear_scans_ = 0;
+// Cone exit context for the lane node (/cone_lane/exit_lane_active): true while
+// the exit wait / lane hold asks for lane steering, published every control tick.
+rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr exit_active_pub_;
+bool exit_bias_requested_ = false;
 Diag path_diagnostics_;
 PathMemory path_memory_;
 BoundaryTracker boundary_tracker_;
@@ -162,10 +169,17 @@ explicit RoiNode(const rclcpp::NodeOptions&options = rclcpp::NodeOptions()) : No
   declare_parameter<double>("exit_lane_hold_sec", 1., descriptor);
   declare_parameter<double>("exit_lane_timeout", .25, descriptor);
   declare_parameter<std::string>("exit_lane_topic", "/mission/lane", descriptor);
-  for (auto name: {"exit_lane_speed", "exit_lane_hold_sec", "exit_lane_timeout"}) {
+  // Front-clear exit: while following the memory path with no live path, if no
+  // candidate cone is ahead of exit_front_x for exit_front_scans scans and a fresh
+  // lane command exists, skip the rest of the memory path and enter the exit wait
+  // (lane steering at exit_lane_speed) at once. exit_front_scans 0 = off.
+  declare_parameter<double>("exit_front_x", .2, descriptor);
+  declare_parameter<double>("exit_front_scans", 2., descriptor);
+  for (auto name: {"exit_lane_speed", "exit_lane_hold_sec", "exit_lane_timeout", "exit_front_scans"}) {
     double v = value(name);
     if (!std::isfinite(v)||v < 0) throw std::invalid_argument(std::string(name) + " must be finite and >= 0");
   }
+  if (!std::isfinite(value("exit_front_x"))) throw std::invalid_argument("exit_front_x must be finite");
   auto reason = validate_roi(values(ROI_DEFAULTS));
   if (reason.empty())
     reason = validate_parameters(non_roi_values());
@@ -243,6 +257,7 @@ explicit RoiNode(const rclcpp::NodeOptions&options = rclcpp::NodeOptions()) : No
   center_spot_pub_ = create_publisher<MarkerArray>("/cone_lane/center_spot", 1);
   backup_pub_ = create_publisher<MarkerArray>("/cone_lane/backup_path", 1);
   command_pub_ = create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/mission/cone/command_04", 1);
+  exit_active_pub_ = create_publisher<std_msgs::msg::Bool>("/cone_lane/exit_lane_active", 1);
   scan_sub_ = create_subscription<Scan>("/scan", rclcpp::QoS(1).best_effort().durability_volatile(), [this](
                                           Scan::ConstSharedPtr msg){
         scan_callback(*msg);
@@ -259,6 +274,9 @@ explicit RoiNode(const rclcpp::NodeOptions&options = rclcpp::NodeOptions()) : No
       }));
   timers_.push_back(rclcpp::create_timer(this, get_clock(), std::chrono::milliseconds(50), [this] {
         control_tick();
+        std_msgs::msg::Bool exit;
+        exit.data = exit_bias_requested_;
+        exit_active_pub_->publish(exit);
       }));
   timers_.push_back(rclcpp::create_timer(this, get_clock(), std::chrono::milliseconds(200), [this] {
         publish_control_status();
@@ -294,6 +312,7 @@ void scan_callback(const Scan&msg)
       last_warning_ = steady();
     } control_fault_ = true;
     mission_exit_since_.reset();
+    front_clear_scans_ = 0;
     all_clusters_.clear();
     candidate_clusters_.clear();
     boundary_candidate_clusters_.clear();
@@ -318,6 +337,8 @@ void scan_callback(const Scan&msg)
   all_clusters_ = cluster_points(base, indices, value("cluster_threshold"));
   boundary_candidate_clusters_ = filter_clusters(all_clusters_, size_t(value("min_cluster_points")), value(
                                                    "max_cluster_width"));
+  if (count_front_clusters(candidate_clusters_, value("exit_front_x")) == 0) front_clear_scans_++;
+  else front_clear_scans_ = 0;
   if (candidate_clusters_.size() >= 8)
     mission_cone_ = true;
   Path centers;
@@ -537,30 +558,34 @@ void yield_control(const std::string&reason)
   control_stop_reason_ = reason;
 }
 
-// Cone exit (exit wait, then exit_lane_hold_sec after the mission ends): the
-// vehicle leaves the cones at an angle to the lane, so instead of handing lane
-// full speed at once, keep cone priority and send the fresh lane command's
-// steering with the speed capped to exit_lane_speed (a lane stop stays a stop).
+// Cone exit (exit wait, then exit_lane_hold_sec after the mission ends): keep
+// cone priority and pass the fresh lane command through unchanged (lane speed and
+// steering, no extra speed cap). exit_lane_speed > 0 enables it, 0 = off (yield).
 // Without a fresh lane command this yields, so the mux falls through as before.
+bool exit_lane_fresh()
+{
+  double timeout = value("exit_lane_timeout");
+  if (value("exit_lane_speed") <= 0||!exit_lane_cmd_||!exit_lane_received_) return false;
+  auto&d = exit_lane_cmd_->drive;
+  double wall_age = steady() - *exit_lane_received_;
+  double ros_age = (now().nanoseconds() - ns(exit_lane_cmd_->header.stamp)) / 1e9;
+  return wall_age >= 0&&wall_age <= timeout&&ros_age >= -.05&&ros_age <= timeout&&std::isfinite(d.speed)&&
+         std::isfinite(d.steering_angle)&&d.speed >= 0;
+}
+
 bool follow_lane_on_exit(const std::string&reason)
 {
-  double cap = value("exit_lane_speed"), timeout = value("exit_lane_timeout");
-  if (cap > 0&&exit_lane_cmd_&&exit_lane_received_) {
+  exit_bias_requested_ = value("exit_lane_speed") > 0;
+  if (exit_lane_fresh()) {
     auto&d = exit_lane_cmd_->drive;
-    double wall_age = steady() - *exit_lane_received_;
-    double ros_age = (now().nanoseconds() - ns(exit_lane_cmd_->header.stamp)) / 1e9;
-    if (wall_age >= 0&&wall_age <= timeout&&ros_age >= -.05&&ros_age <= timeout&&std::isfinite(d.speed)&&
-        std::isfinite(d.steering_angle)&&d.speed >= 0) {
-      publish_control_points({});
-      last_steering_ = 0;
-      publish_drive(std::min<double>(d.speed, cap), d.steering_angle);
-      if (control_mode_ != "Exit Lane Follow"||reason != control_stop_reason_)
-        RCLCPP_INFO(get_logger(), "Exit lane follow: lane steering, speed <= %.2f m/s (reason=%s)", cap,
-                    reason.c_str());
-      control_mode_ = "Exit Lane Follow";
-      control_stop_reason_ = reason;
-      return true;
-    }
+    publish_control_points({});
+    last_steering_ = 0;
+    publish_drive(d.speed, d.steering_angle);
+    if (control_mode_ != "Exit Lane Follow"||reason != control_stop_reason_)
+      RCLCPP_INFO(get_logger(), "Exit lane follow: lane command passed through (reason=%s)", reason.c_str());
+    control_mode_ = "Exit Lane Follow";
+    control_stop_reason_ = reason;
+    return true;
   }
   yield_control(reason);
   return false;
@@ -584,6 +609,7 @@ void update_control_activation()
 
 void control_tick()
 {
+  exit_bias_requested_ = false;
   double wall = steady();
   int64_t current = now().nanoseconds();
   double dt = last_control_tick_?clamp(wall - *last_control_tick_, 0, .1):.05;
@@ -666,7 +692,18 @@ void control_tick()
   } if (live_errors) {
     errors = live_errors;
     memory_following_ = false;
-  } publish_center_path_markers(now());
+  }
+  // Front-clear exit: the remaining memory path is the last (often straight) cone
+  // corridor; with no cone ahead any more, hand the steering to the lane now.
+  bool front_clear = memory_following_&&!live_errors&&value("exit_front_scans") > 0&&
+                     double(front_clear_scans_) >= value("exit_front_scans")&&exit_lane_fresh();
+  if (front_clear) {
+    memory_following_ = false;
+    memory_local_path_.clear();
+    memory_status_ = "skipped_front_clear";
+    errors.reset();
+  }
+  publish_center_path_markers(now());
   if (!errors&&candidate_clusters_.size() <= 4) {
     if (!mission_exit_since_) mission_exit_since_ = {{wall, current}};
     auto[saved_wall, saved_ros] = *mission_exit_since_;
@@ -687,7 +724,7 @@ void control_tick()
     // Waiting for exit with no path and few cones: never a zero stop. Follow the
     // lane steering at a capped speed (or yield without a fresh lane command).
     // Live cones (a path) re-take control at once.
-    follow_lane_on_exit("mission_exit_wait");
+    follow_lane_on_exit(front_clear?"mission_exit_front_clear":"mission_exit_wait");
     return;
   }else
     mission_exit_since_.reset();
