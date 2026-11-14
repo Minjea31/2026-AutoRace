@@ -1,0 +1,92 @@
+{
+ "single_mid": {
+  "desc": "가운데 차로 1대(정중앙)",
+  "expect": "done",
+  "cars": 1
+ },
+ "single_left": {
+  "desc": "가운데 차로 1대, 오른쪽으로 6 cm 치우침 -> 왼쪽(아래 차로) 회피",
+  "expect": "done",
+  "cars": 1
+ },
+ "single_right": {
+  "desc": "가운데 차로 1대, 왼쪽으로 6 cm 치우침 -> 오른쪽(위 차로) 회피",
+  "expect": "done",
+  "cars": 1
+ },
+ "single_oblique": {
+  "desc": "가운데 차로 0.5 rad 비스듬한 1대",
+  "expect": "done",
+  "cars": 1
+ },
+ "multi2": {
+  "desc": "같은 가운데 차로 연속 2대",
+  "expect": "done",
+  "cars": 2
+ },
+ "multi3": {
+  "desc": "차로를 바꿔 가며 3대",
+  "expect": "done",
+  "cars": 3
+ },
+ "zigzag4": {
+  "desc": "3차로 지그재그 4대(아래8, 가운데6, 위4, 가운데2)",
+  "expect": "done",
+  "cars": 4
+ },
+ "alternating": {
+  "desc": "점선 위 + 반대편 번갈아 3대",
+  "expect": "done",
+  "cars": 3
+ },
+ "default7": {
+  "desc": "시뮬 기본 격자 7대(위3·8, 가운데4·5·7, 아래2·6): 통로 0.30 m, 차폭 0.22 m",
+  "expect": "done",
+  "cars": 7
+ },
+ "local7": {
+  "desc": "사용자 로컬 시뮬 배치 7대(위8, 가운데4·5·6, 아래3·6·7) = 원래 user7",
+  "expect": "done",
+  "cars": 7
+ },
+ "user7": {
+  "desc": "사용자 로컬 편집 배치 7대(위8, 가운데4·5·6, 아래3·6·7). 편집기 저장본 user7.obstacles.yaml이 있으면 그것이 우선",
+  "expect": "done",
+  "cars": 7
+ },
+ "orig7": {
+  "desc": "objavoid_test orig7과 동일 배치",
+  "expect": "done",
+  "cars": 7
+ },
+ "rand7_1": {
+  "desc": "objavoid_test rand7_1과 동일",
+  "expect": "done",
+  "cars": 7
+ },
+ "rand7_2": {
+  "desc": "objavoid_test rand7_2와 동일",
+  "expect": "done",
+  "cars": 7
+ },
+ "rand7_3": {
+  "desc": "objavoid_test rand7_3과 동일",
+  "expect": "done",
+  "cars": 7
+ },
+ "newobs": {
+  "desc": "가운데 1대 + 회피 경로 위 숨겨진 1대(고장 주입기로 늦게 공개)",
+  "expect": "done",
+  "cars": 2
+ },
+ "narrow": {
+  "desc": "폭 0.38 m 통로 하나만 열림(차폭 0.22 m)",
+  "expect": "done",
+  "cars": 3
+ },
+ "blocked": {
+  "desc": "세 차로 모두 막힘(차 사이 틈 0.25 m, 경계 쪽 0.15/0.23 m < 차폭+여유) -> 정지",
+  "expect": "stop",
+  "cars": 3
+ }
+}

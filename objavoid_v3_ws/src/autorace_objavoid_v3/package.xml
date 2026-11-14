@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>autorace_objavoid_v3</name>
+  <version>0.1.0</version>
+  <description>LiDAR 기반 3차로 정적 장애물 회피 V3: Gap 탐색 + 5차 다항식 Lattice + PD 경로 추종</description>
+  <maintainer email="ms-c-h@users.noreply.github.com">ms-c-h</maintainer>
+  <license>MIT</license>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>ackermann_msgs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
