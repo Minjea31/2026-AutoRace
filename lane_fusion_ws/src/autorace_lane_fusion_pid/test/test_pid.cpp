@@ -334,3 +334,20 @@ TEST(ParkingApproach, SamePersistentSignCannotRestartCalibrationAfterCooldown) {
   EXPECT_FALSE(gate.receive(true,207.));
   EXPECT_TRUE(gate.receive(true,207.1));
 }
+
+#include "autorace_lane_fusion_pid/parking_stop.hpp"
+TEST(ParkingStop, WaitsForFreshResetCompletionInsteadOfFiveSeconds) {
+  lane_pid::ParkingStop stop;
+  stop.receive(false, 10.);
+  EXPECT_FALSE(stop.waiting());
+  stop.receive(true, 10.);
+  EXPECT_TRUE(stop.waiting());
+  EXPECT_FALSE(stop.ready(9.99, 10.));
+  EXPECT_FALSE(stop.ready(10.1, 16.));
+  EXPECT_TRUE(stop.waiting());
+  EXPECT_TRUE(stop.ready(16., 16.));
+  EXPECT_FALSE(stop.waiting());
+  stop.receive(true, 17.);
+  EXPECT_FALSE(stop.ready(16.99, 17.));
+  EXPECT_TRUE(stop.ready(17.1, 17.1));
+}

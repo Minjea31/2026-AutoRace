@@ -7,6 +7,7 @@
 #include <cv_bridge/cv_bridge.h>
 #include <mutex>
 #include <nav_msgs/msg/odometry.hpp>
+#include <nav_msgs/msg/path.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -69,17 +70,10 @@ public:
             const bool fresh_gyro = t - gyro_time_ < .1;
             odom_.add(t, m->twist.twist.linear.x, fresh_gyro ? gyro_ : m->twist.twist.angular.z);
           });
+    yellow_ = create_publisher<nav_msgs::msg::Path>("/lane_fusion/yellow_boundary", rclcpp::QoS(1));
     target_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_fusion/target", rclcpp::QoS(1));
-    // Parking approach (main a95746e): after /parking/approach_start, a 10 Hz
-    // white-floor observation of the near image band until /parking/active.
+    // Reuse the already decoded camera frame for parking's crosswalk-style ROI.
     floor_ = create_publisher<std_msgs::msg::Float64MultiArray>("/parking/floor_observation", rclcpp::QoS(1));
-    floor_start_ = create_subscription<std_msgs::msg::Header>(
-        "/parking/approach_start", rclcpp::QoS(1), [this](std_msgs::msg::Header::ConstSharedPtr) { floor_active_ = true; });
-    floor_active_sub_ = create_subscription<std_msgs::msg::Bool>(
-        "/parking/active", rclcpp::QoS(1), [this](std_msgs::msg::Bool::ConstSharedPtr m) {
-          if (m->data)
-            floor_active_ = false;
-        });
     // Debug picture only on request: off, nothing is advertised or drawn.
     if (declare_parameter<bool>("debug", false))
       debug_ = create_publisher<sensor_msgs::msg::Image>("/lane_fusion/debug", rclcpp::SensorDataQoS().keep_last(1));
@@ -212,7 +206,29 @@ private:
           pipeline.move(step[0], step[1], step[2]);
         const bool debug_wanted = debug_ && debug_->get_subscription_count() > 0;
         const auto r = pipeline.process(bgr, stamp, debug_wanted, deep);
-        if (floor_active_ && steady() - floor_last_ >= .1)
+        nav_msgs::msg::Path boundary;
+        boundary.header = frame->header;
+        boundary.header.frame_id = "base_link";
+        const lane_lite::Line *yellow = nullptr;
+        for (const auto *line : {&r.left, &r.right})
+          if (line->yellow && line->state == lane_lite::LineState::Detected && line->path.size() >= 2 &&
+              (!yellow || line->quality > yellow->quality)) yellow = line;
+        if (yellow) {
+          const double w = config["width"], h = config["height"];
+          const double cu = config["vehicle_center_u"] * (w - 1);
+          const double mpx = config["lane_width_m"] / config["lane_width_px"];
+          const double mrow = (config["bev_far_m"] - config["bev_near_m"]) / (h - 1);
+          for (const auto &point : yellow->path) {
+            geometry_msgs::msg::PoseStamped pose;
+            pose.header = boundary.header;
+            pose.pose.position.x = config["bev_near_m"] + (h - 1 - point.y) * mrow;
+            pose.pose.position.y = (cu - point.x) * mpx;
+            pose.pose.orientation.w = 1.;
+            boundary.poses.push_back(pose);
+          }
+        }
+        yellow_->publish(boundary);
+        if (floor_->get_subscription_count() > 0 && steady() - floor_last_ >= .1)
           observeFloor(bgr, frame->header.stamp, config);
         std::lock_guard<std::mutex> lock(mutex_);
         publish(&r);
@@ -241,27 +257,14 @@ private:
   void observeFloor(const cv::Mat &bgr, const builtin_interfaces::msg::Time &stamp, const lane_lite::Config &config) {
     const int x0 = int(bgr.cols * .20), x1 = int(std::ceil(bgr.cols * .80));
     const int y0 = int(bgr.rows * .86), y1 = int(std::ceil(bgr.rows * .92));
-    cv::Mat blur, hsv, white, cols;
+    cv::Mat blur, hsv, white;
     cv::GaussianBlur(bgr(cv::Rect(x0, y0, x1 - x0, y1 - y0)), blur, cv::Size(5, 5), 0);
     cv::cvtColor(blur, hsv, cv::COLOR_BGR2HSV);
     cv::inRange(hsv, cv::Scalar(0, 0, config["white_v_min"]), cv::Scalar(179, config["white_s_max"], 255), white);
-    cv::reduce(white, cols, 0, cv::REDUCE_MAX);
-    std::vector<cv::Point> points;
-    cv::findNonZero(white, points);
-    double angle = 0.;
-    if (points.size() > 1) {
-      cv::Vec4f line;
-      cv::fitLine(points, line, cv::DIST_L2, 0, .01, .01);
-      angle = std::atan2(line[1], line[0]);
-      if (angle > M_PI / 2)
-        angle -= M_PI;
-      if (angle < -M_PI / 2)
-        angle += M_PI;
-    }
     std_msgs::msg::Float64MultiArray obs;
-    // [capture sec, capture nanosec, white ratio, horizontal coverage, angle rad]
+    // [capture sec, capture nanosec, white ratio, unused, unused]
     obs.data = {double(stamp.sec), double(stamp.nanosec), double(cv::countNonZero(white)) / white.total(),
-                double(cv::countNonZero(cols)) / white.cols, angle};
+                0., 0.};
     floor_->publish(obs);
     floor_last_ = steady();
   }
@@ -296,11 +299,8 @@ private:
   bool stop_ = false;
   size_t revision_ = 0;
   double gyro_ = 0, gyro_time_ = -1e9; // newest IMU yaw rate
-  std::atomic<bool> floor_active_{false};
   double floor_last_ = 0.;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr floor_;
-  rclcpp::Subscription<std_msgs::msg::Header>::SharedPtr floor_start_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr floor_active_sub_;
   double timeout_ = .3, max_rate_ = 0, processed_ = 0, reported_ = 0, frame_rx_ = 0;
   int64_t done_stamp_ = 0; // capture stamp of the last processed frame
   Stats stats_;
@@ -311,6 +311,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr compressed_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr yellow_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr target_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_;
   rclcpp::TimerBase::SharedPtr watchdog_;
