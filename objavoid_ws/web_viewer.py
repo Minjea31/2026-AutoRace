@@ -2,7 +2,7 @@
 """Standalone browser view of the V3 RViz scan and MarkerArray.
 
 Run after sourcing ROS and the V3 workspace:
-    python3 ~/2026-AutoRace/objavoid_v3_ws/web_viewer.py
+    python3 ~/2026-AutoRace/objavoid_ws/web_viewer.py
 Open http://<vehicle-ip>:8085/ . This process only subscribes to ROS topics.
 """
 
