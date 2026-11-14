@@ -9,6 +9,8 @@ cone_lane_roi:
     cone_center_size: 0.08
     # wheelbase 0.20 m / tan(mux steering limit 0.65 rad)
     center_min_turn_radius: 0.2630871384
+    # Temporary: 0 bypasses path radius rejection; 1 restores it.
+    center_turn_radius_check: 0.0
     center_sample_step: 0.05
     center_min_width: 0.10
     center_max_width: 1.50
@@ -21,7 +23,7 @@ cone_lane_roi:
     boundary_initial_max_turn: 110.0
     boundary_direction_window: 3
     boundary_distance_weight: 1.0
-    boundary_direction_weight: 2.0
+    boundary_direction_weight: 0.0  # Choose nearest admissible point; no direction score
     control_speed: 0.6
     steering_gain: 0.6  # Steering slowdown fraction (0..1)
     curvature_gain: 0.5  # Curvature slowdown fraction (0..1)

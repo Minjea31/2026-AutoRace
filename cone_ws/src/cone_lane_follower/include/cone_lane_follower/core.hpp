@@ -69,12 +69,13 @@ inline const Params ROI_DEFAULTS = {{"roi_x_min", -.3}, {"roi_x_max", 1.0}, {"ro
                                                                                                  .8}};
 inline const Params CLUSTER_DEFAULTS = {{"cluster_threshold", .10}, {"min_cluster_points", 2},
   {"max_cluster_width", .28}, {"cluster_point_size", .05}, {"cone_center_size", .08}};
-inline const Params CENTER_DEFAULTS = {{"center_min_turn_radius", .2630871384}, {"center_sample_step", .05},
+inline const Params CENTER_DEFAULTS = {{"center_min_turn_radius", .2630871384},
+  {"center_turn_radius_check", 0.}, {"center_sample_step", .05},
   {"center_min_width", .10}, {"center_max_width", 1.50}, {"center_max_gap", .30}, {"center_max_turn", 75.},
   {"center_smoothing_weight", .25}, {"center_width_relative_tolerance", .25}};
 inline const Params BOUNDARY_DEFAULTS = {{"boundary_connect_distance", .30}, {"boundary_max_turn", 80.},
   {"boundary_initial_max_turn", 110.}, {"boundary_direction_window", 3}, {"boundary_distance_weight", 1.},
-  {"boundary_direction_weight", 2.}};
+  {"boundary_direction_weight", 0.}};
 inline const Params CONTROL_DEFAULTS = {{"control_speed", .15}, {"steering_gain", .60}, {"curvature_gain", .60}, {"control_reference_x", .25},
   {"control_lateral_gain", 2.}, {"control_heading_gain", 1.}, {"control_max_steering", 80. * pi / 180},
   {"control_max_steering_rate", 1.}, {"control_speed_reference_steering", .48}, {"control_timeout", .5},
@@ -296,7 +297,6 @@ inline std::pair<Path, Path> select_boundaries_tracked(const Path&cones, const P
                                                const std::array<Path, 2>&anchors = {},
                                                std::array<bool, 2> bootstrap = {true, true})
 {
-  (void)bootstrap;
   auto rem = unique_nearest(cones);
   std::array<Path, 2> chains, dirs;
   for (int i = 0; i < 2; i++) {
@@ -308,7 +308,9 @@ inline std::pair<Path, Path> select_boundaries_tracked(const Path&cones, const P
       if (seed == locked.end()) seed = locked.begin();
       it = std::find(rem.begin(), rem.end(), *seed);
     }
-    if (it == rem.end())
+    // With a remembered side, only an explicitly matched/recovered seed may
+    // restart that boundary. Stateless callers still bootstrap both sides.
+    if (it == rem.end()&&bootstrap[i])
     for (auto j = rem.begin(); j != rem.end(); j++) if ((anchors[1-i].size() >= 2&&width ?
           strict_seed_matches(*j, anchors[1-i], side, *width, tol) : side * (*j)[1] > 0)&&
         std::find(anchors[1 - i].begin(), anchors[1 - i].end(), *j) == anchors[1 - i].end()) {
@@ -660,6 +662,14 @@ inline Path quintic_bridge(const Path&first, int i, const Path&second, int j, do
   } return sample_boundary(curve, step);
 }
 
+// Temporary experiment: keep the nominal radius for speed control, but allow
+// path generation to bypass radius rejection. Missing keys preserve legacy API behavior.
+inline bool turn_radius_check_enabled(const Params&p)
+{
+  auto it = p.find("center_turn_radius_check");
+  return it == p.end()||it->second != 0;
+}
+
 inline Path corner_offset(const Path&boundary, double distance, double step, double radius, const Params&p,
                           Diag*d = nullptr)
 {
@@ -759,14 +769,16 @@ inline Path corner_offset(const Path&boundary, double distance, double step, dou
                         progress = std::max(progress, current);
                       } return true;
                     };
-  double limit = 1 / radius;
+  bool check_radius = turn_radius_check_enabled(p);
+  double limit = check_radius?1 / radius:INFINITY;
   for (int iteration = 0; iteration < 12; iteration++) {
     check_budget(p);
     auto values = curvature(path);
     double peak = values.empty()?0:*std::max_element(values.begin(), values.end());
     if (peak <= limit&&acceptable(path)) {
       reject(d, "max_curvature_per_m", std::to_string(peak));
-      reject(d, "min_radius_m", std::to_string(radius));
+      if (check_radius) reject(d, "min_radius_m", std::to_string(radius));
+      else reject(d, "turn_radius_check", "disabled");
       reject(d, "corner_smoothing", "success");
       return path;
     } if (path.size() < 4)
@@ -790,14 +802,77 @@ inline Path corner_offset(const Path&boundary, double distance, double step, dou
       break;
     path = best->second;
   }
-  reject(d, "corner_failure", "no safe corner within radius >= " + std::to_string(radius) + "m");
+  reject(d, "corner_failure", check_radius?
+         "no safe corner within radius >= " + std::to_string(radius) + "m":
+         "no valid corner geometry (radius check disabled)");
   reject(d, "max_curvature_per_m", std::to_string(peak_curvature(path)));
   return {};
+}
+
+inline bool use_single_point_midpath(const Path&left, const Path&right)
+{
+  return (left.size() == 1&&right.size() >= 2)||(right.size() == 1&&left.size() >= 2);
+}
+
+inline Pairs single_point_sections(const Path&left, const Path&right, double minimum, double maximum)
+{
+  Pairs pairs;
+  if (left.size() >= 2&&right.size() == 1) {
+    for (const auto&q: left) {
+      double width = xy(q, right.front());
+      if (width >= minimum&&width <= maximum) pairs.emplace_back(q, right.front());
+    }
+  }else if (left.size() == 1&&right.size() >= 2) {
+    for (const auto&q: right) {
+      double width = xy(left.front(), q);
+      if (width >= minimum&&width <= maximum) pairs.emplace_back(left.front(), q);
+    }
+  }
+  return pairs;
+}
+
+inline Path single_point_midpath(const Path&left, const Path&right, const Params&p, Diag*d = nullptr)
+{
+  auto pairs = single_point_sections(left, right, p.at("center_min_width"), p.at("center_max_width"));
+  Path centers;
+  for (const auto&pair: pairs) centers.push_back(lerp(pair.first, pair.second, .5));
+  if (centers.size() < 2) {
+    reject(d, "single_point_unavailable", "requires >=2 valid midpoint sections");
+    return {};
+  }
+  // These midpoints lie on rays to the singleton; the first/last may be on the
+  // fan polygon edges, which the strict polygon-interior smoother would discard.
+  double weight = p.at("center_smoothing_weight");
+  auto raw = centers;
+  for (size_t i = 1; i + 1 < centers.size(); ++i)
+    for (int k = 0; k < 3; ++k)
+      centers[i][k] = (1 - weight) * raw[i][k] + weight * (raw[i-1][k] + raw[i+1][k]) / 2;
+  Boundaries boundaries;
+  if (left.size() >= 2) boundaries.emplace_back(left, -1);
+  if (right.size() >= 2) boundaries.emplace_back(right, 1);
+  if (!valid_center_geometry(centers, p, d)||!offset_safe(centers, boundaries, d)) return {};
+  if (turn_radius_check_enabled(p)&&peak_curvature(centers) > 1 / p.at("center_min_turn_radius")) {
+    reject(d, "single_point_turn_radius", "midpoint path exceeds minimum turn radius");
+    return {};
+  }
+  auto path = sample_boundary(centers, p.at("center_sample_step"));
+  if (!valid_center_geometry(path, p, d)||!offset_safe(path, boundaries, d)||
+      (turn_radius_check_enabled(p)&&peak_curvature(path) > 1 / p.at("center_min_turn_radius"))) {
+    reject(d, "single_point_invalid", turn_radius_check_enabled(p)?
+           "sampled midpoint path failed geometry/radius checks":
+           "sampled midpoint path failed geometry checks");
+    return {};
+  }
+  // No learned width is required: use the observed/held singleton itself.
+  reject(d, "single_point_midpoints", left.size() == 1?"left singleton":"right singleton");
+  return path;
 }
 
 inline Path unified_path(const Path&left, const Path&right, const Pairs&pairs, const Path&measured,
                          std::optional<double>width, const Params&p, Diag*d = nullptr)
 {
+  if (use_single_point_midpath(left, right))
+    return single_point_midpath(left, right, p, d);
   Boundaries valid;
   if (left.size() >= 2)
     valid.emplace_back(left, -1);
@@ -917,7 +992,7 @@ inline Path unified_path(const Path&left, const Path&right, const Pairs&pairs, c
     append(combined, bridge);
     append(combined, slice(tail, end + 1));
     if (!bridge.empty()&&offset_safe(combined, valid, d)&&valid_center_geometry(combined, p, d)&&
-        peak_curvature(combined) <= 1 / p.at("center_min_turn_radius")) {
+        (!turn_radius_check_enabled(p)||peak_curvature(combined) <= 1 / p.at("center_min_turn_radius"))) {
       reject(d, "join", "success window_samples=" + std::to_string(count));
       return combined;
     }
@@ -976,6 +1051,10 @@ inline std::string validate_parameters(const Params&p)
   for (auto&[name, value]: p) {
     if (name == "min_cluster_points"||name == "boundary_direction_window") {
       if (value < 1||std::floor(value) != value) return name + " must be an integer >= 1";
+    }else if (name == "center_turn_radius_check") {
+      if (!std::isfinite(value)||(value != 0&&value != 1)) return name + " must be 0 or 1";
+    }else if (name == "boundary_direction_weight") {
+      if (!std::isfinite(value)||value < 0) return name + " must be finite and >= 0";
     }else if (name == "steering_gain"||name == "curvature_gain") {
       if (!std::isfinite(value)||value < 0||value > 1) return name + " must be finite and between 0 and 1";
     }else if (!std::isfinite(value)||value <= 0) return name + " must be finite and > 0";

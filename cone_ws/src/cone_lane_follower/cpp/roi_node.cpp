@@ -379,7 +379,11 @@ void update_boundary_markers(const Path&centers, const Stamp&stamp)
       // Both detections and saved identities use odom at the exact scan timestamp.
       auto tf = memory_transform("odom", "base_link", time_at(ns(stamp)));
       auto world = transform_points(centers, tf);
-      bounds = boundary_tracker_.update(centers, world, ns(stamp) / 1e9, p, width,
+      auto from_odom = memory_transform("base_link", "odom", time_at(ns(stamp)));
+      auto to_local = [&from_odom](const Point&q) {
+        return transform_points(Path{q}, from_odom).front();
+      };
+      bounds = boundary_tracker_.update(centers, world, to_local, ns(stamp) / 1e9, p, width,
                                         cp["center_width_relative_tolerance"]);
     }catch (const std::exception&e) {
       // No valid motion transform: never compare coordinates from different frames.
@@ -418,6 +422,25 @@ void update_center_path(const Stamp&stamp)
     reset_lane_width();
   width_mission_active_ = mission_cone_;
   auto p = values(CENTER_DEFAULTS);
+  // Only the one-point-side case uses the requested fan-midpoint path.
+  // Do not submit it to the shared worker or reuse an older normal-path snapshot.
+  if (use_single_point_midpath(left_boundary_, right_boundary_)) {
+    if (async_planner_) {
+      async_planner_->reset();
+      async_planner_->poll(); // Drain any completed job from the previous mode.
+    }
+    planned_snapshot_.reset();
+    center_pairs_ = single_point_sections(left_boundary_, right_boundary_,
+                                          p["center_min_width"], p["center_max_width"]);
+    center_points_.clear();
+    for (auto&[a,b]: center_pairs_) center_points_.push_back(lerp(a,b,.5));
+    center_path_ = single_point_midpath(left_boundary_, right_boundary_, p, &path_diagnostics_);
+    measured_center_path_ = center_path_;
+    center_path_mode_ = center_path_.empty()?"Invalid":"Single-point Midpoints";
+    publish_center_path_markers(stamp);
+    return;
+  }
+  // All other cases keep the original cross-section/offset/planner flow.
   bool both = left_boundary_.size() >= 2&&right_boundary_.size() >= 2;
   center_pairs_ = both?match_cross_sections(left_boundary_, right_boundary_, p["center_sample_step"],
                                             p["center_min_width"], p["center_max_width"]):Pairs{};
@@ -764,6 +787,14 @@ void control_tick()
 void use_async_path()
 {
   center_path_ = measured_center_path_;
+  if (use_single_point_midpath(left_boundary_, right_boundary_)) {
+    // The control timer also polls here: a late normal-mode result must never
+    // overwrite the current singleton path, including when that path is invalid.
+    async_planner_->poll();
+    planned_snapshot_.reset();
+    center_path_mode_ = center_path_.empty()?"Invalid":"Single-point Midpoints";
+    return;
+  }
   center_path_mode_ = center_path_.empty()?"Invalid":"Measured (planner pending)";
   auto result = async_planner_->poll();
   if (result) {
