@@ -52,10 +52,14 @@ def _setup(context):
         raise ValueError('tf_profile must be existing or wego_limo_pro')
 
     vehicle = value('vehicle')
-    offsets = {'04': 0.04, '06': 0.0}
+    offsets = {'04': 0.01, '06': 0.0}
     if vehicle not in offsets:
         raise ValueError('vehicle must be 04 or 06')
     steering_offset = offsets[vehicle]
+    # 차량별 서보 명령 상한(wire units). 04번은 0.35면 오른쪽이 리모컨보다 덜 돌아(반경 0.74 m) 회피 경로를 못 따라감
+    # -> 2026-11-15 실차에서 0.48로 3단 슬라롬 통과 확인. 인자를 주면 그 값을 쓴다.
+    limits = {'04': 0.48, '06': 0.35}
+    steering_limit = float(value('steering_command_limit')) if value('steering_command_limit') else limits[vehicle]
     runner = Path(get_package_share_directory('autorace_sensor_bringup')) / 'scripts/performance_runner.py'
     def prefix(role):
         return shlex.join(['/usr/bin/python3', str(runner), '--role', role, '--'])
@@ -87,6 +91,7 @@ def _setup(context):
         'base_executable': 'limo_base', 'use_mcnamu': False,
         'base_pub_odom_tf': True,
         'steering_command_offset': steering_offset,
+        'steering_command_limit': steering_limit,
     }, indent=2) + '\n')
 
     def record(kind, event=None):
@@ -127,7 +132,8 @@ def _setup(context):
         )),
         RegisterEventHandler(OnShutdown(on_shutdown=lambda e, c: record('LAUNCH_SHUTDOWN'))),
         LogInfo(msg=f'Sensor session logs: {log_dir}'),
-        LogInfo(msg=f'Vehicle {vehicle}: Ackermann steering offset {steering_offset:+.3f} rad (wire units)'),
+        LogInfo(msg=f'Vehicle {vehicle}: Ackermann steering offset {steering_offset:+.3f}, '
+                    f'command limit {steering_limit:.3f} (wire units)'),
         LogInfo(msg='CPU/startup scheduling enabled; EKF output rate unchanged'),
     ]
     topics, types = [], []
@@ -151,7 +157,7 @@ def _setup(context):
                 'steering_command_calibration': enabled('steering_command_calibration'),
                 'steering_command_gain': float(value('steering_command_gain')),
                 'steering_command_deadband': float(value('steering_command_deadband')),
-                'steering_command_limit': float(value('steering_command_limit')),
+                'steering_command_limit': steering_limit,
                 'steering_command_offset': steering_offset,
             }],
         ))
@@ -248,7 +254,8 @@ def generate_launch_description():
         'enable_point_cloud': 'false', 'enable_colored_point_cloud': 'false',
         'steering_limit_enabled': 'false', 'max_inner_angle': '0.80',
         'steering_command_calibration': 'false', 'steering_command_gain': '1.92',
-        'steering_command_deadband': '0.23', 'steering_command_limit': '0.35',
+        'steering_command_deadband': '0.23',
+        'steering_command_limit': '',  # 비우면 차량별 기본(04: 0.48, 06: 0.35)
     }
     return LaunchDescription([
         *[DeclareLaunchArgument(name, default_value=default) for name, default in defaults.items()],
