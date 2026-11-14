@@ -101,7 +101,8 @@ def automatic_goals(scan,clusters,cfg,origin,details,map_hint=None):
         from .slot_map import fit_slot_map,rotation
         merged=physical_objects(world,cfg,right_only=False)
         objects=[(indices,c) for indices,c in merged if cfg.min_cluster_size<=max(c.bounds[1]-c.bounds[0],c.bounds[3]-c.bounds[2])<=cfg.max_cluster_size]
-        layout=fit_slot_map(objects,cfg,map_hint)
+        layout=fit_slot_map(objects,cfg,map_hint,sensor_origin=compose(origin,scan.sensor_pose)[:2],
+                            object_yaw=cfg.row_yaw+origin[2])
         details['slot_map']=layout;details['target_center_method']='six_slot_map'
         details['enclosure_objects']=len(objects);details['enclosure_detected']=layout is not None
         details['full_slot_map_matched']=layout is not None

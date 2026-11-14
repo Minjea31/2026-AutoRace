@@ -3,8 +3,9 @@ import re
 
 
 STATES = {
+    'MISSION_FAILED':'주차 진행 실패·재시도 대기',
     'SEARCHING': '저속 전진하며 주차 후보 탐색',
-    'SEARCH_BLOCKED': '탐색 전방 장애물·미관측 구간으로 정지',
+    'SEARCH_BLOCKED': '주차 탐색 정지',
     'SEARCH_LIMIT': '주차 탐색 한도 도달·인식 확인 필요',
     'WAITING_CALIBRATION': '주차 접근 전 정지·자이로 보정 대기',
     'CALIBRATION_FAILED': '주차 접근 보정 실패·수동 초기화 대기',
@@ -32,6 +33,8 @@ STATES = {
 }
 
 REASONS = {
+    'Parking made no progress for 20 s; reset required':'20초간 이동이 없어 정지했습니다. 새 주차 감지로 재시도할 수 있습니다.',
+    'Manual control or stale vehicle mode; reset required after takeover':'수동 개입 또는 차량 상태 지연: 새 주차 감지 대기',
     'Looking for parking candidates along a measured clear corridor': '관측된 전방 통로를 저속으로 전진하며 주차 후보를 찾습니다.',
     'Parking search corridor is blocked or unobserved': '탐색 전방에 장애물이 있거나 이동할 차체 구간을 관측하지 못했습니다.',
     'Waiting for fresh observed search corridor': '탐색 전방을 확인할 최신 라이다를 기다립니다.',
@@ -199,6 +202,9 @@ def operator_reason(state, reason='', planning=None, detections=0, required=3):
             'no_reverse_route':'현재 지도와 회전 반경을 만족하는 연속 후진 경로를 아직 찾지 못했습니다.',
             'endpoint_alignment':'출차 경로 끝에서 차선 방향·위치 오차가 남았습니다.',
             'lookahead_wrong_side':'출차 추종점이 후진 방향과 맞지 않습니다.',
+            'single_arc_unavailable':'곡선·직선 탈출 경로 생성 불가',
+            'unobserved_departure':'탈출 경로 관측 부족',
+            'yellow_boundary':'노란선 침범: 재계획 대기',
             'path_obstacle':'출차 중 차체·제동 구간에 장애물이 검출됐습니다.',
             'map_changed':'계산 중 지도에 새 장애물이 반영되어 출차 경로를 다시 확인합니다.',
             'pose_changed':'계산 중 차량 위치가 바뀌어 출차 경로를 다시 연결합니다.',

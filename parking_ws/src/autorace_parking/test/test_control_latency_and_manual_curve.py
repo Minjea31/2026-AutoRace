@@ -45,7 +45,10 @@ def layout():
 def test_snapshot_and_map_fit_reused_until_new_input_or_occupancy(node,monkeypatch):
     import autorace_parking.slot_map as maps
     calls=[]
-    def fit(objects,cfg,hint):calls.append(1);return dict(hint)
+    def fit(objects,cfg,hint,sensor_origin=None):
+        assert sensor_origin is not None
+        calls.append(1)
+        return dict(hint)
     monkeypatch.setattr(maps,'fit_slot_map',fit)
     node.cfg=replace(node.cfg,block_occupied_slots=True)
     node.follower.cfg=node.cfg

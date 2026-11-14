@@ -75,6 +75,10 @@ class Settings:
     rear_axle_offset_x: float = -0.10
     rear_axle_offset_y: float = 0.0
     slot_map_enabled: bool = False
+    slot_object_box_enabled: bool = False
+    slot_object_length: float = .322
+    slot_object_width: float = .220
+    slot_object_fit_tolerance: float = .04
     fixed_parking_slot_id: int = -1  # front/near-lane row, middle column is 4 in a 3x2 grid
     fixed_slot_empty_known: bool = False
     slot_initial_right_only: bool = True
@@ -99,6 +103,7 @@ class Settings:
     entry_obstacle_slowdown: bool = False
     replan_while_following: bool = True
     exit_path_tracking_margin: float = 0.0
+    exit_collision_check_enabled: bool = True
     parking_center_adjustment: float = 0.0
     entry_departure_reserve: float = .01
     require_observed_parking_center: bool = False
@@ -106,6 +111,7 @@ class Settings:
     exit_max_plan_attempts: int = 3
     exit_retry_timeout: float = 6.0
     exit_curve_handoff: bool = False
+    exit_curve_only: bool = False
     prefer_arc_finish_entry: bool = False
     max_entry_path_length: float = 0.0
     boundary_tolerance: float = 0.12
@@ -130,6 +136,7 @@ class Settings:
     steering_track: float = 0.172
     goal_from_observed_front: bool = False
     clearance: float = 0.10
+    yellow_boundary_clearance: float = 0.02  # Painted lane boundary; obstacle margin stays independent.
     initial_clear_radius: float = 0.30
     assume_unobserved_free: bool = False
     resolution: float = 0.06
@@ -396,6 +403,17 @@ def find_gaps(clusters, cfg, origin=(0., 0., 0.), diagnostics=None):
     return sorted(gaps, key=lambda g: math.hypot(g.x, g.y))
 
 
+from functools import lru_cache
+from .yellow_boundary import YellowBoundary
+
+
+@lru_cache(maxsize=32)
+def footprint_samples(half_length, half_width):
+    nx,ny=math.ceil(2*half_length/.06),math.ceil(2*half_width/.06)
+    return tuple((half_length*(2*i/nx-1),half_width*(2*j/ny-1))
+                 for i in range(nx+1) for j in range(ny+1))
+
+
 class CollisionChecker:
     def __init__(self, scan, cfg, known_free_poses=(), initial_clear_center=(0., 0.)):
         scan = scan.filtered_obstacles(cfg)
@@ -418,15 +436,16 @@ class CollisionChecker:
             self.cells[math.floor(point[0] / 0.2), math.floor(point[1] / 0.2)].append(point)
         # Sample the whole footprint, including interior: a hidden hole/occlusion
         # inside the body must not be treated as free merely because corners fit.
-        nx, ny = math.ceil(2 * self.half_length / 0.06), math.ceil(2 * self.half_width / 0.06)
-        self.samples = [(self.half_length * (2 * i / nx - 1),
-                         self.half_width * (2 * j / ny - 1))
-                        for i in range(nx + 1) for j in range(ny + 1)]
+        self.samples = footprint_samples(self.half_length,self.half_width)
+        segments = getattr(scan,'yellow_segments',())
+        self.yellow = YellowBoundary(segments) if segments else None
+        self.yellow_half_length = cfg.vehicle_length/2 + cfg.yellow_boundary_clearance
+        self.yellow_half_width = cfg.vehicle_width/2 + cfg.yellow_boundary_clearance
 
     def previously_free(self, x, y):
         for ix in range(math.floor((x - self.radius) / .2), math.floor((x + self.radius) / .2) + 1):
             for iy in range(math.floor((y - self.radius) / .2), math.floor((y + self.radius) / .2) + 1):
-                for px, py, c, s in self.known_cells[ix, iy]:
+                for px, py, c, s in self.known_cells.get((ix, iy), ()):
                     dx, dy = x - px, y - py
                     if (abs(c * dx + s * dy) <= self.half_length + 1e-8 and
                             abs(-s * dx + c * dy) <= self.half_width + 1e-8):
@@ -451,9 +470,13 @@ class CollisionChecker:
             self.last_block = 'outside_range'
             return False
         c, s = math.cos(yaw), math.sin(yaw)
+        if self.yellow is not None and self.yellow.crosses(x,y,c,s,self.yellow_half_length,self.yellow_half_width):
+            self.last_block='yellow_boundary'
+            self.last_block_detail={'kind':'yellow_boundary','checked_pose':list(pose)}
+            return False
         for ix in range(math.floor((x - self.radius) / 0.2), math.floor((x + self.radius) / 0.2) + 1):
             for iy in range(math.floor((y - self.radius) / 0.2), math.floor((y + self.radius) / 0.2) + 1):
-                for px, py in self.cells[ix, iy]:
+                for px, py in self.cells.get((ix, iy), ()):
                     dx, dy = px - x, py - y
                     if abs(c * dx + s * dy) <= self.half_length and abs(-s * dx + c * dy) <= self.half_width:
                         self.last_block = 'obstacle'

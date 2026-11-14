@@ -7,7 +7,7 @@ parking_node:
     candidate_roi_right_min: 0.0
     candidate_roi_right_max: 2.0
     recognition_frames: 2
-    exit_on_lane_reacquired: true
+    exit_on_lane_reacquired: false
     exit_lane_timeout_sec: 0.25
     exit_lane_min_confidence: 0.10
     prevent_active_retrigger: true
@@ -19,9 +19,7 @@ parking_node:
     async_scan_matching: true
     planner_prewarm: true
     manual_mode_guard: true
-    white_line_confirmations: 2
-    white_line_min_span: 0.45
-    white_line_max_angle: 0.44
+    control_mode_timeout_sec: 2.0
     white_roi_enabled: true
     white_roi_left: 0.20
     white_roi_right: 0.80
@@ -68,6 +66,7 @@ parking_node:
     # Target is the center of the measured gap; do not push it into the bay.
     goal_from_observed_front: false
     clearance: 0.10
+    yellow_boundary_clearance: 0.02
     initial_clear_radius: 0.3
     # Operator-selected policy: unobserved/zero-range sectors are assumed free.
     assume_unobserved_free: true
@@ -149,10 +148,17 @@ parking_node:
     respect_steering_settle_speed: true
     entry_obstacle_slowdown: true
     replan_while_following: false
-    exit_path_tracking_margin: 0.04
-    exit_curve_handoff: true
+    exit_path_tracking_margin: 0.0
+    exit_collision_check_enabled: false
+    exit_curve_handoff: false
+    exit_curve_only: true
     prefer_arc_finish_entry: true
     slot_map_enabled: true
+    # LIMO PRO body: manufacturer specification 322 x 220 mm (length x width).
+    slot_object_box_enabled: true
+    slot_object_length: 0.322
+    slot_object_width: 0.220
+    slot_object_fit_tolerance: 0.04
     # Image row 1, column 2: the middle cell nearest the lane (internal id 4).
     fixed_parking_slot_id: 4
     # The course guarantees this one cell is empty; a locked occupied-cell
@@ -191,9 +197,9 @@ parking_node:
     require_complete_entry_path: true
     control_preview_time: 0.40
     enclosure_min_objects: 3
-    # Match the five-occupied-cell template with at most one occluded object.
-    # A unique registration is required before using the known-empty target.
-    enclosure_confirm_objects: 4
+    # Three non-collinear objects may identify the known occupied-cell template.
+    # Require a unique registration before using the known-empty target.
+    enclosure_confirm_objects: 3
     enclosure_grid_resolution: 0.05
     enclosure_support_radius: 1.0
     goal_update_gain: 0.25

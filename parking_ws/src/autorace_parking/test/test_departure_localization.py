@@ -9,6 +9,7 @@ from rclpy.context import Context
 from rclpy.parameter import Parameter
 from rclpy.signals import SignalHandlerOptions
 from std_msgs.msg import String
+from nav_msgs.msg import Odometry
 
 from autorace_parking.control import Follower
 from autorace_parking.core import Gap, Settings, Scan
@@ -48,7 +49,13 @@ def parked():
 
 def advance(n, clock, t, x=0.):
     clock[0] = t
-    n.on_localization(odom(t, x))
+    previous=n.odometry.samples[-1]
+    dt=t-previous.stamp
+    msg=Odometry();msg.header.stamp.sec=int(t);msg.header.stamp.nanosec=round((t-int(t))*1e9)
+    msg.child_frame_id='base_link'
+    msg.twist.twist.linear.x=(2*(x-previous.pose[0])/dt-previous.speed) if 0<dt<=n.localization_timeout else 0.
+    n.on_measured_wheel(msg)
+    n.on_localization(odom(t,x))  # EKF is diagnostic-only during departure.
     n.on_scan(scan(t))
 
 
@@ -90,21 +97,20 @@ def test_odom_outage_holds_route_then_resumes_without_matching(parked, monkeypat
     n.tick()
     assert commands[-1][0] < 0 and n.state == 'EXITING'
     assert tracker.origin == origin and tracker.offset == offset and tracker.matcher is matcher
-    assert tracker.pose[0] == pytest.approx(-.05)
+    assert tracker.pose[0] == pytest.approx(0.)  # no invented motion across a wheel outage
     assert n.localization_restart_count == 0
 
 
-def test_pose_jump_stops_without_reanchoring_until_reset(parked):
-    n, clock, commands = parked
-    f, tracker = n.follower, n.tracker
-    clock[0] = 100.1
-    n.on_localization(odom(100.1, 5.))
+def test_ekf_pose_jump_does_not_stop_wheel_departure(parked):
+    n,clock,commands=parked
+    f,tracker=n.follower,n.tracker
+    clock[0]=100.1
+    n.on_localization(odom(100.1,5.))
+    advance(n,clock,100.1,-.01)
     n.tick()
-    assert commands[-1] == (0., 0.) and n.odometry.discontinuity
+    assert commands[-1][0]<0 and not n.odometry.discontinuity
     assert n.follower is f and n.tracker is tracker and f.goal is not None
-    advance(n, clock, 100.2, .01)
-    n.tick()
-    assert commands[-1] == (0., 0.)
+    assert tracker.pose[0]==pytest.approx(-.01)
     n.reset_state()
     assert not n.follower.parked and not n.tracker.odometry_only
 
@@ -113,6 +119,8 @@ def test_stale_scan_stops_but_preserves_route(parked):
     n, clock, commands = parked
     route = n.follower.path
     clock[0] = 102.
+    msg=Odometry();msg.header.stamp.sec=102;msg.child_frame_id='base_link'
+    n.on_measured_wheel(msg)
     n.on_localization(odom(102.))
     n.tick()
     assert commands[-1] == (0., 0.) and n.state == 'WAITING_SCAN'

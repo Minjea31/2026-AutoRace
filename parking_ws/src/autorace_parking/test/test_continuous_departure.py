@@ -16,6 +16,8 @@ def scene():
     root=Path(__file__).resolve().parents[1]
     params=yaml.safe_load((root/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     cfg=Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params})
+    # Exercise the optional checked planner, independent of the real profile.
+    cfg=replace(cfg,exit_collision_check_enabled=True)
     data=json.loads((root/'test/data/departure_recovery_trace.json').read_text());trace=[tuple(p) for p in data['trace']]
     pose=trace[-1];scan=Scan([math.inf]*361,-math.pi,math.pi/180,.01,12.)
     scan.points=[compose(inverse(pose),(x,y,0.))[:2] for x,y,_ in data['memory_cells']]
@@ -76,7 +78,8 @@ def test_bag_exit_keeps_room_for_later_observed_obstacle_edges(margin,later_safe
     root=Path(__file__).resolve().parents[1]
     params=yaml.safe_load((root/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     cfg=Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params})
-    cfg=replace(cfg,exit_path_tracking_margin=margin,path_clearance_weight=cfg.path_clearance_weight if margin else 0.)
+    cfg=replace(cfg,exit_collision_check_enabled=True,exit_path_tracking_margin=margin,
+                path_clearance_weight=cfg.path_clearance_weight if margin else 0.)
     data=json.loads((root/'test/data/departure_margin_20261110.json').read_text())
     pose=tuple(data['pose']);trace=[tuple(p) for p in data['trace']];transform=inverse(pose)
     def memory(points):

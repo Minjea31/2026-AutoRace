@@ -20,9 +20,23 @@ def rotation(yaw):
     c,s=math.cos(yaw),math.sin(yaw);return np.array([[c,-s],[s,c]])
 
 
-def fit_slot_map(objects,cfg,hint=None):
+def fit_slot_map(objects,cfg,hint=None,sensor_origin=(0.,0.),object_yaw=None):
     reference=reference_centers(cfg)
     points=np.array([cluster.center for _,cluster in objects],dtype=float).reshape(-1,2)
+    box_cache={}
+    def boxes_at(yaw):
+        from .object_boxes import infer_object_box
+        key=round(float(yaw),8)
+        if key not in box_cache:
+            box_cache[key]=[infer_object_box(cluster,yaw,sensor_origin,cfg.slot_object_width,
+                cfg.slot_object_length,cfg.slot_object_fit_tolerance) for _,cluster in objects]
+        return box_cache[key]
+    def points_at(yaw):
+        return (np.array([b['center'] for b in boxes_at(yaw)],dtype=float).reshape(-1,2)
+                if cfg.slot_object_box_enabled else points)
+    if cfg.slot_object_box_enabled:
+        seed_yaw=hint['yaw'] if hint and hint.get('locked') else (cfg.row_yaw if object_yaw is None else object_yaw)
+        points=points_at(seed_yaw)
     owners=[cluster.track_id if cluster.track_id is not None else -indices[0]-1 for indices,cluster in objects]
     gate=cfg.slot_match_tolerance
     fixed=cfg.fixed_parking_slot_id
@@ -30,7 +44,8 @@ def fit_slot_map(objects,cfg,hint=None):
     minimum=max(3,cfg.enclosure_confirm_objects) if fixed>=0 else 3
     def evaluate(center,yaw):
         centers=reference@rotation(yaw).T+center
-        distances=np.linalg.norm(centers[:,None,:]-points[None,:,:],axis=2) if len(points) else np.empty((len(reference),0))
+        observed=points_at(yaw)
+        distances=np.linalg.norm(centers[:,None,:]-observed[None,:,:],axis=2) if len(points) else np.empty((len(reference),0))
         nearest=np.argmin(distances,axis=1) if len(points) else np.zeros(len(reference),dtype=int)
         errors=distances[np.arange(len(reference)),nearest] if len(points) else np.full(len(reference),math.inf)
         matches=(errors<=gate)&expected
@@ -82,7 +97,7 @@ def fit_slot_map(objects,cfg,hint=None):
             center,yaw=values[index]
             for _ in range(3):
                 centers,association,matches,error=evaluate(center,yaw)
-                src=reference[matches];dst=points[association[matches]]
+                src=reference[matches];dst=points_at(yaw)[association[matches]]
                 if len(src)<3 or np.linalg.matrix_rank(src-src.mean(axis=0),tol=.01)<2:break
                 # Gate < half the pitch guarantees distinct cell/point matches.
                 u,_,vt=np.linalg.svd((src-src.mean(axis=0)).T@(dst-dst.mean(axis=0)))
@@ -94,7 +109,7 @@ def fit_slot_map(objects,cfg,hint=None):
             if cfg.slot_initial_right_only and center[1]>=0:continue
             if fixed>=0:
                 if not -math.pi/2<=yaw<math.pi/2:continue
-                inside=(points-centers[fixed])@rotation(yaw)
+                inside=(points_at(yaw)-centers[fixed])@rotation(yaw)
                 if np.any((np.abs(inside[:,0])<=cfg.slot_width/2)&(np.abs(inside[:,1])<=cfg.slot_depth/2)):continue
             if np.linalg.matrix_rank(reference[matches]-reference[matches].mean(axis=0),tol=.01)<2:continue
             if any(np.max(np.min(np.linalg.norm(centers[:,None,:]-v['centers'][None,:,:],axis=2),axis=1))<.06 for v in candidates):continue
@@ -104,6 +119,7 @@ def fit_slot_map(objects,cfg,hint=None):
         best=candidates[0];count=best['matches'];error=best['error']
         alternatives=[v for v in candidates if v['matches']==count and v['error']<=error+cfg.slot_ambiguity_margin]
         center=best['origin'];yaw=best['yaw'];centers=best['centers'];extent_locked=len(alternatives)==1
+    points=points_at(yaw)
     old_cells={c['id']:c for c in hint.get('cells',[])} if locked else {}
     cells=[];rot=rotation(yaw)
     for index,world in enumerate(centers):
@@ -123,4 +139,5 @@ def fit_slot_map(objects,cfg,hint=None):
             'fit_rmse_m':float(error) if math.isfinite(error) else None,'hypotheses':len(alternatives),
             'columns':cfg.slot_columns,'rows':cfg.slot_rows,'cell_width':cfg.slot_width,'cell_depth':cfg.slot_depth,
             'border':cfg.slot_border,'cells':cells,'support_ids':sorted({i for cell in cells for i in cell['occupant_ids']}),
-            'frame':'mission','method':'metric_six_slot_template'}
+            'frame':'mission','method':'metric_six_slot_template',
+            'object_boxes':boxes_at(yaw) if cfg.slot_object_box_enabled else []}

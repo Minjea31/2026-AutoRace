@@ -10,7 +10,7 @@ from .tracking import compose, inverse
 from .enclosed import enclosed_goals
 from .targets import automatic_goals,update_geometry_goal,SEMANTIC_GOALS
 from .regions import with_occupied_slots,outside_grid
-from .departure import lane_targets,single_reverse_route
+from .departure import lane_targets,single_reverse_route,curve_only_route
 from .roi import candidate_view,contains as roi_contains
 
 
@@ -705,7 +705,7 @@ class Follower:
         tolerance = self.cfg.exit_arrival_yaw_tolerance if final_arrival else self.exit_heading_tolerance
         if abs(wrap(pose[2]-lane_yaw)) > tolerance:
             return False
-        if (self.goal is not None and self.goal.parking_grid is not None
+        if (not self.cfg.exit_curve_only and self.goal is not None and self.goal.parking_grid is not None
                 and not outside_grid(pose, self.goal.parking_grid, self.cfg)):
             return False
         remaining_turn = remaining_reverse = 0.
@@ -758,6 +758,11 @@ class Follower:
         self.exit_targets=lane_targets(self.entry_trace,pose,self.cfg,grid,self.exit_heading_tolerance)
         if scan is not None and self.cfg.continuous_replanning and len(self.path)>1:
             self.rebuild_exit(pose,now,scan)
+        if self.cfg.exit_curve_only and self.exit_route_ready:
+            trimmed=curve_only_route(self.path)
+            self.exit_route_ready=bool(trimmed)
+            self.path=trimmed or [pose]
+            if not trimmed:self.exit_route_reason='single_arc_unavailable'
         self.exit_path=self.path.copy() if self.exit_route_ready else []
         self.exit_path_length = sum(math.hypot(b[0]-a[0], b[1]-a[1])
                                     for a,b in zip(self.path, self.path[1:]))
@@ -796,6 +801,9 @@ class Follower:
         return self.accept_exit_route(*result,now=now)
 
     def accept_exit_route(self,route,reason,now=None):
+        if route and self.cfg.exit_curve_only:
+            route=curve_only_route(route)
+            if not route:reason='single_arc_unavailable'
         self.exit_route_reason=reason
         self.exit_route_ready=bool(route)
         if not route:return False
@@ -924,7 +932,7 @@ class Follower:
         # tolerances. A stricter controller used to reject that endpoint and
         # discard the path, leaving a forward-only replan with no solution.
         semantic = goal is not None and goal.kind in SEMANTIC_GOALS
-        position_tolerance = .07 if self.exiting else ((goal.stop_tolerance if semantic else 0.) or self.parking_position_tolerance)
+        position_tolerance = (.03 if self.cfg.exit_curve_only else .07) if self.exiting else ((goal.stop_tolerance if semantic else 0.) or self.parking_position_tolerance)
         yaw_tolerance = self.cfg.exit_arrival_yaw_tolerance if self.exiting else self.cfg.goal_yaw_tolerance
         heading_ok = goal is not None and (abs(goal.yaw) <= yaw_tolerance if self.exiting or self.require_parking_heading else True)
         if self.exiting and self.entry_trace:
@@ -954,7 +962,7 @@ class Follower:
                    and (self.exiting or self.final_approach or (not semantic and not self.require_parking_heading))
                    and math.hypot(goal.x, goal.y) <= position_tolerance and heading_ok
                    and (self.exiting or not self.cfg.arrival_use_rear_axle or rear_distance<=position_tolerance)
-                   and (not self.exiting or goal.parking_grid is None or outside_grid(pose,goal.parking_grid,self.cfg)))
+                   and (not self.exiting or self.cfg.exit_curve_only or goal.parking_grid is None or outside_grid(pose,goal.parking_grid,self.cfg)))
         if new_scan:
             self.arrival_count = self.arrival_count + 1 if arrived and self.measured_speed < .03 else 0
         if arrived:
@@ -1012,6 +1020,8 @@ class Follower:
             terminal_margin=max(.001,min(.003,position_tolerance-endpoint_error-.005))
         endpoint_threshold = (terminal_margin if terminal_margin is not None else
                               min(.065, position_tolerance*.5) if self.final_approach and not self.exiting else .065)
+        if self.exiting and self.cfg.exit_curve_only:
+            endpoint_threshold=min(endpoint_threshold,position_tolerance*.5)
         if self.recovering:
             endpoint_threshold = .025
         minimum_met=(not self.recovering or self.recovery_start_pose is None
@@ -1144,7 +1154,8 @@ class Follower:
         if (self.exiting and self.exit_started_at is not None and self.cfg.exit_start_speed>0
                 and now-self.exit_started_at<self.cfg.exit_steering_settle_time):
             speed=min(speed,self.cfg.exit_start_speed)
-        if self.cfg.require_complete_entry_path and self.cfg.continuous_replanning and speed>0:
+        if (self.cfg.require_complete_entry_path and self.cfg.continuous_replanning and speed>0
+                and (not self.exiting or self.cfg.exit_collision_check_enabled)):
             checker=(RecoveryCollisionChecker if self.recovering else CollisionChecker)(scan if obstacle_scan is None else obstacle_scan,
                                      replace(self.cfg,initial_clear_radius=self.cfg.max_range+1.))
             requested=response_scale*math.tan(steering)/self.cfg.wheelbase

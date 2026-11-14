@@ -12,7 +12,7 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Float64MultiArray
 
-from autorace_slow.white_roi import WhiteROI, load_lane_white, validate_white
+from .white_roi import WhiteROI, load_lane_white, validate_white
 from .core import Activation
 
 
@@ -92,26 +92,27 @@ class ParkingFloorGate:
             return
         self.confirmation.required = self.node.required_detections
         self.confirmation.timeout = self.node.sign_timeout
-        if self.confirmation.update(message.data, time.monotonic()):
+        self.confirmation.count = self.confirmation.count + 1 if message.data else 0
+        if self.confirmation.count >= self.node.required_detections:
             self.armed_stamp = now
             self.node.get_logger().info(
                 f'PARKING: YOLO {self.node.required_detections}회 확인, 바닥 흰색 ROI 대기')
 
     def observe(self, stamp, ratio, span, angle):
         now = self.clock()
-        if (not self.node.approach_can_start() or not self.armed
+        if (not self.armed
                 or time.monotonic() < self.node.sign_ignore_until
                 or stamp <= self.armed_stamp or (self.last_stamp is not None and stamp <= self.last_stamp)
                 or not -.05 <= (now-stamp)/1e9 <= self.timeout):
             return
         self.last_stamp = stamp
         self.ratio = ratio
-        hit = ratio >= self.roi.minimum_ratio and span >= self.line_min_span and abs(angle) <= self.line_max_angle
+        hit = ratio >= self.roi.minimum_ratio
         if self.line_stamp is None or (stamp-self.line_stamp)/1e9 > .25:
             self.line_count = 0
         self.line_count = self.line_count+1 if hit else 0
         self.line_stamp = stamp
-        if self.line_count >= self.line_frames:
+        if self.line_count >= 1:
             self.reset()
             self.start()
 
@@ -128,8 +129,6 @@ class ParkingFloorGate:
 
     def on_image(self, message):
         if time.monotonic()-self.shared_received <= .5:
-            return
-        if not self.node.approach_can_start():
             return
         now, wall = self.clock(), time.monotonic()
         if not self.armed or wall < self.node.sign_ignore_until:
@@ -150,14 +149,7 @@ class ParkingFloorGate:
             age = (self.node.get_clock().now().nanoseconds - stamp) / 1e9
             if not -.05 <= age <= self.timeout:
                 return
-            span = np.count_nonzero(np.any(mask>0,axis=0))/mask.shape[1]
-            points = cv2.findNonZero(mask)
-            angle = 0.
-            if points is not None and len(points)>=2:
-                vx,vy,_,_ = cv2.fitLine(points,cv2.DIST_L2,0,.01,.01).flatten()
-                angle = math.atan2(float(vy),float(vx))
-                angle = (angle+math.pi/2)%math.pi-math.pi/2
-            self.observe(stamp,ratio,span,angle)
+            self.observe(stamp,ratio,0.,0.)
         except (ValueError, cv2.error) as error:
             self.node.get_logger().warning(f'Parking white ROI image rejected: {error}', throttle_duration_sec=5.)
 
