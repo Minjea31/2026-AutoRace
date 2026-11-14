@@ -16,6 +16,7 @@ _autorace_source_selected_ws() {
   fi
   local -a workspaces=(
     '2026-AutoRace/cone_ws'
+    '2026-AutoRace/crosswalk_ws'
     '2026-AutoRace/lane_fusion_ws'
     '2026-AutoRace/lane_ws'
     '2026-AutoRace/mux_ws'
