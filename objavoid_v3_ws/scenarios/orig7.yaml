@@ -1,0 +1,220 @@
+# objavoid_v3 시나리오: objavoid_test orig7과 동일 배치
+# tools/make_scenarios.py로 생성. 원본: simul parking_map.yaml
+size:
+- 10.0
+- 6.0
+texture: track.png
+boundary_wall:
+  height: 0.3
+  thickness: 0.05
+  color:
+  - 0.015
+  - 0.015
+  - 0.015
+  - 1.0
+parking:
+  columns: 3
+  rows: 2
+  bay_width: 0.5
+  bay_depth: 0.6
+  line_width: 0.02
+  outer_size:
+  - 1.58
+  - 1.24
+  goal:
+  - 6.630275
+  - 7.129977
+  - 3.970155
+  - 4.570188
+obstacles:
+- name: parked_left
+  pose:
+  - 6.360085
+  - 4.270171
+  - 1.5707963267948966
+- name: parked_right
+  pose:
+  - 7.400167
+  - 4.270171
+  - 1.5707963267948966
+- name: parked_inner_left
+  pose:
+  - 6.360085
+  - 3.649864
+  - 1.5707963267948966
+- name: parked_inner_middle
+  pose:
+  - 6.880126
+  - 3.649864
+  - 1.5707963267948966
+- name: parked_inner_right
+  pose:
+  - 7.400167
+  - 3.649864
+  - 1.5707963267948966
+- name: v3_01
+  pose:
+  - 6.384125
+  - 0.42
+  - 3.141593
+- name: v3_02
+  pose:
+  - 6.854375
+  - 0.42
+  - 3.141593
+- name: v3_03
+  pose:
+  - 7.324625
+  - 0.42
+  - 3.141593
+- name: v3_04
+  pose:
+  - 7.324625
+  - 1.46
+  - 3.141593
+- name: v3_05
+  pose:
+  - 7.794875
+  - 1.46
+  - 3.141593
+- name: v3_06
+  pose:
+  - 5.443625
+  - 0.94
+  - 3.141593
+- name: v3_07
+  pose:
+  - 4.973375
+  - 0.94
+  - 3.141593
+avoidance_layout:
+  x_min: 4.268
+  x_max: 8.03
+  columns: 8
+  row_y:
+    upper: 1.46
+    middle: 0.94
+    lower: 0.42
+  occupied: {}
+sign_geometry:
+  total_height: 0.2
+  diameter: 0.09
+  print_diameter: 0.08
+  thickness: 0.01
+  post_width: 0.01
+sign:
+  pose:
+  - 6.2
+  - 4.52
+  - 3.141592653589793
+signs:
+- name: speed_bump_sign
+  asset: speed-bump.png
+  pose:
+  - 2.5
+  - 5.89
+  - 3.141592653589793
+- name: zigzag_slow_sign
+  asset: slow.png
+  pose:
+  - 9.27
+  - 4.46
+  - 1.5707963267948966
+- name: pedestrian_sign
+  asset: pedestrian.png
+  pose:
+  - 9.27
+  - 2.54
+  - 1.5707963267948966
+fork:
+  pose:
+  - 4.1
+  - 0.94
+  - 0.0
+  default: left
+  assets:
+    left: fork-left-a.png
+    right: fork-right-b.png
+cones: []
+cone_course:
+  start_line_y: 1.86
+  end_line_y: 3.92
+  center_x: 0.72
+  layout: double_s
+  amplitude: 0.2
+  half_waves: 4
+  phase_deg: -90
+  half_width: 0.32
+  reference_amplitude: 0.048
+  pairs: 24
+  cone:
+    height: 0.18
+    radius: 0.038
+    top_radius: 0.005
+    base_size: 0.08
+    base_height: 0.008
+speed_bump:
+  pose:
+  - 3.65
+  - 5.58
+  - 0.0
+  length: 0.16
+  width: 0.5
+  height: 0.018
+traffic_light:
+  pose:
+  - 3.17
+  - 4.49
+  - 3.141592653589793
+  width: 0.12
+  height: 0.205
+  center_height: 0.1525
+  housing_width: 0.08
+  thickness: 0.035
+  lens_diameter: 0.054
+  base_size:
+  - 0.08
+  - 0.1
+  - 0.006
+  default: red
+advertisement:
+  pose:
+  - 3.17
+  - 4.28
+  - 3.141592653589793
+  width: 0.17
+  height: 0.12
+  center_height: 0.5
+spawns:
+  parking:
+  - 5.5
+  - 4.84
+  - 0.0
+  track:
+  - 0.65
+  - 5.58
+  - 0.0
+  slow:
+  - 1.6
+  - 5.58
+  - 0.0
+  crosswalk:
+  - 9.58
+  - 3.35
+  - -1.5707963267948966
+  obstacle:
+  - 8.55
+  - 0.94
+  - 3.141592653589793
+  fork:
+  - 4.85
+  - 0.94
+  - 3.141592653589793
+  cone:
+  - 0.72
+  - 1.9
+  - 1.2750887584551238
+  signal:
+  - 1.8
+  - 4.84
+  - 0.0

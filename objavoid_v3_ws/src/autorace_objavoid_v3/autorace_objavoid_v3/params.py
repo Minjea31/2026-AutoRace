@@ -1,0 +1,243 @@
+"""모든 튜닝 파라미터의 기본값. ROS 노드는 이 필드를 그대로 파라미터로 선언한다."""
+from dataclasses import dataclass, field, fields
+from typing import List
+
+
+@dataclass
+class Params:
+    # --- 차량 (simul/config/limo_pro.yaml) ---
+    wheelbase: float = 0.200
+    body_front: float = 0.161        # base_link -> 차체 앞끝
+    body_rear: float = 0.161         # base_link -> 차체 뒤끝
+    body_width: float = 0.220
+    max_steering: float = 0.40       # 자전거 모델 등가 조향 한계(차량 0.4086 = atan(0.2/0.462))
+    max_steering_rate: float = 1.2   # rad/s, 차량 1.5보다 낮게
+    lidar_x: float = 0.103
+    lidar_y: float = 0.0
+    lidar_yaw: float = 0.0
+
+    # --- 사전 도로 경계 (시뮬 3차로: 노란 실선 안쪽 y=0.171~1.708, 입구 깔때기) ---
+    boundary_s: List[float] = field(default_factory=lambda: [-1.0, 0.0, 0.5, 5.8])
+    boundary_left: List[float] = field(default_factory=lambda: [0.25, 0.26, 0.768, 0.768])
+    boundary_right: List[float] = field(default_factory=lambda: [-0.25, -0.26, -0.768, -0.768])
+    section_end: float = 4.25        # 활성화 위치부터 구간 끝(갈림길 섬)까지. DONE·통과 판정 범위
+    roi_beyond_end: float = 0.6      # 구간 끝 너머 물체(갈림길 표지판 등)도 추적(비상 정지·시각화). DONE 판정에서는 제외
+    plan_beyond_end: float = 0.1     # 경로 끝에서 차 앞끝이 구간 끝 + 이 값까지만: 표지판을 비켜 가지 않고 가운데 차로로 복귀
+    home_d: float = 0.0              # 복귀할 가운데 차로 중심
+    lane_centers: List[float] = field(default_factory=lambda: [-0.52, 0.0, 0.52])
+
+    # --- 카메라 노란 실선(퓨전 차선 결과 재사용: /lane_fusion/deep_mask + 원본 HSV, BEV는 퓨전 lane.yaml) ---
+    use_lane: bool = True
+    lane_cell: float = 0.03          # odom 노란선 격자 칸
+    lane_confirm: int = 2            # 노란 확정 최소 관측 횟수
+    lane_ratio: float = 0.3          # 노란 횟수 / 카메라가 본 횟수
+    lane_line_half: float = 0.015    # 선 반폭(경계는 선 안쪽 가장자리)
+    lane_center_gap: float = 0.15    # 가운데(d=0)에서 이보다 떨어진 노란 칸만 좌/우 경계로(섬 제외)
+    lane_max_d: float = 1.2
+    lane_unknown_band: float = 0.15  # 차체가 경계에 이만큼 가까운데 그쪽 선을 못 봤으면 미검증(감속·정지)
+    lane_align: bool = True          # 직선 노란 실선으로 도로 좌표계(방향·중심) 정렬
+    lane_align_wait: float = 1.5     # 활성화 직후 정렬 대기 최대 시간(그 뒤는 차 자세 기준으로 진행)
+    lane_align_period: float = 0.5
+    lane_realign_period: float = 1.0  # 재정렬 뒤 다음 재정렬까지 최소 간격
+    lane_align_s_max: float = 1.0    # 활성화 위치 기준 이 s까지만 재정렬(이후는 odom 유지)
+    lane_align_max: float = 0.6      # 도로 축과 이 각도 안의 직선 조각만 방향 추정에 사용
+    lane_seg_min_len: float = 0.4
+    lane_seg_max_thick: float = 0.02
+    lane_align_min_len: float = 0.6  # 방향 추정에 필요한 직선 조각 총 길이
+    lane_align_tol: float = 0.03     # 이보다 작은 각 오차는 무시(불필요한 재정렬 방지)
+    lane_center_tol: float = 0.04
+    lane_reset_tracks_angle: float = 0.05  # 이보다 큰 재정렬 각이면 추적 박스를 버리고 다시 검출
+    lane_pair_widths: List[float] = field(default_factory=lambda: [0.52, 1.537])  # 입구 차로 폭, 3차로 도로 폭
+    lane_width_tol: float = 0.08
+    lane_center_max: float = 0.35    # 선 쌍 중점이 지금 중심에서 이보다 멀면 무시(섬·다른 차로 선 오인 방지)
+    lane_single_tol: float = 0.25    # 선 하나로 중심 보정할 때 허용 범위
+    lane_white_gap: float = 0.25     # 흰 점선 조각을 한 선으로 잇는 최대 틈(점선 간격)
+    lane_dash_offset: float = 0.26   # 가운데 차로 기준 흰 점선 위치(차로 폭/2)
+    lane_white_exclusion: float = 0.06  # 흰 점선 이 거리 안의 노란 칸은 노이즈로 버림
+    lane_island: bool = True         # 가운데 노란선(갈림길 섬)으로 구간 끝을 정함
+    lane_island_d: float = 0.3       # 갈림길 섬 노란선 판정 |d|
+    lane_island_window: float = 0.8  # 섬으로 정한 구간 끝은 사전 구간 끝 ± 이 범위 안에서만
+    lane_lidar_filter: bool = True   # 바닥 투영점이 같은 방향 LiDAR 거리보다 멀면 서 있는 물체(노란 라바콘 등)로 보고 버림
+    lane_lidar_margin: float = 0.06  # LiDAR 거리 - 이 값보다 먼 투영점을 버림(콘 밑면이 LiDAR 높이 단면보다 넓음)
+    lane_lidar_beams: int = 2        # 각 방향 ±이 빔 안의 최소 거리로 비교(각도 분해능·시간차 여유)
+
+    # --- 인지 ---
+    scan_range_max: float = 3.5
+    scan_range_min: float = 0.05
+    roi_margin: float = 0.06         # 경계 밖으로 허용하는 점 여유
+    cluster_jump: float = 0.12
+    cluster_min_points: int = 3
+    obstacle_min_length: float = 0.33  # LIMO 0.322 x 0.22, 과소평가 방지
+    obstacle_min_width: float = 0.23
+    obstacle_max_length: float = 0.70  # 이보다 커지면 누적 박스 대신 최신 관측 사용
+    obstacle_max_width: float = 0.45
+    assoc_distance: float = 0.20
+    track_window: int = 10           # 추적 박스 추정 = 최근 이 횟수 관측의 합집합
+    track_lock_tol: float = 0.04     # 기억한 박스는 추정이 이보다 크게 달라질 때만 갱신
+    confirm_hits: int = 2
+    tentative_timeout: float = 0.5
+    pass_margin: float = 0.08        # 차량 뒤끝이 장애물 뒤끝 + 이 값 지나면 제거
+    ghost_time: float = 1.0          # 시야 안인데 레이저가 관통한 누적 시간 -> 삭제
+    vis_res: float = 0.05
+    vis_range: float = 3.0
+    vis_beam_step_deg: float = 0.5
+
+    # --- 계획 ---
+    horizon: float = 2.5
+    sample_ds: float = 0.05
+    station_merge: float = 0.15
+    station_min_ahead: float = 0.30
+    station_max_gap: float = 0.90    # 이보다 먼 정거장 사이에는 중간 층 추가
+    max_layers: int = 8
+    max_skip: int = 3               # 간선이 건너뛸 수 있는 최대 층 수
+    max_nodes_per_layer: int = 10
+    node_merge: float = 0.03
+    margin_obstacle: float = 0.025   # 장애물 하드 여유
+    margin_boundary: float = 0.02    # 노란 경계 하드 여유
+    clearance_soft: float = 0.12     # 이보다 가까우면 비용
+    plan_min_radius: float = 0.55    # 차량 0.462보다 크게
+    plan_min_radius_left: float = 0.0   # 좌회전 계획 최소 반경(0이면 plan_min_radius): 실차 좌우 한계가 다를 때
+    plan_min_radius_right: float = 0.0  # 우회전 계획 최소 반경(0이면 plan_min_radius)
+    plan_steer_rate: float = 1.0     # 계획 경로의 조향 변화율 한계 rad/s
+    plan_steer_speed: float = 0.15   # 위 한계를 검사하는 기준 속도(이보다 빨리 달릴 구간은 제어기가 감속)
+    max_heading: float = 0.9
+    start_relax: float = 0.3         # 출발 직후 이 거리는 헤딩·곡률·조향률 검사 면제(충돌 검사는 유지)
+    relax_min_radius: float = 0.45   # 그 면제 구간에서도 곡률은 이 반경(실차 물리 한계) 안: 따라갈 수 없는 꺾임 차단
+    start_clear_relax: float = 0.5   # 출발 직후 이 거리는 지금 차체 여유 - start_clear_tol까지 허용(이미 붙어 있을 때 벗어나기)
+    start_clear_tol: float = 0.015
+    start_recover_len: float = 1.0   # 이미 여유 안/경계 밖이면 이 거리 안에 정상 여유로 돌아오는 경로 허용
+    start_obstacle_floor: float = 0.005
+    lane_measure_tol: float = 0.03   # 노란선 위치 측정 오차(04번 투영 오차 중앙값 3.4 cm): 출발 직후만 이만큼 겹쳐 보여도 허용
+    start_relax_retry: float = 0.5   # 차 자세에서 계획 실패 시: 시작 곡률 0 + 이 거리 완화로 재시도
+    escape_steers: int = 9            # 조향 후보: 조향각 개수(좌우 최대각까지 균등)
+    escape_holds: List[float] = field(default_factory=lambda: [0.25, 0.5, 0.8])  # 조향 유지 길이 m
+    escape_hold_psi: List[float] = field(default_factory=lambda: [0.6, 0.9, 1.2, 1.4])  # 최대 조향을 헤딩이 이만큼 돌 때까지 유지
+    escape_min_radius: float = 0.50  # 조향 후보 최소 회전반경(실차 0.462)
+    escape_min_radius_left: float = 0.0   # 0이면 escape_min_radius
+    escape_min_radius_right: float = 0.0
+    escape_return_gain: float = 1.5  # 유지 후 도로 방향으로 풀 때 조향 = -gain x 헤딩
+    escape_w_clear: float = 2.0
+    escape_w_heading: float = 0.3
+    escape_min_len: float = 0.4      # 이보다 짧게만 갈 수 있으면 조향 후보도 없음(정지)
+    escape_use_len: float = 1.0      # 5차 노드 경로가 이보다 짧으면 조향 후보와 비교
+    observe_mode: bool = False       # 관찰 모드(수동 조종하며 경로만 확인): DONE·경로 이탈 정지 없이 계속 계획
+    observe_min_radius: float = 0.47  # 관찰 모드 계획 회전반경(실차 한계 0.462): 사람이 몰 수 있는 경로까지 표시
+    observe_max_heading: float = 1.2
+    w_lane: float = 1.0
+    w_kappa: float = 0.05
+    w_dkappa: float = 0.002
+    w_clear: float = 60.0
+    w_cons: float = 8.0
+    cons_length: float = 1.0         # 기존 경로 유지 비용을 적용하는 앞 구간 길이
+    w_unknown: float = 3.0           # 미관측 노드 비용: 가려진 쪽 막다른 길보다 들여다보이는 통로 우선
+    w_terminal: float = 2.0
+    w_partial: float = 0.0           # 부분 경로 끝점을 다음 층 통과 노드 쪽으로 당기는 비용
+
+    # --- 재계획 ---
+    replan_remaining: float = 1.4    # 남은 경로가 이보다 짧으면 연장
+    replan_period: float = 1.0       # 소프트 재계획 최소 간격
+    stitch_error: float = 0.05       # 이 이내로 추종 중이면 기존 경로 상태에서 이어 붙임
+    commit_len: float = 0.35         # 소프트 재계획(연장·새 장애물 등) 때 차 앞 이 구간은 기존 경로 그대로(경로 흔들림 방지)
+    deviation_replan: float = 0.12
+    blocked_tol: float = 0.02        # 기존 경로 여유가 기준보다 이만큼 더 작아야 막힘
+    blocked_scans: int = 2           # 연속 스캔 수
+    deviation_stop: float = 0.20
+
+    # --- 제어 (PD) ---
+    control_rate: float = 25.0
+    k_y: float = 1.3
+    k_psi: float = 1.0
+    k_i: float = 0.0
+    i_limit: float = 0.1
+    fb_limit: float = 0.30
+    steer_gain: float = 1.0          # 명령 곡률 배율(실차가 덜 돌면 >1). 상태의 turn_ratio로 판단
+    # --- 후진 탈출: 앞으로 갈 경로가 없어 멈춰 있으면 지나온 쪽으로 조금 물러나며 앞머리를 빈 차로 쪽으로 돌린다 ---
+    reverse_enable: bool = True
+    reverse_wait: float = 1.0        # 막혀서 정지한 뒤 이만큼 지나도 경로가 없으면 후진
+    reverse_speed: float = 0.10
+    reverse_dist: float = 0.35       # 한 번에 물러나는 최대 거리(LiDAR가 뒤를 못 봄: 지나온 길 안에서만)
+    reverse_psi: float = 0.5         # 앞머리를 빈 차로 쪽으로 이 각도까지 돌리고, 그 뒤는 조향을 펴고 물러남
+    reverse_max: int = 3             # 같은 자리에서 최대 횟수(0.5 m 이상 전진하면 다시 셈)
+    reverse_timeout: float = 6.0
+    reverse_margin: float = 0.03     # 후진 중 차체 모서리와 추적 박스·노란 경계 최소 여유
+    steer_trim: float = 0.0          # 실차 조향 쏠림(rad, 왼쪽 +): 명령 0에서 실제로 도는 각. 보낼 때 이만큼 빼서 보낸다
+    ff_preview_time: float = 0.12
+    v_max: float = 0.30
+    v_min: float = 0.08
+    v_narrow: float = 0.20
+    narrow_clearance: float = 0.07
+    curve_slow: float = 0.5          # v *= 1 - curve_slow * |k|/k_max
+    accel: float = 0.5
+    decel: float = 0.8
+    stop_buffer: float = 0.12
+
+    # --- 갈림길 A/B(C++ 노드만 구현): /yolo/LR_sign(false=왼쪽 A, true=오른쪽 B)으로 섬 왼쪽/오른쪽 갈래 진입 ---
+    fork_enable: bool = True
+    fork_island_s: float = 0.0       # 섬 시작 s(실측). 0이면 모름: 표지판을 볼 때까지 계속 주행하고, 본 위치로 섬을 추정
+    fork_sign_to_island: float = 2.0  # 표지판 결정 순간 차 앞끝에서 섬 시작까지 추정 거리(YOLO 발행 면적 1000 px2 ≈ 2.3 m)
+    fork_island_len: float = 1.75    # 섬 길이(도면 1.75 m): 이 구간 가운데를 가상 장애물로
+    fork_island_half: float = 0.26   # 섬 반폭(도면 ±0.26 m)
+    fork_plan_beyond: float = 1.0    # 방향이 정해지면 섬 시작 너머 이만큼까지 계획
+    fork_enter_len: float = 0.3      # 차 앞끝이 섬 시작 + 이 값을 지나고 정한 갈래에 있으면 DONE
+    fork_wait_dist: float = 0.7      # fork_island_s를 준 경우만: 표지판 없이 차 앞끝이 섬 이 거리 앞이면 정지·대기
+    fork_sign_timeout: float = 8.0   # 대기 최대 시간. 넘으면 DONE(no_sign)으로 차선 주행에 넘김
+    fork_sign_min: int = 2           # 같은 방향 메시지가 이 개수 이상이고 반대보다 많으면 결정
+    fork_lock_dist: float = 0.8      # 차 앞끝이 섬 시작 이 거리 안이면 결정 고정(늦은 오인으로 바꾸지 않음)
+    fork_use_sign_post: bool = True  # 표지판 받침(LiDAR 박스) 기준: A면 받침 왼쪽, B면 오른쪽으로만 지나가게 반대쪽을 가상 벽으로
+    fork_cam_fx: float = 487.3       # 표지판 방향 계산용 카메라(04번 camera_info, 640x480)
+    fork_cam_cx: float = 321.5
+    fork_cam_x: float = 0.133        # base_link 기준 카메라 위치(전방, 왼쪽)
+    fork_cam_y: float = -0.05
+    fork_bearing_tol: float = 0.10   # YOLO 박스 방향과 LiDAR 박스 방향 차이 허용(rad)
+    fork_post_max_dist: float = 3.5
+    fork_post_center_d: float = 0.4  # 받침이 도로 가운데(|d| < 이 값)일 때만 갈림길 표지판으로 사용
+
+    # --- 자동 시작(C++ 노드만): 흰 정지선 + 그 너머 흰 점선(3차선에만 있음) + 전방 장애물이 연속으로 보이면 활성화 ---
+    start_auto: bool = True
+    start_line_x_min: float = 0.15   # 정지선을 찾는 차 앞 거리 범위(m, base_link 전방)
+    start_line_x_max: float = 1.0
+    start_line_thick: float = 0.06   # 정지선 앞뒤 두께 이내(가로로 놓인 얇은 띠)
+    start_line_span: float = 0.5     # 정지선 좌우 폭 이상
+    start_line_fill: float = 0.7     # 정지선 좌우 폭 중 흰 점이 있는 비율(5 cm 칸) 이상(점선 머리 두 개 오인 방지)
+    start_line_min_pts: int = 15
+    start_dash_dist: float = 2.0     # 정지선 너머 이 거리 안에서 점선 조각을 찾음
+    start_dash_tol: float = 0.08     # 점선 위치 |y| = lane_dash_offset ± 이 값
+    start_dash_max_width: float = 0.06  # 점선 조각 좌우 폭 이하(횡단보도 줄무늬는 넓어서 제외)
+    start_dash_min_len: float = 0.05
+    start_dash_max_len: float = 0.40
+    start_dash_min: int = 2          # 점선 조각 최소 개수(좌우 합)
+    start_obs_x_max: float = 3.0     # 전방 장애물 범위
+    start_obs_y: float = 0.8
+    start_obs_min: int = 1
+    start_clutter_y: float = 0.6     # 정지선 너머 |y| 이 안에서 점선 자리 밖 흰 점(횡단보도 줄무늬 등)
+    start_clutter_max: int = 40      # 이보다 많으면 시작 아님(횡단보도·정지선만 있는 곳 거부)
+    start_confirm: int = 2           # 연속 판정 횟수
+    start_rearm: float = 20.0        # 완료·비활성 뒤 이 시간 지나야 다시 자동 시작
+    start_origin_at_line: bool = True  # 도로 좌표 원점을 정지선에(section_end·fork_island_s = 정지선부터 거리)
+
+    # --- 안전 ---
+    scan_timeout: float = 0.40
+    odom_timeout: float = 0.25
+    odom_extrapolate_max: float = 0.20
+    emergency_distance: float = 0.06
+    emergency_time: float = 0.35
+    emergency_points: int = 3
+
+    # --- 종료 ---
+    done_min_passed: int = 1
+    done_center_tol: float = 0.08
+    done_heading_tol: float = 0.12
+    done_hold: float = 0.3
+    done_clear_ahead: float = 0.8
+
+
+def param_items():
+    return [(f.name, getattr(Params(), f.name)) for f in fields(Params)]
+
+
+def side_radius(p, kind):
+    """(좌, 우) 최소 반경. kind: 'plan' | 'escape'. 0이면 공통 값."""
+    base = getattr(p, f'{kind}_min_radius')
+    left = getattr(p, f'{kind}_min_radius_left') or base
+    right = getattr(p, f'{kind}_min_radius_right') or base
+    return left, right

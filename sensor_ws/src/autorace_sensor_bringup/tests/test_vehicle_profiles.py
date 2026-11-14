@@ -26,7 +26,7 @@ def load_launch(monkeypatch, tmp_path):
     return module, context
 
 
-@pytest.mark.parametrize('vehicle, expected', [(None, 0.0), ('06', 0.0), ('04', 0.04)])
+@pytest.mark.parametrize('vehicle, expected', [(None, 0.0), ('06', 0.0), ('04', 0.01)])
 def test_vehicle_selects_driver_neutral_offset(monkeypatch, tmp_path, vehicle, expected):
     module, context = load_launch(monkeypatch, tmp_path)
     if vehicle is not None:
@@ -38,6 +38,20 @@ def test_vehicle_selects_driver_neutral_offset(monkeypatch, tmp_path, vehicle, e
     session = json.loads((tmp_path / 'session.json').read_text())
     assert session['options']['vehicle'] == (vehicle or '06')
     assert session['steering_command_offset'] == expected
+
+
+@pytest.mark.parametrize('vehicle, override, expected', [
+    (None, None, 0.35), ('06', None, 0.35), ('04', None, 0.48), ('04', '0.42', 0.42)])
+def test_vehicle_selects_steering_command_limit(monkeypatch, tmp_path, vehicle, override, expected):
+    module, context = load_launch(monkeypatch, tmp_path)
+    if vehicle is not None:
+        context.launch_configurations['vehicle'] = vehicle
+    if override is not None:
+        context.launch_configurations['steering_command_limit'] = override
+    actions = module._setup(context)
+    base = next(action for action in actions if getattr(action, 'package', None) == 'limo_base')
+    assert base.parameters[0]['steering_command_limit'] == expected
+    assert json.loads((tmp_path / 'session.json').read_text())['steering_command_limit'] == expected
 
 
 @pytest.mark.parametrize('vehicle', ['4', '07', ''])
