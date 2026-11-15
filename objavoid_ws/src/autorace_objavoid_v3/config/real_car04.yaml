@@ -1,8 +1,8 @@
 # 04번 실차 덮어쓰기(launch car:=04). 근거: 메모 car-04 / objavoid_test real_car04.yaml(2026-11-13 bag 분석)
 objavoid_v3_node:
   ros__parameters:
-    v_max: 0.30               # 첫 실차 시험은 낮게
-    curve_slow: 0.2
+    v_max: 0.2               # 첫 실차 시험은 낮게
+    curve_slow: 0.1
     ff_preview_time: 0.2
     # 04번 카메라 바닥 투영: camera_info(fx 487.3, cx 321.5, cy 220.4) + 장착(앞 0.133, 좌 -0.05, 높이 0.21 m)
     #   + 콘 238쌍으로 맞춘 숙임 1.5°·yaw 1.4°, 오차 중앙값 3.4 cm(06번 BEV 값은 25 cm)
@@ -68,21 +68,21 @@ objavoid_v3_node:
     #   (0.5면 -0.43에서 멈춤). 왼쪽은 이미 기계 한계(+0.40 rad)라 더 꺾이지 않음.
     # 11-15 01:31 bag: 센서 steering_command_limit:=0.48 + 아래 값으로 수동 개입 없이 3단 슬라롬 통과(정지 0, 계획 실패 0).
     #   이 설정은 상한 0.48 전제. 명령 -0.47 -> 실제 -0.34, +0.52 -> +0.44.
-    max_steering: 0.6
+    max_steering: 0.7
     steer_gain: 1.0
     steer_trim: 0.0
     plan_min_radius: 0.6        # 속도 감속 기준(좌우 반경은 아래)
     # 11-15 01:21 bag(상한 0.42): 명령 -0.5 -> 실제 -0.34(반경 0.58 m), +0.5 -> +0.40(0.48 m). 리모컨(우 0.40 m)만큼은 안 나옴
-    plan_min_radius_left: 0.5   # 0.4는 실측(좌 0.48 / 우 0.58 m)보다 작아 못 따라감
-    plan_min_radius_right: 0.6
-    max_heading: 1.4
-    escape_min_radius: 0.55
+    plan_min_radius_left: 0.4   # 0.4는 실측(좌 0.48 / 우 0.58 m)보다 작아 못 따라감
+    plan_min_radius_right: 0.4
+    max_heading: 1.55
+    escape_min_radius: 0.5
     escape_min_radius_left: 0.48
     escape_min_radius_right: 0.58
     observe_min_radius: 0.55
     # 여유: 0.04/0.18이면 default7·3단 슬라롬이 후진 없이 막힘 -> 0.03/0.15(22:04의 0.025/0.12보다는 넓게)
     margin_obstacle: 0.03
-    clearance_soft: 0.18        # 11-15 차에서 조정한 값 유지
+    clearance_soft: 0.15        # 11-15 차에서 조정한 값 유지
     # 뒷바퀴가 지난 콘에 스침: 지난 장애물을 더 오래 기억(0.08 -> 0.2, 차 뒤끝 판정도 가장 뒤 모서리 기준으로 수정)
     pass_margin: 0.2
     # 11-15 차에서 조정한 값(공통 objavoid_v3.yaml에서 04번 설정으로 옮김)

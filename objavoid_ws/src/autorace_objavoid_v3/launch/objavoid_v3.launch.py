@@ -16,6 +16,17 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch_ros.actions import Node
 
 
+def _lane_config(share, real):
+    relative = Path('lane_fusion_ws/src/autorace_lane_fusion/config') / ('real' if real else 'sim') / 'lane.yaml'
+    package = Path(os.path.realpath(os.path.join(share, 'package.xml'))).parent
+    for start in (Path(share), package):
+        for root in (start, *start.parents):
+            candidate = root / relative
+            if candidate.is_file():
+                return str(candidate)
+    raise RuntimeError(f'lane config not found: {relative}')
+
+
 def _nodes(context):
     get = lambda k: context.launch_configurations[k]
     share = get_package_share_directory('autorace_objavoid_v3')
@@ -23,10 +34,7 @@ def _nodes(context):
     sim_time = get('use_sim_time') if get('use_sim_time') else ('false' if real else 'true')
     lane_cfg = get('lane_config')
     if not lane_cfg:
-        # 저장소 루트 = 이 패키지 소스(심볼릭 설치)의 상위. 퓨전 차선 BEV 보정을 그대로 쓴다.
-        src = Path(os.path.realpath(os.path.join(share, 'package.xml'))).parent
-        repo = src.parents[2]
-        lane_cfg = str(repo / 'lane_fusion_ws/src/autorace_lane_fusion/config' / ('real' if real else 'sim') / 'lane.yaml')
+        lane_cfg = _lane_config(share, real)
     params = [get('params_file')]
     car = get('car')
     if car:

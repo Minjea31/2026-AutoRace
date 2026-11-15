@@ -12,7 +12,7 @@ objavoid_v3_node:
     body_front: 0.161   # base_link -> 차체 앞끝
     body_rear: 0.161   # base_link -> 차체 뒤끝
     body_width: 0.22
-    max_steering: 0.4   # 자전거 모델 등가 조향 한계(차량 0.4086 = atan(0.2/0.462))
+    max_steering: 0.5   # 자전거 모델 등가 조향 한계(차량 0.4086 = atan(0.2/0.462))
     max_steering_rate: 1.2   # rad/s, 차량 1.5보다 낮게
     lidar_x: 0.103
     lidar_y: 0.0
