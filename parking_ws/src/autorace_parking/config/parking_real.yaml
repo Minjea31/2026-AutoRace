@@ -18,7 +18,8 @@ parking_node:
     validate_reverse_entry: true
     async_scan_matching: true
     planner_prewarm: true
-    manual_mode_guard: true
+    # The base handles manual/auto mode; parking keeps its current mission and path.
+    manual_mode_guard: false
     control_mode_timeout_sec: 2.0
     white_roi_enabled: true
     white_roi_left: 0.050

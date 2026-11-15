@@ -13,6 +13,7 @@ from ackermann_msgs.msg import AckermannDriveStamped
 from rclpy.context import Context
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
@@ -38,8 +39,9 @@ def test_red_stop_event_clears_slow_once_and_allows_a_fresh_second_mission(bump_
     args = ['--ros-args']
     for source, target in topics.items():
         args += ['-r', source + ':=' + prefix + '/' + target]
-    signal = SignalNode(context=context, cli_args=args)
-    slow = SlowNode(context=context, cli_args=args)
+    signal = SignalNode(context=context, cli_args=args, parameter_overrides=[
+        Parameter('white_roi_enabled', value=False), Parameter('stop_delay_sec', value=0.)])
+    slow = SlowNode(context=context, cli_args=args, parameter_overrides=[Parameter('start_delay_sec', value=0.)])
     probe = Node('signal_slow_probe', context=context)
     lane_pub = probe.create_publisher(AckermannDriveStamped, prefix + '/lane', 10)
     lights = probe.create_publisher(Bool, prefix + '/light', 10)
@@ -111,7 +113,7 @@ def test_red_stop_event_clears_slow_once_and_allows_a_fresh_second_mission(bump_
         assert mission.deadline is None and not mission.armed and mission.count == 0
         assert 'slow' not in slow.white_arm_stamps
         light(False, 3)
-        assert len(starts) == 1  # Additional red messages only extend the stop.
+        assert len(starts) == 1  # Additional red messages keep the same fixed-deadline stop.
         sent = len(slow_commands)
         pump(.18)
         assert len(starts) == 1

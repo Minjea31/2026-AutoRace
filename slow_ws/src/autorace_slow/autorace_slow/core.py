@@ -8,21 +8,24 @@ class Mission:
     last_received: float = None
     deadline: float = None
     armed: bool = False
+    start_at: float = None
 
 
 class SlowState:
-    def __init__(self, confirm_frames=2, hold_sec=8., gap_timeout_sec=.5, require_white_mark=True, slow_hold_sec=15.):
+    def __init__(self, confirm_frames=2, hold_sec=10., gap_timeout_sec=.5, require_white_mark=True, slow_hold_sec=15., start_delay_sec=0.):
         self.required = confirm_frames
         self.hold = hold_sec
         self.slow_hold = slow_hold_sec
         self.gap = gap_timeout_sec
         self.require_white_mark = require_white_mark
+        self.start_delay = start_delay_sec
         self.missions = {kind: Mission() for kind in ('slow', 'bump')}
 
     def tick(self, now):
         for mission in self.missions.values():
             if mission.deadline is not None and now >= mission.deadline:
                 mission.deadline = None
+                mission.start_at = None
                 mission.armed = False
                 mission.count = 0
                 mission.last_received = None
@@ -37,6 +40,8 @@ class SlowState:
         if not detected:
             mission.count = 0
             return False
+        if mission.start_at is not None and now < mission.start_at:
+            return False  # Repeated signs cannot move a scheduled start.
         if mission.deadline is not None and kind != 'slow':
             mission.deadline = now+self.hold
             return False
@@ -61,7 +66,10 @@ class SlowState:
                 if (mission.armed and (mission.deadline is None or kind == 'slow')
                         and (eligible_kinds is None or kind in eligible_kinds)):
                     mission.armed = False
-                    mission.deadline = now + (self.slow_hold if kind == 'slow' else self.hold)
+                    # A renewal keeps an already active mission running.
+                    if mission.deadline is None:
+                        mission.start_at = now + self.start_delay
+                    mission.deadline = now + self.start_delay + (self.slow_hold if kind == 'slow' else self.hold)
                     activated.append(kind)
         return tuple(activated)
 
@@ -71,4 +79,5 @@ class SlowState:
     def selected(self, now):
         self.tick(now)
         return next((kind for kind in ('bump', 'slow')
-                     if self.missions[kind].deadline is not None), None)
+                     if self.missions[kind].deadline is not None
+                     and (self.missions[kind].start_at is None or now >= self.missions[kind].start_at)), None)

@@ -11,11 +11,12 @@ rclpy = pytest.importorskip('rclpy')
 pytest.importorskip('ackermann_msgs.msg')
 from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import Twist
+from std_msgs.msg import String
 from rclpy.context import Context
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.qos import QoSProfile
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.signals import SignalHandlerOptions
 
 from autorace_mux.core import INPUTS
@@ -31,6 +32,7 @@ class Harness:
         self.topics = {name: prefix + '/' + name for name, _ in INPUTS}
         parameters = {
             'output_topic': prefix + '/output', 'publish_rate_hz': 60.0,
+            'active_source_topic': prefix + '/active_source',
             'input_timeout_sec': 0.18,
             'max_acceleration_mps2': 100.0, 'max_deceleration_mps2': 100.0,
             **{'topics.' + key: value for key, value in self.topics.items()},
@@ -48,6 +50,11 @@ class Harness:
         self.subscription = self.probe.create_subscription(
             Twist, prefix + '/output',
             lambda msg: self.samples.append((msg.linear.x, msg.angular.z)), qos)
+        self.sources = []
+        self.source_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.source_subscription = self.probe.create_subscription(
+            String, prefix + '/active_source',
+            lambda msg: self.sources.append(msg.data), self.source_qos)
         self.executor = SingleThreadedExecutor(context=self.context)
         self.executor.add_node(self.mux)
         self.executor.add_node(self.probe)
@@ -158,5 +165,49 @@ def test_watchdog_keeps_running_without_simulated_clock_messages():
         assert h.mux.get_clock().now().nanoseconds == 0
         h.output(0.3, 0.0, {'lane': (0.3, 0.0)})
         h.output(0.0, 0.0)
+    finally:
+        h.close()
+
+
+def test_active_source_tracks_stopping_missions_timeout_late_join_and_shutdown(capfd):
+    h = Harness()
+    try:
+        h.until(lambda: bool(h.sources) and h.sources[-1] == 'stop')
+        lane = {'lane': (0.4, 0.0)}
+        h.output(0.4, 0.0, lane)
+        h.until(lambda: h.sources[-1] == 'lane', lane)
+        capfd.readouterr()
+        stable_until = time.monotonic() + 1.15
+        h.until(lambda: time.monotonic() >= stable_until, lane)
+        captured = capfd.readouterr()
+        assert 'Selected:' not in captured.out + captured.err
+        stop_mission = {**lane, 'crosswalk': (0.0, 0.0)}
+        h.output(0.0, 0.0, stop_mission)
+        h.until(lambda: h.sources[-1] == 'crosswalk', stop_mission)
+        h.output(0.4, 0.0, lane)
+        h.until(lambda: h.sources[-1] == 'lane', lane)
+        h.output(0.0, 0.0)
+        h.until(lambda: h.sources[-1] == 'stop')
+        parking = {'parking': (-0.2, 0.0)}
+        h.output(-0.2, 0.0, parking)
+        h.until(lambda: h.sources[-1] == 'parking', parking)
+
+        # A late monitor must receive the retained selection without another tick.
+        h.mux._timer.cancel()
+        retained = []
+        late_subscription = h.probe.create_subscription(
+            String, h.source_subscription.topic_name,
+            lambda msg: retained.append(msg.data), h.source_qos)
+        h.until(lambda: retained == ['parking'])
+        h.mux.stop()
+        h.until(lambda: h.sources[-1] == 'stop' and retained[-1] == 'stop')
+        h.probe.destroy_subscription(late_subscription)
+        captured = capfd.readouterr()
+        assert 'Selected: lane | input=' in captured.out + captured.err
+        assert 'Selected: crosswalk | input=' in captured.out + captured.err
+        assert (captured.out + captured.err).count('Selected: STOP (shutdown)') == 1
+        h.mux.stop()
+        captured = capfd.readouterr()
+        assert 'Selected:' not in captured.out + captured.err
     finally:
         h.close()

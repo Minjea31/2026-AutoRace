@@ -1,6 +1,7 @@
 slow_node:
   ros__parameters:
     confirm_frames: 2
+    # 시간은 autorace_slow/node.py 맨 위의 START_DELAY_SEC, SLOW_HOLD_SEC, BUMP_HOLD_SEC에서 조정.
     white_roi_enabled: true
     # Ratios of the original camera image: shallow strip near the vehicle.
     white_roi_left: 0.050

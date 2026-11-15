@@ -1,5 +1,6 @@
 crosswalk_node:
   ros__parameters:
+    # 시간은 autorace_crosswalk/node.py 맨 위의 STOP_DELAY_SEC, STOP_HOLD_SEC, COOLDOWN_SEC에서 조정.
     white_roi_left: 0.050
     white_roi_right: 0.950
     white_roi_top: 0.961

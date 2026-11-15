@@ -19,9 +19,9 @@ def test_yolo_quorum_only_arms_and_one_later_white_observation_starts(kind):
     assert state.receive_white(False, .4) == ()
     assert state.receive_white(True, .5) == (kind,)
     assert state.selected(.5) == kind
-    assert state.missions[kind].deadline == (15.5 if kind == 'slow' else 8.5)
+    assert state.missions[kind].deadline == (15.5 if kind == 'slow' else 10.5)
     assert state.receive_white(True, .6) == ()
-    assert state.missions[kind].deadline == (15.5 if kind == 'slow' else 8.5)
+    assert state.missions[kind].deadline == (15.5 if kind == 'slow' else 10.5)
 
 
 def test_confirmed_sign_stays_armed_after_sign_disappears_and_each_kind_is_independent():

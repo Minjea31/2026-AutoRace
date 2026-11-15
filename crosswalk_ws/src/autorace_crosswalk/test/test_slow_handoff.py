@@ -72,14 +72,17 @@ def test_stop_start_signal_cancels_slow_via_dds():
         crosswalk.publish()
         pump(.05)
         assert not starts
-        crosswalk.state.receive_white(True)
+        crosswalk.state.receive_white(True, time.monotonic())
         crosswalk.publish()
         pump(.05)
         assert crosswalk.state.phase == 'ready' and not starts
         # No lane: neither the stop nor its event can start yet.
         crosswalk.on_lane(lane)
         crosswalk.publish()
-        pump(.15)
+        pump(max(0.,crosswalk.state.ready_at-time.monotonic()-.06))
+        assert not starts and not stops
+        assert slow.state.missions['slow'].deadline is not None
+        pump(.20)
         assert len(starts) == 1 and starts[0].data is True
         assert stops and all(m.drive.speed == 0. for m in stops)
         assert slow.state.missions['slow'].deadline is None

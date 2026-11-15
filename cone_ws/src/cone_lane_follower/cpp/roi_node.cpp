@@ -307,8 +307,8 @@ void scan_callback(const Scan&msg)
     base = transform_points(points, tf_buffer_->lookupTransform("base_link", msg.header.frame_id, time_at(
                                                                   stamp)));
   }catch (const std::exception&e) {
-    if (steady() - last_warning_ >= 1) {
-      RCLCPP_DEBUG(get_logger(), "Skipping scan: cannot transform to base_link: %s", e.what());
+    if (mission_cone_&&steady() - last_warning_ >= 1) {
+      RCLCPP_DEBUG(get_logger(), "[라바콘] 스캔 좌표변환 실패: %s", e.what());
       last_warning_ = steady();
     } control_fault_ = true;
     mission_exit_since_.reset();
@@ -389,7 +389,7 @@ void update_boundary_markers(const Path&centers, const Stamp&stamp)
       // No valid motion transform: never compare coordinates from different frames.
       boundary_tracker_.clear();
       if (steady() - last_warning_ >= 1) {
-        RCLCPP_WARN(get_logger(), "Boundary tracking skipped: %s", e.what());
+        RCLCPP_WARN(get_logger(), "[라바콘] 경계 추적 실패: 좌표변환 불가/지연 (%s)", e.what());
         last_warning_ = steady();
       }
     }
@@ -564,7 +564,6 @@ void stop_control(const std::string&reason = "unspecified")
   publish_drive(0, 0);
   last_steering_ = 0;
   control_mode_ = "Stopped";
-  if (reason != control_stop_reason_) RCLCPP_WARN(get_logger(), "Control stopped: reason=%s", reason.c_str());
   control_stop_reason_ = reason;
 }
 
@@ -576,8 +575,6 @@ void yield_control(const std::string&reason)
   publish_control_points({});
   last_steering_ = 0;
   control_mode_ = "Yielding";
-  if (reason != control_stop_reason_)
-    RCLCPP_INFO(get_logger(), "Control yielded to lower-priority missions: reason=%s", reason.c_str());
   control_stop_reason_ = reason;
 }
 
@@ -604,8 +601,6 @@ bool follow_lane_on_exit(const std::string&reason)
     publish_control_points({});
     last_steering_ = 0;
     publish_drive(d.speed, d.steering_angle);
-    if (control_mode_ != "Exit Lane Follow"||reason != control_stop_reason_)
-      RCLCPP_INFO(get_logger(), "Exit lane follow: lane command passed through (reason=%s)", reason.c_str());
     control_mode_ = "Exit Lane Follow";
     control_stop_reason_ = reason;
     return true;
@@ -741,7 +736,6 @@ void control_tick()
       if (value("exit_lane_speed") > 0) exit_lane_until_ = wall + value("exit_lane_hold_sec");
       follow_lane_on_exit("mission_exit_detection_loss");
       control_engaged_ = false;
-      RCLCPP_INFO(get_logger(), "Cone mission ended: insufficient candidates and no valid path");
       return;
     }
     // Waiting for exit with no path and few cones: never a zero stop. Follow the
@@ -998,50 +992,131 @@ void publish_cone_center_markers(const Path&centers, std::optional<Stamp>stamp =
   } centers_pub_->publish(markers);
 }
 
-std::string diagnostic_summary()const
+std::string log_reason_ko(const std::string&reason)const
 {
-  if (path_diagnostics_.empty()) return "none";
+  static const std::map<std::string, std::string> labels = {
+    {"tf_error", "라이다 좌표변환 실패"},
+    {"mission_inactive", "미션 비활성"},
+    {"scan_not_received", "라이다 미수신"},
+    {"scan_stamp_zero_or_negative", "라이다 시각 오류"},
+    {"scan_receive_clock_reversed", "라이다 수신 시계 역행"},
+    {"scan_receive_timeout", "라이다 수신 지연"},
+    {"scan_stamp_in_future", "라이다 시각이 현재보다 미래"},
+    {"scan_stamp_timeout", "라이다 데이터 오래됨"},
+    {"empty_path", "경로 없음"},
+    {"path_too_few_points", "경로 점 부족"},
+    {"path_nonfinite_coordinates", "경로 좌표 이상"},
+    {"path_no_usable_forward_segment", "사용 가능한 전방 경로 없음"},
+    {"path_too_far_from_reference", "경로가 차량 기준점에서 너무 멂"},
+    {"memory_path_unavailable", "메모리 경로 없음"},
+    {"memory_goal_reached", "메모리 경로 끝 도달"},
+    {"memory_path_unusable", "메모리 경로 사용 불가"},
+    {"memory_path_too_far", "메모리 경로가 차량에서 너무 멂"},
+    {"memory_tf_unavailable_or_stale", "메모리 좌표변환 불가/지연"},
+    {"lane_width_unavailable_or_stale", "차선 폭 정보 없음/지연"},
+    {"boundary_width_conflict", "좌우 경계 폭 불일치"},
+    {"mission_exit_wait", "탈출 대기"},
+    {"mission_exit_front_clear", "전방 라바콘 소실로 차선 전환"},
+    {"mission_exit_detection_loss", "라바콘 감지 종료"},
+    {"exit_lane_hold", "탈출 차선 추종"},
+    {"insufficient_center_points", "중심점 부족"},
+    {"offset_unavailable", "경계점 또는 차선 폭 정보 부족"},
+    {"width_conflict", "추정 폭과 경계 불일치"},
+    {"outside_boundary", "경계 밖 경로"},
+    {"boundary_crossing", "경계 침범"},
+    {"gap", "경로 점 간격 초과"},
+    {"turn", "경로 꺾임 각도 초과"},
+    {"self_crossing", "경로 자체 교차"},
+    {"corner_failure", "코너 경로 계산 실패"},
+    {"single_point_unavailable", "단일점 중점 구간 부족"},
+    {"single_point_turn_radius", "단일점 경로 회전반경 부족"},
+    {"single_point_invalid", "단일점 경로 형상 부적합"},
+    {"planning_budget", "경로 연산 시간 초과"},
+    {"planner_error", "경로 계산 예외"},
+    {"planner_tf", "계산 경로 좌표변환 실패"},
+    {"join", "계산 경로 연결 실패"}
+  };
+  if (reason.empty()||reason == "none"||reason == "None") return "없음";
+  auto it = labels.find(reason);
+  if (it != labels.end()) return it->second;
+  if (reason.rfind("memory_", 0) == 0) return "메모리 " + log_reason_ko(reason.substr(7));
+  return reason; // Preserve new/unclassified reason codes instead of hiding them.
+}
+
+std::string calculation_failure_summary()const
+{
+  // Diagnostics may contain rejected alternatives even when the selected live
+  // path is valid. Only label the live path a failure if it cannot be used.
+  double ref = value("control_reference_x");
+  if (path_control_geometry(center_path_, ref, value("control_max_path_distance"))) return "없음";
+  std::vector<std::string> reasons;
+  for (const auto&key: {"planner_error", "planner_tf", "planning_budget", "outside_boundary",
+                        "boundary_crossing", "self_crossing", "width_conflict", "gap", "turn",
+                        "single_point_turn_radius", "single_point_invalid", "single_point_unavailable",
+                        "corner_failure", "offset_unavailable", "insufficient_center_points", "join"}) {
+    auto it = path_diagnostics_.find(key);
+    if (it == path_diagnostics_.end()) continue;
+    if (it->first == "join"&&it->second.rfind("failed", 0) != 0) continue;
+    reasons.push_back(log_reason_ko(key));
+  }
+  if (reasons.empty()) return log_reason_ko(path_stop_reason(center_path_, ref));
   std::string out;
-  for (auto&[k, v]: path_diagnostics_) {
-    if (!out.empty()) out += "\n               ";
-    out += k + ": " + v;
-  } return out;
+  for (size_t i = 0; i < reasons.size()&&i < 3; ++i) {
+    if (!out.empty()) out += ", ";
+    out += reasons[i];
+  }
+  if (reasons.size() > 3) out += " 외 " + std::to_string(reasons.size() - 3) + "건";
+  return out;
 }
 
 std::string control_log_summary()const
 {
-  std::ostringstream s;
-  s << std::boolalpha << "[Cone] mission=" << mission_cone_ << " | roi_candidates=" <<
-      candidate_clusters_.size() << "\n  Path       : " << center_path_mode_ << " | memory=" <<
-      memory_status_ << "\n  Path update: " << memory_update_reason_ << "\n  Control    : active=" <<
-      control_engaged_ << " | state=" << control_mode_ << "\n  Stop reason: " <<
-      (control_stop_reason_.empty()?"None":control_stop_reason_) << "\n  Projection : " <<
-      projection_status_ << "\n  Boundaries : left=" << left_boundary_.size() << " right=" <<
-      right_boundary_.size() << "\n  Geometry   : sections=" << center_pairs_.size() << " width=" <<
-      (lane_width_mean_?std::to_string(*lane_width_mean_):"None") << "m live_length=" << std::fixed <<
-      std::setprecision(2) << path_length(center_path_) << "m\n  Diagnostics: " << diagnostic_summary() <<
-      "\n  Backup     : stored_points=" << path_memory_.points.size() << " remaining=" << path_length(
-    memory_local_path_) << "m following=" << memory_following_ << "\n  Command    : speed=" <<
-      std::setprecision(3) << command_speed_ << "m/s steering=" << std::showpos << std::setprecision(1) <<
-      command_steering_ * 180 / pi << "deg";
-  return s.str();
+  // Use the last command's control mode, not the mere presence of a cached path.
+  bool live = control_mode_ == "Path Feedback";
+  bool memory = control_mode_ == "Memory Path Feedback";
+  bool lane = control_mode_ == "Exit Lane Follow";
+  bool command = live||memory||lane||control_mode_ == "Stopped";
+  bool stopped = control_mode_ == "Stopped"||(command&&std::abs(command_speed_) < 1e-6);
+  std::string state = stopped?"정지":live||memory?"주행":lane?"차선 전환":
+                      control_mode_ == "Yielding"?"제어 양보":"대기";
+  std::string source = live?"계산":memory?"메모리":lane?"차선":"없음";
+  std::string stop_reason = "없음";
+  if (stopped) {
+    stop_reason = lane?"차선 명령 속도 0":control_stop_reason_.empty()?
+                  "경로 제어 출력 속도 0":log_reason_ko(control_stop_reason_);
+  }
+  std::ostringstream out;
+  out << "[라바콘] 상태=" << state << " | 경로=" << source << " | 속도=";
+  if (command) out << std::fixed << std::setprecision(2) << command_speed_ << "m/s";
+  else out << "미발행";
+  out << " | 조향=";
+  if (command) out << std::showpos << std::setprecision(1) << command_steering_ * 180 / pi << "도" << std::noshowpos;
+  else out << "미발행";
+  out << " | 정지이유=" << stop_reason << " | 계산실패=" << calculation_failure_summary();
+  if (control_mode_ == "Yielding"||lane) out << " | 전환이유=" << log_reason_ko(control_stop_reason_);
+  return out.str();
 }
 
 void publish_control_log()
 {
-  RCLCPP_INFO(get_logger(), "%s", control_log_summary().c_str());
+  if (!mission_cone_) return;
+  auto summary = control_log_summary();
+  if (control_mode_ == "Stopped")
+    RCLCPP_WARN(get_logger(), "%s", summary.c_str());
+  else
+    RCLCPP_INFO(get_logger(), "%s", summary.c_str());
 }
 
 void publish_control_status()
 {
-  std::string state = (mission_cone_?"True":"False") + std::string(" | ") + control_mode_ + " | " +
-                      control_stop_reason_;
-  for (auto&[k, v]: path_diagnostics_) if (k == "width_conflict"||k == "turn"||k == "gap"||k ==
-                                           "boundary_crossing"||k == "outside_boundary") state += " | " + k;
-  if (state != last_logged_state_) {
-    RCLCPP_INFO(get_logger(), "[CONE transition] %s -> %s", last_logged_state_.c_str(), state.c_str());
-    last_logged_state_ = state;
-    publish_control_log();
+  if (!mission_cone_) {
+    last_logged_state_.clear();
+  }else{
+    std::string state = control_mode_ + "|" + control_stop_reason_ + "|" + calculation_failure_summary();
+    if (state != last_logged_state_) {
+      last_logged_state_ = state;
+      publish_control_log();
+    }
   } auto m = new_marker("control_status", Marker::TEXT_VIEW_FACING);
   auto b = values(ROI_DEFAULTS);
   m.pose.position = message_point({(b["roi_x_min"] + b["roi_x_max"]) / 2, b["roi_y_max"] + .4, .3});

@@ -106,8 +106,18 @@ def test_dds_stop_cooldown_and_new_sign_and_floor_required_to_repeat():
         floor(image(white=False))
         assert not commands
         assert not starts
+        assert node.stop_delay_sec == 1.5
         fresh_white = image()
+        detected_after = time.monotonic()
         floor(fresh_white)
+        delay_end = node.state.ready_at
+        assert delay_end >= detected_after + 1.5
+        assert not commands and not starts and node.state.phase == 'ready'
+        floor(image())
+        assert node.state.ready_at == delay_end
+        pump(max(0., delay_end - time.monotonic() - .06))
+        assert not commands and not starts
+        pump(.20)
         assert commands
         assert len(starts) == 1 and starts[0].data is True
         message = commands[-1]
@@ -164,6 +174,8 @@ def test_dds_stop_cooldown_and_new_sign_and_floor_required_to_repeat():
         assert node.state.phase == 'waiting_white'
         assert len(commands) == count
         floor(image())
+        assert node.state.phase == 'ready' and len(commands) == count
+        pump(1.55)
         assert node.state.phase == 'stopping'
         assert len(starts) == 2 and all(m.data for m in starts)
         assert len(commands) > count

@@ -50,6 +50,17 @@ class MuxNode(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE)
         self._publisher = self.create_publisher(Twist, output, qos)
+        source_topic = self.declare_parameter(
+            'active_source_topic', '/mux/active_source', descriptor).value
+        if not source_topic or source_topic in (*topics.values(), output):
+            raise ValueError('Active source topic must be nonempty and differ from command topics')
+        source_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST, depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self._source_publisher = self.create_publisher(String, source_topic, source_qos)
+        self._input_topics = topics
+        self._output_topic = output
         self._subscriptions = [
             self.create_subscription(
                 AckermannDriveStamped, topic, partial(self._receive, name), qos)
@@ -71,7 +82,7 @@ class MuxNode(Node):
             1.0 / self.config.publish_rate_hz, self._publish, clock=self._steady_clock)
         self.get_logger().info(
             f'Mux ready: default={topics["lane"]}, output={output}, '
-            f'timeout={self.config.input_timeout_sec:.3f}s')
+            f'timeout={self.config.input_timeout_sec:.3f}s, active_source={source_topic}')
 
     def _parking_start(self, message):
         if self.parking_guard_enabled:
@@ -138,15 +149,28 @@ class MuxNode(Node):
         message.linear.x = speed
         message.angular.z = yaw_rate
         self._publisher.publish(message)
-        source = candidate.source if candidate else 'STOP (no fresh input)'
+        source = candidate.source if candidate else 'stop'
+        self._source_publisher.publish(String(data=source))
         if source != self._last_source:
-            self.get_logger().info(f'Selected: {source}')
-            self._last_source = source
+            if candidate:
+                label, input_topic = source, self._input_topics[source]
+            else:
+                reason = 'parking guard' if self.parking_guard_enabled and self.parking_guard.armed else 'no fresh input'
+                label, input_topic = f'STOP ({reason})', 'none'
+            self.get_logger().info(
+                f'Selected: {label} | input={input_topic} | output={self._output_topic} | '
+                f'speed={speed:.3f} m/s, yaw_rate={yaw_rate:.3f} rad/s')
+        self._last_source = source
 
     def stop(self):
         self._timer.cancel()
         self._publisher.publish(Twist())
+        self._source_publisher.publish(String(data='stop'))
+        if self._last_source != 'stop':
+            self.get_logger().info('Selected: STOP (shutdown)')
+        self._last_source = 'stop'
         self._publisher.wait_for_all_acked(Duration(seconds=0.2))
+        self._source_publisher.wait_for_all_acked(Duration(seconds=0.2))
 
 
 def main(args=None):

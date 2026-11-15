@@ -38,6 +38,30 @@ ros2 launch autorace_mux mux.launch.py
 속도 0을 계속 발행하는 미션도 유효한 제어 명령이므로 lane에 제어권을 넘기려면 해당 미션의 발행을 멈춰야 합니다.
 기본 입력 만료 시간은 **0.25초**입니다.
 
+## 현재 제어 주체 확인
+
+`/mux/active_source` (`std_msgs/msg/String`)에 MUX가 실제로 선택한 입력 이름을
+제어 출력과 같은 주기로 발행합니다. 기본 주기는 **30Hz**이며,
+값은 `crosswalk`, `signal`, `parking`, `cone`, `objavoid`, `slow`, `lane`, `stop`입니다.
+유효한 입력이 없거나 parking guard가 출력을 막으면 `stop`입니다.
+미션이 속도 0을 명령 중이면 해당 미션 이름을 유지합니다.
+
+```bash
+ros2 topic echo /mux/active_source
+```
+
+늦게 연결한 구독자도 최신 값을 받을 수 있도록 transient-local QoS를 사용합니다.
+필요하면 `active_source_topic` 파라미터로 토픽 이름을 변경할 수 있습니다.
+로그는 제어 주체가 바뀔 때 한 번만 남기며, 같은 주체가 유지되면 반복하지 않습니다.
+선택된 입력 토픽, 출력 토픽, 실제 출력 속도와 각속도를 함께 기록합니다.
+정상 종료 시에는 최종 `stop`을 발행합니다.
+
+```text
+Selected: lane | input=/mission/lane | output=/cmd_vel | speed=0.400 m/s, yaw_rate=0.000 rad/s
+Selected: crosswalk | input=/mission/crosswalk/command_01 | output=/cmd_vel | speed=0.000 m/s, yaw_rate=0.000 rad/s
+Selected: STOP (no fresh input) | input=none | output=/cmd_vel | speed=0.000 m/s, yaw_rate=0.000 rad/s
+```
+
 ## 기본 제어값
 
 - 최대 전진 속도: **0.8m/s**, 최대 후진 속도: **0.3m/s**.

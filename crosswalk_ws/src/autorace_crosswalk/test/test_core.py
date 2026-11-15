@@ -75,3 +75,41 @@ def test_waits_for_first_lane_before_starting_timer():
     assert state.tick(20., True)
     assert state.tick(22.999, True)
     assert not state.tick(23., True)
+
+
+def test_white_detection_delay_is_not_postponed_and_full_stop_starts_after_delay():
+    state=CrosswalkState(stop_delay_sec=.5)
+    state.receive(True)
+    state.receive(True)
+    assert not state.receive_white(False,10.)
+    assert state.receive_white(True,10.)
+    assert state.ready_at==10.5
+    assert not state.receive_white(True,10.2)
+    state.receive(True)
+    assert state.ready_at==10.5
+    assert not state.tick(10.499,True)
+    assert state.started_at is None
+    assert state.tick(10.5,True)
+    assert state.tick(13.499,True)
+    assert not state.tick(13.5,True)
+    assert state.phase=='cooldown'
+    assert not state.tick(23.5,True)
+    assert state.phase=='waiting' and state.ready_at is None
+    state.receive(True)
+    state.receive(True)
+    state.receive_white(True,24.)
+    assert not state.tick(24.499,True)
+    assert state.tick(24.5,True)
+
+
+def test_delay_expires_without_lane_but_stop_duration_waits_for_lane():
+    state=CrosswalkState(stop_delay_sec=.5)
+    state.receive(True)
+    state.receive(True)
+    state.receive_white(True,10.)
+    assert not state.tick(10.5,False)
+    assert not state.tick(11.,False)
+    assert state.tick(12.,True)
+    assert state.started_at==12.
+    assert state.tick(14.999,True)
+    assert not state.tick(15.,True)

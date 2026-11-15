@@ -1,4 +1,10 @@
 """Two signs and a new white floor image trigger a stop with a cooldown."""
+# 시간 설정 (초) — 이 값을 수정한 뒤 빌드하고 노드를 다시 실행하세요.
+STOP_DELAY_SEC = 1.5    # 흰선 감지 후 정지 시작까지 주행
+STOP_HOLD_SEC = 3.0     # 실제 정지 시작 후 정지 유지
+COOLDOWN_SEC = 10.0     # 정지 종료 후 다음 표지판을 받기까지의 간격
+
+
 import copy
 import math
 from pathlib import Path
@@ -25,9 +31,19 @@ from .white_roi import WhiteROI, load_lane_white, validate_white
 class CrosswalkNode(Node):
     def __init__(self, **kwargs):
         super().__init__('crosswalk_node', **kwargs)
-        self.state = CrosswalkState()
         self.lane = None
         descriptor = ParameterDescriptor(read_only=True)
+        for name, default in (('stop_delay_sec', STOP_DELAY_SEC),
+                              ('stop_hold_sec', STOP_HOLD_SEC),
+                              ('cooldown_sec', COOLDOWN_SEC)):
+            value = self.declare_parameter(name, default, descriptor).value
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value) or value < 0
+                    or (name == 'stop_hold_sec' and value == 0)):
+                raise ValueError(f'Invalid {name}: {value}')
+            setattr(self, name, float(value))
+        self.state = CrosswalkState(stop_delay_sec=self.stop_delay_sec,
+                                    stop_hold_sec=self.stop_hold_sec, cooldown_sec=self.cooldown_sec)
         self.white_roi = WhiteROI(**{
             name: float(self.declare_parameter('white_roi_' + name, default, descriptor).value)
             for name, default in (('left', .05), ('right', .95), ('top', .961),
@@ -78,7 +94,7 @@ class CrosswalkNode(Node):
         self.steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self.timer = self.create_timer(1.0 / 30.0, self.publish, clock=self.steady_clock)
         self.white_timer = self.create_timer(1., self.poll_lane_white, clock=self.steady_clock)
-        self.get_logger().info('Crosswalk: waiting for two consecutive true messages')
+        self.get_logger().info(f'횡단보도: 표지판 2회·흰선 확인 후 {self.stop_delay_sec:.1f}초 뒤 정지')
 
     def ros_now(self):
         now = self.get_clock().now().nanoseconds
@@ -139,7 +155,9 @@ class CrosswalkNode(Node):
             hit = ratio >= self.white_roi.minimum_ratio
             armed = self.state.phase == 'waiting_white'
             if armed and self.white_arm_stamp is not None and stamp >= self.white_arm_stamp:
-                self.state.receive_white(hit)
+                if self.state.receive_white(hit, time.monotonic()):
+                    self.white_arm_stamp = None
+                    self.get_logger().info(f'횡단보도: 흰선 확인, {self.stop_delay_sec:.1f}초 뒤 정지')
                 self.publish()
             self.white_ratio_pub.publish(Float32(data=ratio))
             self.white_detected_pub.publish(Bool(data=hit))
