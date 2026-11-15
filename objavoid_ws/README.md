@@ -160,7 +160,7 @@ ros2 topic pub --once /objavoid_v3/activate std_msgs/msg/Bool "{data: true}"
 ```
 
 - `profile:=real`: 시스템 시간, 바닥 투영은 `lane_fusion_ws/.../config/real/lane.yaml`(06번 차 BEV 실측값). 다른 차는 `lane_config:=<그 차 lane.yaml>`.
-- 출력 기본값 `/objavoid_v3/cmd`는 MUX에 연결돼 있지 않다. 그래서 차는 움직이지 않고 수동 조종 중에 경로만 RViz로 볼 수 있다. 수동 조종으로 경로를 벗어나면 `path_deviation` 상태가 되고 현재 자세에서 다시 계획한다. 주행에 쓰려면 기존 `objavoid_node`를 끈 뒤 `command_topic:=/mission/objavoid/command_05`.
+- 출력 기본값 `/objavoid_v3/cmd`는 MUX에 연결돼 있지 않다. 그래서 차는 움직이지 않고 수동 조종 중에 경로만 RViz로 볼 수 있다. 수동 조종으로 경로를 벗어나면 `path_deviation` 상태가 되고 현재 자세에서 다시 계획한다. 주행에 쓰려면 기존 `objavoid_node`를 끈 뒤 `command_topic:=/mission/objavoid/command_04`.
 - 상태: `ros2 topic echo /objavoid_v3/state`(JSON: 상태·정지 원인·재계획 수·계획 실패 사유 `last_fail`/`fail_checks`·차선 정렬 `lane`), 완료: `ros2 topic echo /objavoid_v3/done`.
 
 ### RViz (`/objavoid_v3/markers`, 고정 프레임 `odom`)

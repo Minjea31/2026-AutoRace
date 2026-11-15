@@ -173,6 +173,13 @@ class Params:
 
     # --- 갈림길 A/B(C++ 노드만 구현): /yolo/LR_sign(false=왼쪽 A, true=오른쪽 B)으로 섬 왼쪽/오른쪽 갈래 진입 ---
     fork_enable: bool = True
+    # 단순 갈림길(fork_turn): A/B 결정 위치에서 fork_turn_after 더 간 뒤 그쪽으로 일정 조향으로 fork_turn_dist 꺾고 DONE
+    #   (표지판 받침·섬 추정·가상 벽 사용 안 함)
+    fork_turn: bool = False
+    fork_turn_after: float = 1.0
+    fork_turn_steer: float = 0.35
+    fork_turn_dist: float = 0.9
+    fork_turn_speed: float = 0.25
     fork_island_s: float = 0.0       # 섬 시작 s(실측). 0이면 모름: 표지판을 볼 때까지 계속 주행하고, 본 위치로 섬을 추정
     fork_sign_to_island: float = 2.0  # 표지판 결정 순간 차 앞끝에서 섬 시작까지 추정 거리(YOLO 발행 면적 1000 px2 ≈ 2.3 m)
     fork_island_len: float = 1.75    # 섬 길이(도면 1.75 m): 이 구간 가운데를 가상 장애물로
@@ -194,26 +201,46 @@ class Params:
 
     # --- 자동 시작(C++ 노드만): 흰 정지선 + 그 너머 흰 점선(3차선에만 있음) + 전방 장애물이 연속으로 보이면 활성화 ---
     start_auto: bool = True
+    start_need_line: bool = False    # true: 흰 정지선도 있어야 시작(false = 점선 + 장애물만)
     start_line_x_min: float = 0.15   # 정지선을 찾는 차 앞 거리 범위(m, base_link 전방)
     start_line_x_max: float = 1.0
     start_line_thick: float = 0.06   # 정지선 앞뒤 두께 이내(가로로 놓인 얇은 띠)
+    start_line_after: float = 0.5    # 띠 바로 뒤(같은 두께) 흰 점 수가 띠의 이 비율 이하(라바콘 덩어리 같은 두꺼운 흰 영역 거부)
     start_line_span: float = 0.5     # 정지선 좌우 폭 이상
     start_line_fill: float = 0.7     # 정지선 좌우 폭 중 흰 점이 있는 비율(5 cm 칸) 이상(점선 머리 두 개 오인 방지)
     start_line_min_pts: int = 15
-    start_dash_dist: float = 2.0     # 정지선 너머 이 거리 안에서 점선 조각을 찾음
-    start_dash_tol: float = 0.08     # 점선 위치 |y| = lane_dash_offset ± 이 값
-    start_dash_max_width: float = 0.06  # 점선 조각 좌우 폭 이하(횡단보도 줄무늬는 넓어서 제외)
+    start_dash_dist: float = 1.5     # 정지선 너머 이 거리 안에서 점선 조각을 찾음
+    start_dash_max_y: float = 0.45   # 점선 조각 중심 |y| 이내(차가 차로 가운데가 아니어도 됨)
+    start_dash_max_width: float = 0.08  # 점선 조각 좌우 폭 이하
     start_dash_min_len: float = 0.05
     start_dash_max_len: float = 0.40
-    start_dash_min: int = 2          # 점선 조각 최소 개수(좌우 합)
+    start_dash_min: int = 2          # 흰 점선 조각 최소 개수(좌우 무관)
+    start_dash_both: bool = False    # true: 왼쪽·오른쪽 점선 조각이 각각 1개 이상 + 간격 = 차로 폭
+    start_lane_width: float = 0.5    # 좌우 점선 조각 사이 간격이 차로 폭 ± tol 인 쌍이 있어야 함(방지턱·표시 오인 거부)
+    start_lane_width_tol: float = 0.12
+    start_stripe_max: int = 2        # 같은 거리에 나란한 얇은 조각이 이보다 많으면 횡단보도로 보고 거부
     start_obs_x_max: float = 3.0     # 전방 장애물 범위
-    start_obs_y: float = 0.8
+    start_obs_y: float = 0.25        # 차 헤딩 방향 통로(좌우 ±) 안의 장애물만(길가 표지판 거부)
     start_obs_min: int = 1
-    start_clutter_y: float = 0.6     # 정지선 너머 |y| 이 안에서 점선 자리 밖 흰 점(횡단보도 줄무늬 등)
-    start_clutter_max: int = 40      # 이보다 많으면 시작 아님(횡단보도·정지선만 있는 곳 거부)
+    start_obs_max_size: float = 0.45   # 장애물 LiDAR 실측 폭·길이 상한(벽·트랙 경계 거부, LIMO 약 0.2x0.33)
+    start_obs_min_width: float = 0.12  # 장애물 LiDAR 실측 폭(보정 전 점 범위) 이상(표지판 기둥 거부, LIMO 뒷면 약 0.2 m)
+    # 순서 조건: 보행자 횡단보도 미션(crosswalk_ws, 3차선 바로 앞) 정지가 끝나고 start_arm_dist 이상 간 뒤에만 감시
+    start_after_crosswalk: bool = False
+    start_cw_quiet: float = 1.0      # 횡단보도 명령(/mission/crosswalk/command_01)이 이 시간 끊기면 재출발로 봄
+    start_arm_dist: float = 0.8      # 재출발 뒤 이만큼(m) 지나야 감시 시작(횡단보도 정지선·줄무늬 무시)
     start_confirm: int = 2           # 연속 판정 횟수
     start_rearm: float = 20.0        # 완료·비활성 뒤 이 시간 지나야 다시 자동 시작
     start_origin_at_line: bool = True  # 도로 좌표 원점을 정지선에(section_end·fork_island_s = 정지선부터 거리)
+
+    # --- 서보 보정 흉내(C++ 노드만): 센서를 steering_command_calibration 없이 띄워도(차선 주행 기준)
+    #     V3 명령만 드라이버 보정식(서보 = (|안쪽 바퀴각| + deadband) / gain, 상한 limit)과 같은 서보 값이 되도록 미리 변환
+    cmd_emulate_calibration: bool = False
+    cmd_cal_gain: float = 1.92
+    cmd_cal_deadband: float = 0.23
+    cmd_cal_limit: float = 0.48
+    cmd_legacy_scale: float = 2.47   # 드라이버 보정 꺼짐: 서보 = 안쪽 바퀴각 / 2.47
+    cmd_wheelbase: float = 0.2
+    cmd_track: float = 0.172
 
     # --- 안전 ---
     scan_timeout: float = 0.40

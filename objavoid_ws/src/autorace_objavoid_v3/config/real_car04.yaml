@@ -31,6 +31,20 @@ objavoid_v3_node:
     lane_island: false          # 실차 배치 미확인: 섬 검출로 구간 끝을 바꾸지 않음(오검출 시 3.5 m로 줄었음)
     lane_align_tol: 0.05
     lane_center_tol: 0.06
+    # 11-15: 통합 실행에서 센서를 steering_command_calibration:=true로 띄우면 차선 주행(lane PID)이 망가짐 ->
+    #   센서는 보정 없이(기본) 띄우고, V3 명령만 노드 안에서 드라이버 보정식과 같은 서보 값이 되도록 변환.
+    #   아래 조향 설명의 '보정 켬'은 이 변환으로 그대로 재현됨. 센서 보정을 다시 켜면 이 값을 false로.
+    cmd_emulate_calibration: true
+    # 11-15: 자동 시작 조건 단순화(사용자) — 정지선·횡단보도 순서 조건 없이 '흰 점선 조각 2개 이상 + 차 헤딩 방향
+    #   통로(±0.25 m, 3 m 안) 장애물' 2회 연속(방지턱 표지판 오작동 뒤 정면 장애물로 좁힘).
+    #   도로 원점 = 시작 순간 차 위치. 정지선을 다시 쓰려면 start_need_line: true, 순서 조건은 start_after_crosswalk: true.
+    start_need_line: false
+    # 11-15: 갈림길 단순화(사용자) — A/B 결정 위치에서 fork_turn_after 더 간 뒤 그쪽으로 fork_turn_steer 로
+    #   fork_turn_dist 꺾고 DONE(lane에 넘김). 표지판 받침·섬 추정 안 씀. 세 값은 실차에서 맞출 것.
+    fork_turn: true
+    # 11-15 10:05 시작 지점에서 오작동(점선 L0 R2 + 정면 물체): 점선 조각이 좌우 모두 있고 간격이 차로 폭(0.5 ± 0.12 m)일 때만
+    start_dash_both: true
+    start_after_crosswalk: false
     # 04번 조향(2026-11-14 bag 3개): 센서 런치 기본(steering_command_calibration=false + offset 0.04 -> 서보 0.35 제한)
     #   에서는 실제 곡률이 명령의 0.35배(반경 약 1.2 m). 센서를 steering_command_calibration:=true로 띄우는 것을 전제로
     #   서보 모델 한계(안쪽 바퀴 0.44 -> 중심 약 0.37 rad, 반경 약 0.52 m)에 여유를 둔 값.

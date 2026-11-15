@@ -119,8 +119,8 @@ TEAM_SRC = os.path.join(ROOT, 'objavoid_ws/src/autorace_objavoid')
 IMPL = {
     # 이름: (명령 토픽, 상태 토픽, 완료 토픽, 노드 프로세스 식별 문자열)
     'v3': ('/objavoid_v3/cmd', '/objavoid_v3/state', '/objavoid_v3/done', 'objavoid_v3_node'),
-    'test': ('/mission/objavoid/command_05', '/objavoid_test/state', '/objavoid_test/done', 'objavoid_test_node'),
-    'team': ('/mission/objavoid/command_05', '/objavoid/none', '/objavoid/none_done', 'autorace_objavoid.node'),
+    'test': ('/mission/objavoid/command_04', '/objavoid_test/state', '/objavoid_test/done', 'objavoid_test_node'),
+    'team': ('/mission/objavoid/command_04', '/objavoid/none', '/objavoid/none_done', 'autorace_objavoid.node'),
 }
 
 

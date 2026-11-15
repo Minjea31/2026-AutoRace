@@ -11,6 +11,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -127,6 +128,22 @@ public:
           const double st = m->data[9] + m->data[10] * 1e-9;
           core_->on_sign_detail(st > 0 ? st : now_s(), m->data[0] > 0.5, 0.5 * (m->data[5] + m->data[7]));
         }, so);
+    // 자동 시작 순서 조건: 보행자 횡단보도 미션(crosswalk_ws) 정지 -> 재출발 뒤에만 감시
+    if (p.start_after_crosswalk) {
+      const auto cw_qos = rclcpp::QoS(1).reliable();
+      cw_start_sub_ = create_subscription<std_msgs::msg::Bool>(
+        declare_parameter<std::string>("crosswalk_start_topic", "/start_crosswalk"), cw_qos,
+        [this](std_msgs::msg::Bool::SharedPtr m) {
+          if (m->data) {cw_seen_ = true; cw_last_cmd_ = steady(); cw_reset_ = true;}
+        }, so);
+      cw_cmd_sub_ = create_subscription<ackermann_msgs::msg::AckermannDriveStamped>(
+        declare_parameter<std::string>("crosswalk_command_topic", "/mission/crosswalk/command_01"), cw_qos,
+        [this](ackermann_msgs::msg::AckermannDriveStamped::SharedPtr) {
+          cw_seen_ = true;
+          cw_last_cmd_ = steady();
+          cw_reset_ = true;
+        }, so);
+    }
     act_sub_ = create_subscription<std_msgs::msg::Bool>("/objavoid_v3/activate", 10,
         [this](std_msgs::msg::Bool::SharedPtr m) {on_activate(m->data);}, so);
     if (gp_) {
@@ -387,6 +404,19 @@ private:
     if (!p.start_auto || !gp_ || pending_activate_) {return;}
     const double w = steady();
     if (w - last_active_wall_ < p.start_rearm) {set_gate_status("rearm"); return;}
+    if (p.start_after_crosswalk) {
+      // 횡단보도 정지가 끝나고(명령 끊김) start_arm_dist 이상 간 뒤에만
+      if (!cw_seen_) {set_gate_status("wait_crosswalk"); return;}
+      if (w - cw_last_cmd_ < p.start_cw_quiet) {set_gate_status("crosswalk_active"); return;}
+      if (cw_reset_.exchange(false)) {cw_armed_at_.reset();}
+      const auto pose = core_->pose_at(now_s(), 0.3);
+      if (!pose) {return;}
+      if (!cw_armed_at_) {cw_armed_at_ = std::make_pair(pose->x, pose->y);}
+      if (std::hypot(pose->x - cw_armed_at_->first, pose->y - cw_armed_at_->second) < p.start_arm_dist) {
+        set_gate_status("after_crosswalk");
+        return;
+      }
+    }
     if (w - last_gate_wall_ < 1.0 / std::max(lane_rate_, 0.1)) {return;}
     sensor_msgs::msg::CompressedImage::SharedPtr im;
     {
@@ -410,22 +440,37 @@ private:
     std::vector<objavoid::Box> boxes;
     std::vector<objavoid::Pt2> pts;
     objavoid::detect(msg.ranges, msg.angle_min, msg.angle_increment, lp, f, wide, 0.0, p, boxes, pts);
-    const auto g = objavoid::eval_start_gate(white, boxes, p);
+    // 박스는 LIMO 크기로 보정돼 있음 -> 박스 안 LiDAR 점의 실제 좌우·앞뒤 범위로 기둥·벽 제외
+    std::vector<objavoid::Box> solid;
+    for (const auto & b : boxes) {
+      double d0 = objavoid::kInf, d1 = -objavoid::kInf, s0 = objavoid::kInf, s1 = -objavoid::kInf;
+      for (const auto & q : pts) {
+        if (q.s >= b.s0 - 0.02 && q.s <= b.s1 + 0.02 && q.d >= b.d0 - 0.02 && q.d <= b.d1 + 0.02) {
+          d0 = std::min(d0, q.d); d1 = std::max(d1, q.d); s0 = std::min(s0, q.s); s1 = std::max(s1, q.s);
+        }
+      }
+      // 가는 기둥(표지판)과 넓은 벽·트랙 경계는 제외: LIMO 크기 물체만
+      const double big = std::max(d1 - d0, s1 - s0);
+      if (big >= p.start_obs_min_width && big <= p.start_obs_max_size) {solid.push_back(b);}
+    }
+    const auto g = objavoid::eval_start_gate(white, solid, p);
     gate_hits_ = g.ok ? gate_hits_ + 1 : 0;
     {
       std::ostringstream o;
       o << "{\"ok\":" << (g.ok ? "true" : "false") << ",\"hits\":" << gate_hits_ << ",\"line\":" <<
         (g.line ? objavoid::jnum(g.line_x) : "null") << ",\"span\":" << objavoid::jnum(g.line_span) <<
         ",\"line_pts\":" << g.line_pts << ",\"dash_l\":" << g.dashes_l << ",\"dash_r\":" << g.dashes_r <<
-        ",\"obs\":" << g.obstacles << ",\"clutter\":" << g.clutter << ",\"white\":" << white.size() << "}";
+        ",\"obs\":" << g.obstacles << ",\"pair\":" << (g.pair ? "true" : "false") << ",\"obs_all\":" << boxes.size() << ",\"stripes\":" << g.stripes << ",\"after\":" << g.line_after << ",\"white\":" << white.size() << "}";
       std::lock_guard<std::mutex> lk(stat_mtx_);
       gate_json_ = o.str();
       gate_status_ = "watching";
     }
     if (gate_hits_ < p.start_confirm) {return;}
     gate_hits_ = 0;
-    const double shift = p.start_origin_at_line ? g.line_x : 0.0;
+    const double shift = p.start_origin_at_line && g.line ? g.line_x : 0.0;
     if (core_->activate(now_s(), shift)) {
+      cw_seen_ = false;  // 다음 자동 시작은 다시 횡단보도 뒤에
+      cw_armed_at_.reset();
       done_sent_ = false;
       {
         std::lock_guard<std::mutex> lk(stat_mtx_);
@@ -433,9 +478,9 @@ private:
         ctrl_ms_.clear();
       }
       publish_done(false);
-      RCLCPP_INFO(get_logger(), "AUTO START: stop line %.2f m, dashes L%d R%d, obstacles %d, clutter %d -> "
-        "road origin at %s", g.line_x, g.dashes_l, g.dashes_r, g.obstacles, g.clutter,
-        p.start_origin_at_line ? "stop line" : "vehicle");
+      RCLCPP_INFO(get_logger(), "AUTO START: stop line %.2f m (0 = not used), dashes L%d R%d, obstacles %d, stripes %d -> "
+        "road origin at %s", g.line ? g.line_x : 0.0, g.dashes_l, g.dashes_r, g.obstacles, g.stripes,
+        p.start_origin_at_line && g.line ? "stop line" : "vehicle");
     }
   }
 
@@ -482,7 +527,7 @@ private:
       msg.header.stamp = now();
       msg.header.frame_id = "base_link";
       msg.drive.speed = static_cast<float>(v);
-      msg.drive.steering_angle = static_cast<float>(delta);
+      msg.drive.steering_angle = static_cast<float>(objavoid::emulate_calibration(delta, core_->p));
       cmd_pub_->publish(msg);
       std::lock_guard<std::mutex> g(stat_mtx_);
       cmd_periods_.push_back(dt);
@@ -652,6 +697,13 @@ private:
   // 자동 시작(작업 스레드에서만 갱신, gate_json_/gate_status_는 stat_mtx_)
   double last_active_wall_ = -1e9, last_gate_wall_ = 0, last_gate_img_ = -1;
   int gate_hits_ = 0;
+  // 횡단보도 순서 조건(센서 콜백 그룹·작업 스레드에서 사용)
+  std::atomic<bool> cw_seen_{false};
+  std::atomic<double> cw_last_cmd_{-1e9};
+  std::atomic<bool> cw_reset_{false};
+  std::optional<std::pair<double, double>> cw_armed_at_;  // 작업 스레드만
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr cw_start_sub_;
+  rclcpp::Subscription<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr cw_cmd_sub_;
   std::string gate_json_, gate_status_ = "idle";
   std::atomic<bool> done_sent_{false}, pending_activate_{false};
 };

@@ -225,6 +225,8 @@ bool ObjAvoidCore::activate(double t, double s_shift)
   p.plan_beyond_end = plan_beyond0_;
   p.roi_beyond_end = roi_beyond0_;
   island_est_.reset();
+  turn_from_.reset();
+  turn_start_.reset();
   post_id_ = -1;
   post_box_.reset();
   if (p.fork_enable && p.fork_island_s <= 0) {
@@ -718,6 +720,35 @@ bool ObjAvoidCore::control(double t, double dt, double & v_out, double & steer_o
     const double ey = ctrl.errors(*path, veh->s, veh->d, veh->psi).ey;
     if (std::abs(ey) > p.deviation_stop && !p.observe_mode) {why = "path_deviation";}
   }
+  // 단순 갈림길: 결정 후 fork_turn_after 지나면 정한 쪽으로 일정 조향, fork_turn_dist 꺾으면 DONE.
+  // 꺾는 중에는 경로 없음·이탈은 무시하고 센서 끊김·비상만 정지
+  if (p.fork_turn && fork_side_ != 0 && turn_from_ && !p.observe_mode && veh && why != "odom_stale" &&
+    why != "scan_stale" && why != "emergency")
+  {
+    if (const auto pose = pose_at(t, 0.3)) {
+      if (!turn_start_ &&
+        std::hypot(pose->x - turn_from_->first, pose->y - turn_from_->second) >= p.fork_turn_after)
+      {
+        turn_start_ = std::make_pair(pose->x, pose->y);
+        fork_locked = true;
+      }
+      if (turn_start_) {
+        if (std::hypot(pose->x - turn_start_->first, pose->y - turn_start_->second) >= p.fork_turn_dist) {
+          done_reason = fork_side_ > 0 ? "fork_left" : "fork_right";
+          set_state(State::DONE, done_reason, t);
+          cmd_ = {0, 0};
+          return false;
+        }
+        set_state(State::RUN, "fork_turn", t);
+        ctrl.v = p.fork_turn_speed;
+        ctrl.delta = fork_side_ * p.fork_turn_steer;
+        v_out = p.fork_turn_speed;
+        steer_out = ctrl.delta - p.steer_trim;
+        cmd_ = {v_out, steer_out};
+        return true;
+      }
+    }
+  }
   if (!why.empty()) {
     if (reason == "first_plan" && (why == "no_path" || why == "scan_stale") && replans == 0 &&
       t - activated_t_ < 1.0 + p.lane_align_wait)
@@ -993,7 +1024,7 @@ bool ObjAvoidCore::match_post(double stamp, double u)
 void ObjAvoidCore::on_sign_detail(double stamp, bool right, double u)
 {
   Lock g(mtx_);
-  if (!p.fork_enable || !p.fork_use_sign_post || !frame || !tracker || fork_locked) {return;}
+  if (!p.fork_enable || p.fork_turn || !p.fork_use_sign_post || !frame || !tracker || fork_locked) {return;}
   if (fork_side_ != 0 && (right ? -1 : 1) != fork_side_) {return;}  // 정한 방향과 다른 표지판 박스는 무시
   const bool had = sign_post().has_value();
   if (match_post(stamp, u) && !had && fork_side_ != 0) {
@@ -1012,6 +1043,14 @@ void ObjAvoidCore::on_sign(double t, bool right)
   int side = 0;
   if (fork_votes_l >= p.fork_sign_min && fork_votes_l > fork_votes_r) {side = 1;}
   if (fork_votes_r >= p.fork_sign_min && fork_votes_r > fork_votes_l) {side = -1;}
+  if (side != 0 && side != fork_side_ && p.fork_turn) {
+    // 단순 갈림길: 방향과 결정 위치만 기록(꺾기 시작 전이면 방향은 다수결로 바뀔 수 있음)
+    fork_side_ = side;
+    if (!turn_from_) {
+      if (const auto pose = pose_at(t, 0.5)) {turn_from_ = std::make_pair(pose->x, pose->y);}
+    }
+    return;
+  }
   if (side != 0 && side != fork_side_) {
     if (!island_est_ && p.fork_island_s <= 0) {
       // 섬 위치 추정: 표지판을 결정한 순간 차 앞끝 + fork_sign_to_island
@@ -1035,6 +1074,7 @@ void ObjAvoidCore::apply_fork(int side)
 
 bool ObjAvoidCore::check_done(const Veh & veh, double t)
 {
+  if (p.fork_enable && p.fork_turn) {return false;}  // 단순 갈림길: 꺾기를 마치면 DONE
   if (p.fork_enable) {
     // 갈림길: 정한 갈래로 섬 시작을 지나야 완료(그 전에는 '가운데 복귀'·'구간 끝' 완료 없음)
     const double front = veh.s + p.body_front;
@@ -1095,7 +1135,8 @@ std::string ObjAvoidCore::status_json() const
  o << ",\"fork\":{\"enable\":" << (p.fork_enable ? "true" : "false") << ",\"side\":" <<
     jstr(fork_side_ > 0 ? "left" : (fork_side_ < 0 ? "right" : "none")) << ",\"votes\":[" << fork_votes_l << "," <<
     fork_votes_r << "],\"locked\":" << (fork_locked ? "true" : "false") << ",\"island_s\":" << jnum(island_s()) <<
-    ",\"home_d\":" << jnum(p.home_d);
+    ",\"home_d\":" << jnum(p.home_d) << ",\"turn\":" <<
+    jstr(!p.fork_turn ? "off" : (turn_start_ ? "turning" : (turn_from_ ? "decided" : "wait_sign")));
   if (const auto pb = sign_post()) {
     o << ",\"post\":[" << jnum(pb->s0, 2) << "," << jnum(pb->s1, 2) << "," << jnum(pb->d0, 2) << "," << jnum(pb->d1, 2)
       << "]";

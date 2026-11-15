@@ -167,6 +167,8 @@ private:
   std::optional<double> wait_since_;
   double home_d0_ = 0.0, plan_beyond0_ = 0.0, roi_beyond0_ = 0.0;
   std::optional<double> island_est_;
+  // 단순 갈림길(fork_turn): 결정 위치, 꺾기 시작 위치(odom)
+  std::optional<std::pair<double, double>> turn_from_, turn_start_;
   int post_id_ = -1;
   std::optional<Box> post_box_;
   int post_align_ = -1;

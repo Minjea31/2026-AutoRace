@@ -356,11 +356,11 @@ void add_rect(std::vector<XY> & w, double x0, double x1, double y0, double y1, d
   }
 }
 std::vector<XY> stop_line(double x = 0.5) {std::vector<XY> w; add_rect(w, x, x + 0.04, -0.75, 0.75); return w;}
-void add_dashes(std::vector<XY> & w, double x0, const Params & p)
+// 차로 경계 점선(차가 가운데서 shift 만큼 왼쪽에 있으면 점선은 오른쪽으로 보임)
+void add_dashes(std::vector<XY> & w, double x0, double shift = 0.0)
 {
-  for (double x = x0; x < x0 + 1.6; x += 0.4) {
-    add_rect(w, x, x + 0.2, p.lane_dash_offset - 0.01, p.lane_dash_offset + 0.01);
-    add_rect(w, x, x + 0.2, -p.lane_dash_offset - 0.01, -p.lane_dash_offset + 0.01);
+  for (double x = x0; x < x0 + 1.4; x += 0.4) {
+    for (double yc : {0.25 - shift, -0.25 - shift}) {add_rect(w, x, x + 0.2, yc - 0.01, yc + 0.01);}
   }
 }
 const std::vector<Box> kCar{{1.5, 1.7, -0.1, 0.1}};
@@ -370,25 +370,45 @@ TEST(StartGate, ThreeLaneStart)
 {
   Params p;
   auto w = stop_line();
-  add_dashes(w, 0.65, p);
+  add_dashes(w, 0.65);
   const auto g = eval_start_gate(w, kCar, p);
   EXPECT_TRUE(g.line);
   EXPECT_NEAR(g.line_x, 0.52, 0.02);
   EXPECT_GE(g.dashes_l + g.dashes_r, 4);
   EXPECT_EQ(g.obstacles, 1);
-  EXPECT_LE(g.clutter, p.start_clutter_max);
+  EXPECT_LE(g.stripes, p.start_stripe_max);
   EXPECT_TRUE(g.ok);
 }
 
-TEST(StartGate, RejectsCrosswalk)  // 정지선 + 횡단보도 줄무늬(넓은 흰 띠): 장애물이 있어도 시작 아님
+TEST(StartGate, ThreeLaneStartOffCenter)  // 실차 bag: 점선이 y +0.17 / -0.33 (차가 0.08 m 왼쪽)
 {
   Params p;
   auto w = stop_line();
-  for (double y = -0.6; y < 0.6; y += 0.2) {add_rect(w, 0.7, 1.1, y, y + 0.1);}
-  const auto g = eval_start_gate(w, kCar, p);
-  EXPECT_TRUE(g.line);
-  EXPECT_GT(g.clutter, p.start_clutter_max);
+  add_dashes(w, 0.65, 0.08);
+  EXPECT_TRUE(eval_start_gate(w, kCar, p).ok);
+}
+
+TEST(StartGate, RejectsCrosswalk)  // 정지선 + 횡단보도 줄무늬: 장애물이 있어도 시작 아님
+{
+  Params p;
+  auto thin = stop_line();  // 얇은 줄무늬가 정지선과 떨어져 있음
+  for (double y = -0.6; y < 0.6; y += 0.12) {add_rect(thin, 0.7, 1.0, y, y + 0.04);}
+  const auto g = eval_start_gate(thin, kCar, p);
+  EXPECT_GT(g.stripes, p.start_stripe_max);
   EXPECT_FALSE(g.ok);
+  auto wide = stop_line();  // 굵은 줄무늬가 정지선 바로 뒤
+  for (double y = -0.6; y < 0.6; y += 0.2) {add_rect(wide, 0.56, 0.9, y, y + 0.1);}
+  EXPECT_FALSE(eval_start_gate(wide, kCar, p).ok);
+}
+
+TEST(StartGate, RejectsThickWhiteBlob)  // 라바콘·벽처럼 두꺼운 흰 영역은 정지선이 아님
+{
+  Params p;
+  p.start_need_line = true;
+  std::vector<XY> w;
+  add_rect(w, 0.9, 1.4, -0.7, -0.1);
+  add_dashes(w, 0.65);
+  EXPECT_FALSE(eval_start_gate(w, kCar, p).line);
 }
 
 TEST(StartGate, NeedsDashesAndObstacle)
@@ -396,16 +416,110 @@ TEST(StartGate, NeedsDashesAndObstacle)
   Params p;
   EXPECT_FALSE(eval_start_gate(stop_line(), kCar, p).ok);  // 정지선만
   auto w = stop_line();
-  add_dashes(w, 0.65, p);
+  add_dashes(w, 0.65);
   EXPECT_FALSE(eval_start_gate(w, {}, p).ok);  // 장애물 없음
   std::vector<XY> d;
-  add_dashes(d, 0.65, p);
-  EXPECT_FALSE(eval_start_gate(d, kCar, p).ok);  // 정지선 없음(구간 안 점선만)
-  std::vector<XY> lng;  // 길게 이어진 흰 실선은 점선이 아님
-  lng = stop_line();
-  add_rect(lng, 0.65, 2.4, p.lane_dash_offset - 0.01, p.lane_dash_offset + 0.01);
-  add_rect(lng, 0.65, 2.4, -p.lane_dash_offset - 0.01, -p.lane_dash_offset + 0.01);
+  add_dashes(d, 0.65);
+  EXPECT_TRUE(eval_start_gate(d, kCar, p).ok);   // 기본: 정지선 없이 점선 + 장애물
+  p.start_need_line = true;
+  EXPECT_FALSE(eval_start_gate(d, kCar, p).ok);  // 정지선 필수면 거부
+  p.start_need_line = false;
+  EXPECT_FALSE(eval_start_gate(d, {}, p).ok);    // 장애물 없음
+  auto lng = stop_line();  // 길게 이어진 흰 실선은 점선이 아님
+  add_rect(lng, 0.65, 2.4, 0.24, 0.26);
+  add_rect(lng, 0.65, 2.4, -0.26, -0.24);
   EXPECT_FALSE(eval_start_gate(lng, kCar, p).ok);
+}
+
+TEST(StartGate, ObstacleMustBeAheadInHeading)  // 11-15 방지턱 표지판(길가) 오작동
+{
+  Params p;
+  std::vector<XY> w;
+  add_dashes(w, 0.65);
+  EXPECT_TRUE(eval_start_gate(w, {{1.5, 1.7, -0.1, 0.1}}, p).ok);    // 정면
+  EXPECT_FALSE(eval_start_gate(w, {{1.5, 1.7, 0.4, 0.6}}, p).ok);    // 옆 차로·길가
+  EXPECT_FALSE(eval_start_gate(w, {{3.2, 3.5, -0.1, 0.1}}, p).ok);   // 너무 멂
+  std::vector<XY> one;  // 점선 조각 1개뿐
+  add_rect(one, 0.7, 0.9, 0.24, 0.26);
+  EXPECT_FALSE(eval_start_gate(one, kCar, p).ok);
+}
+
+TEST(StartGate, DashPairOption)  // start_dash_both: 좌우 간격이 차로 폭과 다르면 거부
+{
+  Params p;
+  p.start_dash_both = true;
+  std::vector<XY> w;
+  for (double x = 0.65; x < 1.5; x += 0.4) {
+    add_rect(w, x, x + 0.2, 0.09, 0.11);
+    add_rect(w, x, x + 0.2, -0.11, -0.09);
+  }
+  EXPECT_FALSE(eval_start_gate(w, kCar, p).ok);
+  std::vector<XY> ok;
+  add_dashes(ok, 0.65);
+  EXPECT_TRUE(eval_start_gate(ok, kCar, p).ok);
+}
+
+// 단순 갈림길(fork_turn): 결정 후 fork_turn_after 직진, 정한 쪽으로 일정 조향 fork_turn_dist 뒤 DONE
+static void run_fork_turn(int sign)
+{
+  Params p;
+  p.use_lane = false;
+  p.fork_turn = true;
+  p.boundary_s = {-1.0, 8.0};
+  p.boundary_left = {0.75, 0.75};
+  p.boundary_right = {-0.75, -0.75};
+  p.lane_centers = {-0.5, 0.0, 0.5};
+  ObjAvoidCore core(p);
+  const int N = 400;
+  std::vector<float> scan(N, 8.0f);
+  const double amin = -1.9, ainc = 3.8 / (N - 1);
+  double x = 0, y = 0, yaw = 0, v = 0, t = 0, delta = 0, x_turn = -1, max_steer = 0;
+  while (t < 30.0) {
+    core.on_odom(t, x, y, yaw, v, v * std::tan(delta) / p.wheelbase);
+    if (t == 0.0) {ASSERT_TRUE(core.activate(t));}
+    if (std::abs(t * 10 - std::round(t * 10)) < 1e-6) {
+      core.process_scan(t, scan, amin, ainc, t);
+      if (t > 2.0 && t < 2.5) {core.on_sign(t, sign < 0);}
+    }
+    double vc = 0, sc = 0;
+    const bool pub = core.control(t, 0.04, vc, sc);
+    if (core.state == State::DONE) {break;}
+    if (core.reason == "fork_turn" && x_turn < 0) {x_turn = x;}
+    if (core.reason == "fork_turn") {max_steer = sc;}
+    v = pub ? vc : 0.0;
+    delta = sc;
+    x += v * std::cos(yaw) * 0.04;
+    y += v * std::sin(yaw) * 0.04;
+    yaw += v * std::tan(delta) / p.wheelbase * 0.04;
+    t = std::round((t + 0.04) * 1e6) / 1e6;
+  }
+  EXPECT_EQ(core.state, State::DONE);
+  EXPECT_EQ(core.done_reason, sign > 0 ? "fork_left" : "fork_right");
+  EXPECT_GT(x_turn, 0.5);                                   // 결정 후 바로 꺾지 않음
+  EXPECT_NEAR(max_steer, sign * p.fork_turn_steer, 1e-9);  // 정한 쪽으로 일정 조향
+  EXPECT_GT(sign * y, 0.05);                                // 실제로 그쪽으로 이동
+}
+
+TEST(Mission, ForkTurnLeft) {run_fork_turn(1);}
+TEST(Mission, ForkTurnRight) {run_fork_turn(-1);}
+
+TEST(Servo, EmulateCalibrationMatchesDriver)
+{
+  Params p;
+  EXPECT_DOUBLE_EQ(emulate_calibration(0.3, p), 0.3);  // 기본 꺼짐: 그대로
+  p.cmd_emulate_calibration = true;
+  const double L = p.cmd_wheelbase, T = p.cmd_track;
+  auto inner = [&](double c) {
+      const double a = std::abs(c);
+      return std::copysign(std::atan(2 * L * std::sin(a) / (2 * L * std::cos(a) - T * std::sin(a))), c);
+    };
+  for (double d : {-0.6, -0.3, -0.05, 0.02, 0.1, 0.25, 0.45, 0.6}) {
+    const double cal = std::copysign(std::min(p.cmd_cal_limit, (std::abs(inner(d)) + p.cmd_cal_deadband) /
+        p.cmd_cal_gain), d);                                     // 보정 켠 드라이버 서보 값
+    const double legacy = inner(emulate_calibration(d, p)) / p.cmd_legacy_scale;  // 보정 끈 드라이버 + 변환
+    EXPECT_NEAR(legacy, cal, 1e-9) << d;
+  }
+  EXPECT_EQ(emulate_calibration(0.0, p), 0.0);
 }
 
 TEST(Mission, ActivateShiftPutsOriginAtLine)

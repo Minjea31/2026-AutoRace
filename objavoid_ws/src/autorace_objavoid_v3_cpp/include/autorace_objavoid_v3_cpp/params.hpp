@@ -171,6 +171,11 @@ using DVec = std::vector<double>;
   X(D, stop_buffer, 0.12)                                          \
   /* 갈림길 A/B */                                                   \
   X(B, fork_enable, true)                                          \
+  X(B, fork_turn, false)                                           \
+  X(D, fork_turn_after, 1.0)                                       \
+  X(D, fork_turn_steer, 0.35)                                      \
+  X(D, fork_turn_dist, 0.9)                                        \
+  X(D, fork_turn_speed, 0.25)                                      \
   X(D, fork_island_s, 0.0)                                         \
   X(D, fork_sign_to_island, 2.0)                                   \
   X(D, fork_island_len, 1.75)                                      \
@@ -191,26 +196,43 @@ using DVec = std::vector<double>;
   X(D, fork_post_center_d, 0.4)                                    \
   /* 자동 시작 */                                                    \
   X(B, start_auto, true)                                           \
+  X(B, start_need_line, false)                                     \
   X(D, start_line_x_min, 0.15)                                     \
   X(D, start_line_x_max, 1.0)                                      \
   X(D, start_line_thick, 0.06)                                     \
+  X(D, start_line_after, 0.5)                                      \
   X(D, start_line_span, 0.5)                                       \
   X(D, start_line_fill, 0.7)                                       \
   X(I, start_line_min_pts, 15)                                     \
-  X(D, start_dash_dist, 2.0)                                       \
-  X(D, start_dash_tol, 0.08)                                       \
-  X(D, start_dash_max_width, 0.06)                                 \
+  X(D, start_dash_dist, 1.5)                                       \
+  X(D, start_dash_max_y, 0.45)                                     \
+  X(D, start_dash_max_width, 0.08)                                 \
   X(D, start_dash_min_len, 0.05)                                   \
   X(D, start_dash_max_len, 0.40)                                   \
   X(I, start_dash_min, 2)                                          \
+  X(B, start_dash_both, false)                                     \
+  X(D, start_lane_width, 0.5)                                      \
+  X(D, start_lane_width_tol, 0.12)                                 \
+  X(I, start_stripe_max, 2)                                        \
   X(D, start_obs_x_max, 3.0)                                       \
-  X(D, start_obs_y, 0.8)                                           \
+  X(D, start_obs_y, 0.25)                                          \
   X(I, start_obs_min, 1)                                           \
-  X(D, start_clutter_y, 0.6)                                       \
-  X(I, start_clutter_max, 40)                                      \
+  X(D, start_obs_max_size, 0.45)                                   \
+  X(D, start_obs_min_width, 0.12)                                  \
+  X(B, start_after_crosswalk, false)                               \
+  X(D, start_cw_quiet, 1.0)                                        \
+  X(D, start_arm_dist, 0.8)                                        \
   X(I, start_confirm, 2)                                           \
   X(D, start_rearm, 20.0)                                          \
   X(B, start_origin_at_line, true)                                 \
+  /* 서보 보정 흉내 */                                             \
+  X(B, cmd_emulate_calibration, false)                             \
+  X(D, cmd_cal_gain, 1.92)                                         \
+  X(D, cmd_cal_deadband, 0.23)                                     \
+  X(D, cmd_cal_limit, 0.48)                                        \
+  X(D, cmd_legacy_scale, 2.47)                                     \
+  X(D, cmd_wheelbase, 0.2)                                         \
+  X(D, cmd_track, 0.172)                                           \
   /* 안전 */                                                        \
   X(D, scan_timeout, 0.40)                                         \
   X(D, odom_timeout, 0.25)                                         \
