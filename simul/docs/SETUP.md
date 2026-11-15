@@ -301,7 +301,7 @@ GUI는 PyQt5를 사용하며 새 환경 YAML에 포함됩니다. 기존 환경�
 화면 없이 콘 미션만 연결하려면:
 
 ```bash
-./simul/adapter.sh --no-gui --topic /mission/cone/command_04
+./simul/adapter.sh --no-gui --topic /mission/cone/command_05
 ```
 
 토픽 목록과 상세 동작은 [미션 선택 창 사용법](../README.md#선택-창으로-모든-미션-직접-연결-mux-없이)을 참고하세요. 기존 주차 전용 `python -m limo_parking_sim.parking_adapter`도 유지합니다.

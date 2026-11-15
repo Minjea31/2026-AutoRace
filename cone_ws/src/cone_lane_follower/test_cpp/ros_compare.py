@@ -35,7 +35,7 @@ def run(command,config,asynchronous,domain,check_seven=False,check_exit=False,ex
         qos=QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL) if name=='control_status' else 10
         subs.append(n.create_subscription(kind,'/cone_lane/'+name,lambda m,k=name:seen.__setitem__(k,m),qos))
     commands=[]
-    subs.append(n.create_subscription(AckermannDriveStamped,'/mission/cone/command_04',commands.append,10))
+    subs.append(n.create_subscription(AckermannDriveStamped,'/mission/cone/command_05',commands.append,10))
     log=open('/tmp/cone_ros_'+('cpp' if 'roi_node' in command[0] else 'python')+f'_{asynchronous}.log','w')
     proc=subprocess.Popen(command+['--ros-args','--params-file',config,'-p','use_sim_time:=true','-p',f'planner_async:={str(asynchronous).lower()}','-p','control_max_steering_rate:=100.0',*extra],stdout=log,stderr=subprocess.STDOUT)
     def cleanup():

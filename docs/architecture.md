@@ -81,8 +81,8 @@
 | 01 | `crosswalk_ws` | `/mission/crosswalk/command_01` | lane 명령 + YOLO crosswalk_sign Bool |
 | 02 | `signal_ws` | `/mission/signal/command_02` | lane 명령 + 카메라 + YOLO signal Bool |
 | 03 | `parking_ws` | `/mission/parking/command_03` | 카메라 + `/scan` + YOLO parking_sign Bool |
-| 04 | `cone_ws` | `/mission/cone/command_04` | `/scan` |
-| 05 | `objavoid_ws` | `/mission/objavoid/command_05` | 카메라 + `/scan` |
+| 04 | `objavoid_ws` | `/mission/objavoid/command_04` | 카메라 + `/scan` |
+| 05 | `cone_ws` | `/mission/cone/command_05` | `/scan` |
 | 08 | `slow_ws` | `/mission/slow/command_08` | lane 명령 + YOLO bump_sign/slow_sign Bool (둘 다 slow_ws 수신) |
 | DEFAULT | `lane_ws` | `/mission/lane` | 카메라 + YOLO LR_sign Bool |
 

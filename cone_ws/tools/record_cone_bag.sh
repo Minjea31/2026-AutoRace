@@ -13,5 +13,5 @@ exec ros2 bag record -o "$out" \
   /tf /tf_static \
   /cone_lane/roi_marker /cone_lane/roi_points /cone_lane/clusters /cone_lane/cone_centers \
   /cone_lane/boundaries /cone_lane/center_path /cone_lane/control_status \
-  /mission/cone/command_04 /mission/lane /cmd_vel \
+  /mission/cone/command_05 /mission/lane /cmd_vel \
   /rosout

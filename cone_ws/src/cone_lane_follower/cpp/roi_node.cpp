@@ -256,7 +256,7 @@ explicit RoiNode(const rclcpp::NodeOptions&options = rclcpp::NodeOptions()) : No
   center_pub_ = create_publisher<MarkerArray>("/cone_lane/center_path", 1);
   center_spot_pub_ = create_publisher<MarkerArray>("/cone_lane/center_spot", 1);
   backup_pub_ = create_publisher<MarkerArray>("/cone_lane/backup_path", 1);
-  command_pub_ = create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/mission/cone/command_04", 1);
+  command_pub_ = create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/mission/cone/command_05", 1);
   exit_active_pub_ = create_publisher<std_msgs::msg::Bool>("/cone_lane/exit_lane_active", 1);
   scan_sub_ = create_subscription<Scan>("/scan", rclcpp::QoS(1).best_effort().durability_volatile(), [this](
                                           Scan::ConstSharedPtr msg){

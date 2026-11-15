@@ -63,7 +63,7 @@ def main():
             assert node.router.receive(topic, speed, .1, now, now, time.monotonic())
 
         parking = '/mission/parking/command_03'
-        cone = '/mission/cone/command_04'
+        cone = '/mission/cone/command_05'
         lane = '/mission/lane'
         capture('01-all-off', all_rows=True)
         for topic in (lane, cone, parking):

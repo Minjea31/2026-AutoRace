@@ -3,7 +3,7 @@
 `cone_lane_follower`는 `/scan`을 차량 좌표계로 변환하고 ROI 내부 포인트를
 연속 스캔 인덱스와 XY 거리로 클러스터링한다. 크기 필터를 통과한 클러스터는
 **라바콘 후보**이며 확정된 라바콘이 아니다. 좌우 분류·추적·경로 생성·주행 제어는 포함하지 않는다.
-차량 명령 토픽(`/mission/objavoid/command_05`, `/cmd_vel` 등)에 발행하지 않는다.
+차량 명령 토픽(`/mission/objavoid/command_04`, `/cmd_vel` 등)에 발행하지 않는다.
 
 ## 파일 구성
 
@@ -287,7 +287,7 @@ y 부호 기반 좌우 분류의 한계도 남는다.
 ## 중앙 경로 오차 제어
 
 노드 내부의 검증된 center_path를 사용해 20Hz로
-`/mission/cone/command_04`에 `ackermann_msgs/msg/AckermannDriveStamped`를 발행한다.
+`/mission/cone/command_05`에 `ackermann_msgs/msg/AckermannDriveStamped`를 발행한다.
 별도 패키지·파일·중앙 경로 구독자는 추가하지 않았다. ackermann_msgs 의존성을 선언했다.
 
 차량 전방 기준점 `(control_reference_x, 0)`을 중앙 경로의 전방 진행 선분에 투영한다.
@@ -332,11 +332,11 @@ TF 실패나 스캔 중단 동안에는 활성 상태를 유지하며 정지 명
 장기적인 미션 종료 판단은 별도 상태 관리가 필요하다.
 
 ```bash
-ros2 topic echo /mission/cone/command_04
+ros2 topic echo /mission/cone/command_05
 ```
 
 시뮬레이터에서 cone 미션 토픽을 선택하거나 기존 autorace_mux를 연결해야 차량에 전달된다.
-노드는 /cmd_vel이나 /mission/objavoid/command_05를 발행하지 않는다.
+노드는 /cmd_vel이나 /mission/objavoid/command_04를 발행하지 않는다.
 현재 벽 오검출과 프레임별 좌우 소속 변경 문제가 제어로 해결되지는 않는다.
 실제 조향 부호·게인·속도·주행 안정성은 실차 및 주행 시뮬레이션에서 아직 검증하지 않았다.
 프로세스 종료/강제 종료 시에는 기존 mux/시뮬레이터의 입력 timeout 정지에 의존한다.
