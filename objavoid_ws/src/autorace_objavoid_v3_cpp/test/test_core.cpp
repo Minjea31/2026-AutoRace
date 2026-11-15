@@ -533,3 +533,27 @@ TEST(Mission, ActivateShiftPutsOriginAtLine)
   EXPECT_NEAR(v->s, -0.6, 1e-9);
   EXPECT_NEAR(v->d, 0.0, 1e-9);
 }
+
+TEST(Perception, FixedLimoSizeDoesNotGrowWithScanOrHistory)
+{
+  Params p;
+  p.obstacle_fixed_size = true;
+  p.obstacle_min_length = 0.322;
+  p.obstacle_min_width = 0.22;
+  PriorBoundary boundary({-1, 6}, {1.0, 1.0}, {-1.0, -1.0});
+  std::vector<Box> boxes;
+  std::vector<Pt2> pts;
+  detect(std::vector<float>(41, 1.0f), -0.2, 0.01, {}, RoadFrame(0, 0, 0), boundary, 0, p, boxes, pts);
+  ASSERT_EQ(boxes.size(), 1u);
+  EXPECT_NEAR(boxes[0].s1 - boxes[0].s0, 0.322, 1e-9);
+  EXPECT_NEAR(boxes[0].d1 - boxes[0].d0, 0.22, 1e-9);
+  Tracker tracker(p);
+  tracker.update(boxes, 0, -1, nullptr, nullptr);
+  auto shifted = boxes;
+  shifted[0].s0 += 0.02; shifted[0].s1 += 0.02;
+  shifted[0].d0 += 0.01; shifted[0].d1 += 0.01;
+  tracker.update(shifted, 0.1, -1, nullptr, nullptr);
+  ASSERT_EQ(tracker.tracks.size(), 1u);
+  EXPECT_NEAR(tracker.tracks[0].box.s1 - tracker.tracks[0].box.s0, 0.322, 1e-9);
+  EXPECT_NEAR(tracker.tracks[0].box.d1 - tracker.tracks[0].box.d0, 0.22, 1e-9);
+}

@@ -1,6 +1,9 @@
 # 04번 실차 덮어쓰기(launch car:=04). 근거: 메모 car-04 / objavoid_test real_car04.yaml(2026-11-13 bag 분석)
 objavoid_v3_node:
   ros__parameters:
+    obstacle_fixed_size: true
+    obstacle_min_length: 0.322
+    obstacle_min_width: 0.22
     v_max: 0.2               # 첫 실차 시험은 낮게
     curve_slow: 0.1
     ff_preview_time: 0.2
@@ -43,7 +46,10 @@ objavoid_v3_node:
     #   fork_turn_dist 꺾고 DONE(lane에 넘김). 표지판 받침·섬 추정 안 씀. 세 값은 실차에서 맞출 것.
     fork_turn: true
     # 11-15 10:05 시작 지점에서 오작동(점선 L0 R2 + 정면 물체): 점선 조각이 좌우 모두 있고 간격이 차로 폭(0.5 ± 0.12 m)일 때만
+    lane_rate: 10.0          # 시작 판정 주기: 5 → 10Hz
     start_dash_both: true
+    start_obs_min: 2           # 시작 통로 안의 장애물 2개 이상
+    start_confirm: 1           # 점선·장애물 조건을 만족한 첫 판정에 시작
     start_after_crosswalk: false
     # 04번 조향(2026-11-14 bag 3개): 센서 런치 기본(steering_command_calibration=false + offset 0.04 -> 서보 0.35 제한)
     #   에서는 실제 곡률이 명령의 0.35배(반경 약 1.2 m). 센서를 steering_command_calibration:=true로 띄우는 것을 전제로
@@ -82,7 +88,7 @@ objavoid_v3_node:
     observe_min_radius: 0.55
     # 여유: 0.04/0.18이면 default7·3단 슬라롬이 후진 없이 막힘 -> 0.03/0.15(22:04의 0.025/0.12보다는 넓게)
     margin_obstacle: 0.03
-    clearance_soft: 0.15        # 11-15 차에서 조정한 값 유지
+    clearance_soft: 0.18        # 11-15 차에서 조정한 값 유지
     # 뒷바퀴가 지난 콘에 스침: 지난 장애물을 더 오래 기억(0.08 -> 0.2, 차 뒤끝 판정도 가장 뒤 모서리 기준으로 수정)
     pass_margin: 0.2
     # 11-15 차에서 조정한 값(공통 objavoid_v3.yaml에서 04번 설정으로 옮김)

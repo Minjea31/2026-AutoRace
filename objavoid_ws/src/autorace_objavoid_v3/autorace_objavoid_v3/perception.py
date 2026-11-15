@@ -107,7 +107,18 @@ def detect(ranges, angle_min, angle_inc, lidar_pose, frame, boundary, s_vehicle,
         occ_lo, occ_hi = (occ0, occ1) if first_low else (occ1, occ0)
         s0, s1 = cs.min(), cs.max()
         d0, d1 = cd.min(), cd.max()
-        if ls < s0:
+        if p.obstacle_fixed_size:
+            if ls <= s0:
+                s1 = s0 + p.obstacle_min_length
+            elif ls >= s1:
+                s0 = s1 - p.obstacle_min_length
+            else:
+                center = (s0 + s1) / 2
+                s0, s1 = center - p.obstacle_min_length / 2, center + p.obstacle_min_length / 2
+            d0, d1 = correct_extent(d0, d1, ld, p.obstacle_min_width, occ_lo, occ_hi)
+            center = (d0 + d1) / 2
+            d0, d1 = center - p.obstacle_min_width / 2, center + p.obstacle_min_width / 2
+        elif ls < s0:
             # 앞에서 볼 때만 최소 크기 보정: 뒷부분은 자기 가림 -> 뒤로, 폭은 가려진 쪽으로.
             # 옆·뒤에서는 앞에서 본 누적 박스가 크기를 보장한다(그때 보정하면 박스가 계속 커짐).
             face = cs < s0 + 0.03
@@ -161,7 +172,7 @@ class Tracker:
                 est = est.union(x)
             if est.s1 - est.s0 > p.obstacle_max_length or est.d1 - est.d0 > p.obstacle_max_width:
                 est = b
-            tr.box = est
+            tr.box = b if p.obstacle_fixed_size else est
             tr.hits += 1
             tr.last_seen = t
             tr.ghost_time = 0.0

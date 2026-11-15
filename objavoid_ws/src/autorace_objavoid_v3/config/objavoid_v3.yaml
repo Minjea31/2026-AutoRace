@@ -66,6 +66,7 @@ objavoid_v3_node:
     roi_margin: 0.06   # 경계 밖으로 허용하는 점 여유
     cluster_jump: 0.12
     cluster_min_points: 3
+    obstacle_fixed_size: false
     obstacle_min_length: 0.33   # LIMO 0.322 x 0.22, 과소평가 방지
     obstacle_min_width: 0.23
     obstacle_max_length: 0.7   # 이보다 커지면 누적 박스 대신 최신 관측 사용
@@ -90,7 +91,7 @@ objavoid_v3_node:
     max_skip: 3   # 간선이 건너뛸 수 있는 최대 층 수
     max_nodes_per_layer: 10
     node_merge: 0.03
-    margin_obstacle: 0.025   # 장애물 하드 여유
+    margin_obstacle: 0.03   # 장애물 하드 여유
     margin_boundary: 0.02   # 노란 경계 하드 여유
     clearance_soft: 0.12   # 이보다 가까우면 비용
     plan_min_radius: 0.55   # 차량 0.462보다 크게
@@ -212,7 +213,7 @@ objavoid_v3_node:
     start_lane_width_tol: 0.12
     start_stripe_max: 2   # 같은 거리에 나란한 얇은 조각이 이보다 많으면 횡단보도로 보고 거부
     start_obs_x_max: 3.0   # 전방 장애물 범위
-    start_obs_y: 0.25   # 차 헤딩 방향 통로(좌우 ±) 안의 장애물만(길가 표지판 거부)
+    start_obs_y: 0.35   # 차 헤딩 방향 통로(좌우 ±) 안의 장애물만(길가 표지판 거부)
     start_obs_min: 1
     start_obs_max_size: 0.45   # 장애물 LiDAR 실측 폭·길이 상한(벽·트랙 경계 거부, LIMO 약 0.2x0.33)
     start_obs_min_width: 0.12   # 장애물 LiDAR 실측 폭(보정 전 점 범위) 이상(표지판 기둥 거부, LIMO 뒷면 약 0.2 m)

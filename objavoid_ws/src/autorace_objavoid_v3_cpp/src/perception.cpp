@@ -74,7 +74,16 @@ void detect(const std::vector<float> & ranges, double angle_min, double angle_in
     const bool first_low = pts[a].d <= pts[b - 1].d;
     const bool occ_lo = first_low ? occ0 : occ1;
     const bool occ_hi = first_low ? occ1 : occ0;
-    if (ls < s0) {
+    if (p.obstacle_fixed_size) {
+      // Keep the observed near face when viewing from the front/rear.
+      if (ls <= s0) {s1 = s0 + p.obstacle_min_length;}
+      else if (ls >= s1) {s0 = s1 - p.obstacle_min_length;}
+      else {const double c = (s0 + s1) / 2; s0 = c - p.obstacle_min_length / 2; s1 = c + p.obstacle_min_length / 2;}
+      correct_extent(d0, d1, ld, p.obstacle_min_width, occ_lo, occ_hi);
+      const double center = (d0 + d1) / 2;
+      d0 = center - p.obstacle_min_width / 2;
+      d1 = center + p.obstacle_min_width / 2;
+    } else if (ls < s0) {
       // 앞에서 볼 때만 최소 크기 보정(앞면이 실제로 보일 때만 뒤로 확장)
       int nf = 0;
       double fmin = kInf, fmax = -kInf;
@@ -128,7 +137,7 @@ void Tracker::update(const std::vector<Box> & boxes, double t, double s_rear,
     Box est = tr.hist[0];
     for (size_t k = 1; k < tr.hist.size(); ++k) {est = est.unite(tr.hist[k]);}
     if (est.s1 - est.s0 > p.obstacle_max_length || est.d1 - est.d0 > p.obstacle_max_width) {est = b;}
-    tr.box = est;
+    tr.box = p.obstacle_fixed_size ? b : est;
     tr.hits += 1;
     tr.last_seen = t;
     tr.ghost_time = 0.0;

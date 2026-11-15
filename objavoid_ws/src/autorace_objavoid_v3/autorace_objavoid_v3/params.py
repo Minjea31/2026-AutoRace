@@ -67,6 +67,7 @@ class Params:
     roi_margin: float = 0.06         # 경계 밖으로 허용하는 점 여유
     cluster_jump: float = 0.12
     cluster_min_points: int = 3
+    obstacle_fixed_size: bool = False  # 검출·추적 박스를 지정 크기로 고정
     obstacle_min_length: float = 0.33  # LIMO 0.322 x 0.22, 과소평가 방지
     obstacle_min_width: float = 0.23
     obstacle_max_length: float = 0.70  # 이보다 커지면 누적 박스 대신 최신 관측 사용
