@@ -26,7 +26,7 @@ def load_launch(monkeypatch, tmp_path):
     return module, context
 
 
-@pytest.mark.parametrize('vehicle, expected', [(None, 0.0), ('06', 0.0), ('04', 0.01)])
+@pytest.mark.parametrize('vehicle, expected', [(None, 0.0), ('06', 0.0), ('04', 0.0)])
 def test_vehicle_selects_driver_neutral_offset(monkeypatch, tmp_path, vehicle, expected):
     module, context = load_launch(monkeypatch, tmp_path)
     if vehicle is not None:

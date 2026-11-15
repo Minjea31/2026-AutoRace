@@ -52,7 +52,7 @@ def _setup(context):
         raise ValueError('tf_profile must be existing or wego_limo_pro')
 
     vehicle = value('vehicle')
-    offsets = {'04': 0.01, '06': 0.0}
+    offsets = {'04': 0.0, '06': 0.0}
     if vehicle not in offsets:
         raise ValueError('vehicle must be 04 or 06')
     steering_offset = offsets[vehicle]

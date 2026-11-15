@@ -104,7 +104,11 @@ LimoDriver::LimoDriver(std::string node_name):rclcpp::Node(node_name),keep_runni
 }
 
 LimoDriver::~LimoDriver() {
-
+    // 수신 스레드를 join하지 않으면 std::thread 소멸 시 std::terminate() -> SIGABRT.
+    // readData()는 rclcpp::ok()가 false가 되면 빠져나오고, read는 100 ms 타임아웃이라 곧 끝난다.
+    if (read_data_thread_ && read_data_thread_->joinable()) {
+        read_data_thread_->join();
+    }
 }
 
 void LimoDriver::run(){
