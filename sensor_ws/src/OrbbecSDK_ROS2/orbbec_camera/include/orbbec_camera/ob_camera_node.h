@@ -39,6 +39,7 @@
 #include <diagnostic_updater/diagnostic_updater.hpp>
 
 #include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 #include <camera_info_manager/camera_info_manager.hpp>
 
 #include <image_publisher/image_publisher.hpp>
@@ -306,6 +307,7 @@ class OBCameraNode {
                        const stream_index_pair& stream_index, const std_msgs::msg::Header& header);
 
   void onNewColorFrameCallback();
+  void publishColorJpeg(const std::shared_ptr<ob::Frame>& frame);
 
   void saveImageToFile(const stream_index_pair& stream_index, const cv::Mat& image,
                        const sensor_msgs::msg::Image::SharedPtr& image_msg);
@@ -485,6 +487,10 @@ class OBCameraNode {
   // mjpeg decoder
   std::shared_ptr<JPEGDecoder> jpeg_decoder_ = nullptr;
   uint8_t* rgb_buffer_ = nullptr;
+  // color_jpeg_passthrough: publish the camera's MJPEG bytes as color/image_raw/compressed
+  // (image_transport then only publishes raw, decoded only when raw has subscribers).
+  bool color_jpeg_passthrough_ = false;
+  rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr color_jpeg_publisher_;
   bool is_color_frame_decoded_ = false;
   std::mutex device_lock_;
   // For color

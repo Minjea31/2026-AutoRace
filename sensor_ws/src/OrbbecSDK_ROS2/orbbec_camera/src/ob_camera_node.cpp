@@ -913,6 +913,7 @@ void OBCameraNode::getParameters() {
   setAndGetNodeParameter<std::string>(ir_info_url_, "ir_info_url", "");
   setAndGetNodeParameter<std::string>(color_info_url_, "color_info_url", "");
   setAndGetNodeParameter(enable_colored_point_cloud_, "enable_colored_point_cloud", false);
+  setAndGetNodeParameter(color_jpeg_passthrough_, "color_jpeg_passthrough", false);
   setAndGetNodeParameter(enable_point_cloud_, "enable_point_cloud", true);
   setAndGetNodeParameter<std::string>(point_cloud_qos_, "point_cloud_qos", "default");
   setAndGetNodeParameter(enable_d2c_viewer_, "enable_d2c_viewer", false);
@@ -1101,6 +1102,25 @@ void OBCameraNode::setupPublishers() {
     std::string topic = name + "/image_raw";
     auto image_qos = image_qos_[stream_index];
     auto image_qos_profile = getRMWQosProfileFromString(image_qos);
+    if (stream_index == COLOR && color_jpeg_passthrough_) {
+      // Only the raw plugin: color/image_raw/compressed comes from publishColorJpeg().
+      const std::string plugins = name + ".image_raw.enable_pub_plugins";
+      if (!node_->has_parameter(plugins)) {
+        node_->declare_parameter(plugins, std::vector<std::string>{"image_transport/raw"});
+      }
+      const auto enabled = node_->get_parameter(plugins).as_string_array();
+      if (std::find(enabled.begin(), enabled.end(), "image_transport/compressed") != enabled.end()) {
+        RCLCPP_ERROR_STREAM(logger_, plugins << " enables image_transport/compressed; "
+                                             "color_jpeg_passthrough disabled");
+        color_jpeg_passthrough_ = false;
+      } else {
+        color_jpeg_publisher_ = node_->create_publisher<sensor_msgs::msg::CompressedImage>(
+            topic + "/compressed",
+            rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(image_qos_profile), image_qos_profile));
+        RCLCPP_INFO_STREAM(logger_, "color_jpeg_passthrough: publishing camera JPEG on "
+                                        << topic << "/compressed");
+      }
+    }
     image_publishers_[stream_index] =
         image_transport::create_publisher(node_, topic, image_qos_profile);
     topic = name + "/camera_info";
@@ -1533,6 +1553,7 @@ void OBCameraNode::onNewColorFrameCallback() {
     }
 
     std::shared_ptr<ob::FrameSet> frameSet = color_frame_queue_.front();
+    publishColorJpeg(frameSet->colorFrame());
     is_color_frame_decoded_ = decodeColorFrameToBuffer(frameSet->colorFrame(), rgb_buffer_);
     publishPointCloud(frameSet);
     onNewFrameCallback(frameSet->colorFrame(), COLOR);
@@ -1540,6 +1561,45 @@ void OBCameraNode::onNewColorFrameCallback() {
   }
 
   RCLCPP_INFO_STREAM(logger_, "Color frame thread exit!");
+}
+
+void OBCameraNode::publishColorJpeg(const std::shared_ptr<ob::Frame> &frame) {
+  if (!color_jpeg_publisher_ || !frame || color_jpeg_publisher_->get_subscription_count() == 0) {
+    return;
+  }
+  auto video_frame = frame->as<ob::ColorFrame>();
+  if (!video_frame) {
+    return;
+  }
+  auto msg = std::make_unique<sensor_msgs::msg::CompressedImage>();
+  msg->header.stamp = use_hardware_time_ ? fromUsToROSTime(video_frame->timeStampUs())
+                                         : fromUsToROSTime(video_frame->systemTimeStampUs());
+  msg->header.frame_id =
+      depth_registration_ ? depth_aligned_frame_id_[COLOR] : optical_frame_id_[COLOR];
+  msg->format = "rgb8; jpeg compressed bgr8";  // as compressed_image_transport labels rgb8 input
+  if (video_frame->format() == OB_FORMAT_MJPG) {
+    const auto *data = static_cast<const uint8_t *>(video_frame->data());
+    msg->data.assign(data, data + video_frame->dataSize());
+  } else {
+    // Not MJPG: encode like compressed_image_transport (bgr8, quality 95).
+    auto converted = softwareDecodeColorFrame(frame);
+    if (!converted || (converted->format() != OB_FORMAT_RGB && converted->format() != OB_FORMAT_BGR)) {
+      RCLCPP_ERROR_THROTTLE(logger_, *(node_->get_clock()), 5000,
+                            "color_jpeg_passthrough: cannot encode color format %d",
+                            static_cast<int>(video_frame->format()));
+      return;
+    }
+    cv::Mat image(static_cast<int>(video_frame->height()), static_cast<int>(video_frame->width()),
+                  CV_8UC3, converted->data());
+    cv::Mat bgr;
+    if (converted->format() == OB_FORMAT_RGB) {
+      cv::cvtColor(image, bgr, cv::COLOR_RGB2BGR);
+    } else {
+      bgr = image;
+    }
+    cv::imencode(".jpg", bgr, msg->data, {cv::IMWRITE_JPEG_QUALITY, 95});
+  }
+  color_jpeg_publisher_->publish(std::move(msg));
 }
 
 std::shared_ptr<ob::Frame> OBCameraNode::softwareDecodeColorFrame(

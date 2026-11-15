@@ -125,6 +125,8 @@ private:
     double theta_ = 0.0;
 
     ImuData imu_data_;
+    double imu_period_ = 0.0;      // 0: publish every IMU frame from the base
+    double next_imu_stamp_ = 0.0;  // next scheduled /imu publication (s)
     std::atomic<int> motion_mode_{-1}; // -1 until the first system-state frame  // current motion type
 
     bool steering_limit_enabled_ = false;

@@ -43,6 +43,12 @@ LimoDriver::LimoDriver(std::string node_name):rclcpp::Node(node_name),keep_runni
     pub_odom_tf_ = this->declare_parameter<bool>("pub_odom_tf", false);
     use_mcnamu_ = this->declare_parameter<bool>("use_mcnamu", false);
     int control_rate = this->declare_parameter<int>("control_rate", 50);
+    // The base sends IMU frames at ~100 Hz; imu_rate_hz > 0 publishes /imu on that schedule instead.
+    const double imu_rate = this->declare_parameter<double>("imu_rate_hz", 0.0);
+    if (!std::isfinite(imu_rate) || imu_rate < 0.0) {
+        throw std::invalid_argument("imu_rate_hz must be finite and >= 0 (0: every IMU frame)");
+    }
+    imu_period_ = imu_rate > 0.0 ? 1.0 / imu_rate : 0.0;
     steering_limit_enabled_ = this->declare_parameter<bool>("steering_limit_enabled", false);
     max_inner_angle_ = this->declare_parameter<double>("max_inner_angle", 0.80);
     if (!std::isfinite(max_inner_angle_) || max_inner_angle_ <= 0.0 || max_inner_angle_ >= 1.57079632679) {
@@ -539,6 +545,19 @@ void LimoDriver::publishIMUData(double stamp) {
     imu_msg.orientation_covariance[4] = 1e-6;
     imu_msg.orientation_covariance[8] = 1e-6;
 
+    if (imu_period_ > 0.0) {
+        if (next_imu_stamp_ - stamp > 1.0) {  // clock jumped back
+            next_imu_stamp_ = stamp;
+        }
+        if (stamp < next_imu_stamp_) {
+            return;
+        }
+        // Fixed schedule keeps the average at imu_rate_hz; restart it after a gap.
+        next_imu_stamp_ += imu_period_;
+        if (next_imu_stamp_ <= stamp) {
+            next_imu_stamp_ = stamp + imu_period_;
+        }
+    }
     imu_publisher_->publish(imu_msg);
 }
 

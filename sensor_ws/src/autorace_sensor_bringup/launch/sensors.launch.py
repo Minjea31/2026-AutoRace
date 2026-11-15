@@ -83,7 +83,7 @@ def _setup(context):
         'vehicle', 'enable_base', 'enable_lidar', 'enable_camera', 'enable_description',
         'enable_camera_tf', 'enable_ekf', 'port_name', 'lidar_params', 'ekf_params', 'fusion_params',
         'camera_name', 'camera_launch', 'degree', 'startup_timeout', 'stale_timeout', 'tf_profile',
-        'camera_tf_publish_rate', 'enable_depth', 'enable_ir',
+        'camera_tf_publish_rate', 'camera_jpeg_passthrough', 'enable_depth', 'enable_ir',
         'enable_point_cloud', 'enable_colored_point_cloud',
     )}
     (log_dir / 'session.json').write_text(json.dumps({
@@ -151,7 +151,7 @@ def _setup(context):
             output='both', parameters=[{
                 'port_name': value('port_name'), 'use_mcnamu': False,
                 'odom_frame': 'odom', 'base_frame': 'base_link',
-                'pub_odom_tf': True, 'control_rate': 50,
+                'pub_odom_tf': True, 'control_rate': 50, 'imu_rate_hz': 30.0,
                 'steering_limit_enabled': enabled('steering_limit_enabled'),
                 'max_inner_angle': float(value('max_inner_angle')),
                 'steering_command_calibration': enabled('steering_command_calibration'),
@@ -182,6 +182,9 @@ def _setup(context):
             'enable_point_cloud': 'true' if enabled('enable_depth') and enabled('enable_point_cloud') else 'false',
             'enable_colored_point_cloud': 'true' if enabled('enable_depth') and enabled('enable_colored_point_cloud') else 'false',
             'depth_registration': 'false', 'enable_d2c_viewer': 'false',
+            # MJPG bytes from the camera go straight to color/image_raw/compressed (no
+            # decode + q95 re-encode); raw is decoded only while someone subscribes to it.
+            'color_jpeg_passthrough': value('camera_jpeg_passthrough'),
             # Rigid camera internal geometry belongs on /tf_static.
             'tf_publish_rate': value('camera_tf_publish_rate'),
         })
@@ -190,7 +193,8 @@ def _setup(context):
         ])])
         actions.append(camera_action)
         camera = '/' + value('camera_name').strip('/')
-        watch(camera + '/color/image_raw', 'sensor_msgs/msg/Image')
+        # Liveness only: the compressed stream avoids moving 0.9 MB raw frames to the monitor.
+        watch(camera + '/color/image_raw/compressed', 'sensor_msgs/msg/CompressedImage')
         expected_nodes.extend([camera + '/camera_container', camera + '/' + value('camera_name').strip('/')])
         if enabled('enable_depth'):
             watch(camera + '/depth/image_raw', 'sensor_msgs/msg/Image')
@@ -248,7 +252,7 @@ def generate_launch_description():
         'camera_name': 'camera', 'camera_launch': 'astra_stereo_u3.launch.py',
         'degree': '0.0', 'startup_timeout': '15.0', 'stale_timeout': '5.0',
         'tf_profile': 'wego_limo_pro',
-        'camera_tf_publish_rate': '0.0',
+        'camera_tf_publish_rate': '0.0', 'camera_jpeg_passthrough': 'true',
         # The driving stack consumes RGB only; do not start unused streams/processors.
         'enable_depth': 'false', 'enable_ir': 'false',
         'enable_point_cloud': 'false', 'enable_colored_point_cloud': 'false',
