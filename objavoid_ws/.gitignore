@@ -1,9 +1,6 @@
 build/
 install/
 log/
+results/
 __pycache__/
-*.py[cod]
 .pytest_cache/
-*.egg-info/
-# Local regression tests (not needed for running the node)
-/src/autorace_objavoid/test/
