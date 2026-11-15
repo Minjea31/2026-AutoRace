@@ -97,8 +97,8 @@ source env.sh
 | 기본 차선 주행·갈림길 | 차선·갈림길 (`lane`) | `/mission/lane` |
 | 방지턱·지그재그 서행 | 서행·방지턱 (`slow`) + `lane` | `/mission/slow/command_08` |
 | 횡단보도 | 횡단보도 (`crosswalk`) + `lane` | `/mission/crosswalk/command_01` |
-| 장애물 회피 | 장애물 회피 (`objavoid`) + `lane` | `/mission/objavoid/command_05` |
-| 콘 | 콘 (`cone`) + `lane` | `/mission/cone/command_04` |
+| 장애물 회피 | 장애물 회피 (`objavoid`) + `lane` | `/mission/objavoid/command_04` |
+| 콘 | 콘 (`cone`) + `lane` | `/mission/cone/command_05` |
 | 신호등 | 신호등 (`signal`) + `lane` | `/mission/signal/command_02` |
 | 주차 | 주차 (`parking`) + `lane` | `/mission/parking/command_03` |
 
@@ -121,10 +121,10 @@ source env.sh
 ./adapter.sh --no-gui --topic /mission/crosswalk/command_01 --topic /mission/lane
 
 # 장애물 회피: 시뮬레이터의 --mission obstacle에 대응
-./adapter.sh --no-gui --topic /mission/objavoid/command_05 --topic /mission/lane
+./adapter.sh --no-gui --topic /mission/objavoid/command_04 --topic /mission/lane
 
 # 콘
-./adapter.sh --no-gui --topic /mission/cone/command_04 --topic /mission/lane
+./adapter.sh --no-gui --topic /mission/cone/command_05 --topic /mission/lane
 
 # 신호등
 ./adapter.sh --no-gui --topic /mission/signal/command_02 --topic /mission/lane

@@ -16,6 +16,7 @@ from rclpy.clock import Clock, ClockType
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import Buffer, TransformListener, StaticTransformBroadcaster, TransformException
 
@@ -37,6 +38,7 @@ class SensorFusion(Node):
         self.speed_std = param('wheel_speed_stddev', .03)
         self.gyro_std = param('gyro_stddev', .015)
         self.calibration = GyroCalibration(param('gyro_calibration_seconds', 2.))
+        self.calibration_generation = 0
         for value in (self.timeout, self.speed_std, self.gyro_std, self.calibration.duration):
             if not math.isfinite(value) or value <= 0:
                 raise ValueError('Timeout, noise and calibration duration must be positive')
@@ -55,6 +57,7 @@ class SensorFusion(Node):
         self.odom_pub = self.create_publisher(Odometry, '/localization/wheel', 10)
         self.imu_pub = self.create_publisher(Imu, '/localization/imu', 10)
         self.health_pub = self.create_publisher(String, '/localization/health', 10)
+        self.create_service(Trigger, '/localization/calibrate_gyro', self.recalibrate_gyro)
         self.create_subscription(Odometry, param('wheel_topic', '/odom'), self.on_wheel, qos_profile_sensor_data)
         self.create_subscription(Imu, param('imu_topic', '/imu'), self.on_imu, qos_profile_sensor_data)
         self.health_clock = Clock(clock_type=ClockType.STEADY_TIME)
@@ -62,6 +65,16 @@ class SensorFusion(Node):
 
     def now(self):
         return self.get_clock().now().nanoseconds*1e-9
+
+    def recalibrate_gyro(self, request, response):
+        # Keep the EKF and its world anchor alive. Only sensor bias is renewed;
+        # moving samples cannot complete GyroCalibration.
+        self.calibration = GyroCalibration(self.calibration.duration)
+        self.calibration_generation += 1
+        self.error = ''
+        response.success = True
+        response.message = json.dumps({'generation': self.calibration_generation})
+        return response
 
     @staticmethod
     def stamp(msg):
@@ -171,6 +184,10 @@ class SensorFusion(Node):
                  and self.imu_received is not None and wall-self.imu_received <= self.timeout)
         self.health_pub.publish(String(data=json.dumps({
             'stamp': now, 'ready': bool(ready), 'gyro_bias_rad_s': self.calibration.bias,
+            'calibration_generation': self.calibration_generation,
+            'calibrating': self.calibration.bias is None,
+            'wheel_speed_m_s': self.wheel[0] if self.wheel is not None else None,
+            'wheel_yaw_rate_rad_s': self.wheel[1] if self.wheel is not None else None,
             'wheel_age_s': now-self.wheel_stamp if self.wheel_stamp is not None else None,
             'imu_age_s': now-self.imu_stamp if self.imu_stamp is not None else None,
             'reason': self.error or ('' if ready else 'Keep stationary for gyro calibration; check fresh wheel/IMU inputs'),

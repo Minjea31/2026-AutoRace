@@ -27,9 +27,15 @@
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/parameter_client.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <QCheckBox>
+#include <set>
 #include <thread>
 
 namespace {
+// Parameters shown by default (perception): the ones tuned in practice. The rest
+// (calibration, rarely changed limits, unused ones) stay in the YAML and are
+// still loaded, saved and applied; "고급 파라미터 표시" shows them.
+const std::set<std::string> kBasic = {"yellow_h_min", "yellow_h_max", "yellow_s_min", "yellow_v_min", "white_s_max", "white_v_min", "white_tophat", "white_max_width", "white_max_length", "lane_width_px", "margin", "min_pixels", "smoothing", "track_jump_px", "track_memory", "lookahead_row"};
 double wall() {
   return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
       .count();
@@ -315,12 +321,15 @@ public:
     auto scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setMinimumWidth(370);
+    auto advanced = new QCheckBox("고급 파라미터 표시 (BEV·윈도우·출력 등, 평소엔 숨김)");
+    panel_layout->addWidget(advanced);
     panel_layout->addWidget(jump);
     panel_layout->addWidget(scroll, 1);
     auto params = new QWidget;
     auto grouped = new QVBoxLayout(params);
     std::map<std::string, QVBoxLayout *> layouts;
     std::vector<QGroupBox *> boxes;
+    std::map<std::string, QGroupBox *> group_boxes;
     for (const char *group : lane_lite::groups()) {
       const QString title = QString("%1. %2").arg(boxes.size() + 1, 2, 10, QChar('0'))
                                 .arg(QString::fromUtf8(group));
@@ -328,6 +337,7 @@ public:
       boxes.push_back(box);
       jump->addItem(title);
       layouts[group] = new QVBoxLayout(box);
+      group_boxes[group] = box;
       grouped->addWidget(box);
     }
     grouped->addStretch();
@@ -337,6 +347,8 @@ public:
     split->addWidget(panel);
     split->setStretchFactor(0, 4);
     split->setStretchFactor(1, 1);
+    std::vector<QWidget *> hidden;
+    std::set<std::string> basic_groups;
     for (const auto &p : lane_lite::specs()) {
       auto row = new QWidget;
       auto stack = new QVBoxLayout(row);
@@ -359,6 +371,10 @@ public:
       line->addWidget(spin);
       stack->addLayout(line);
       layouts.at(p.group)->addWidget(row);
+      if (kBasic.count(p.name))
+        basic_groups.insert(p.group);
+      else
+        hidden.push_back(row);
       spins[p.name] = spin;
       sliders[p.name] = slider;
       connect(slider, &QSlider::valueChanged, this, [spin, p](int i) {
@@ -371,6 +387,14 @@ public:
                 applyConfig(c);
               });
     }
+    auto show_all = [hidden, group_boxes, basic_groups](bool all) {
+      for (auto *row : hidden)
+        row->setVisible(all);
+      for (const auto &[name, box] : group_boxes)
+        box->setVisible(all || basic_groups.count(name));
+    };
+    connect(advanced, &QCheckBox::toggled, this, show_all);
+    show_all(false);
     syncWidgets(s.config);
 
     outer->addWidget(new QLabel(

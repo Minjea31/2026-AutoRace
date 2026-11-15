@@ -11,9 +11,10 @@ class Mission:
 
 
 class SlowState:
-    def __init__(self, confirm_frames=2, hold_sec=8., gap_timeout_sec=.5, require_white_mark=True):
+    def __init__(self, confirm_frames=2, hold_sec=8., gap_timeout_sec=.5, require_white_mark=True, slow_hold_sec=15.):
         self.required = confirm_frames
         self.hold = hold_sec
+        self.slow_hold = slow_hold_sec
         self.gap = gap_timeout_sec
         self.require_white_mark = require_white_mark
         self.missions = {kind: Mission() for kind in ('slow', 'bump')}
@@ -22,6 +23,7 @@ class SlowState:
         for mission in self.missions.values():
             if mission.deadline is not None and now >= mission.deadline:
                 mission.deadline = None
+                mission.armed = False
                 mission.count = 0
                 mission.last_received = None
             if mission.last_received is not None and now-mission.last_received > self.gap:
@@ -35,7 +37,7 @@ class SlowState:
         if not detected:
             mission.count = 0
             return False
-        if mission.deadline is not None:
+        if mission.deadline is not None and kind != 'slow':
             mission.deadline = now+self.hold
             return False
         if mission.armed:
@@ -47,7 +49,7 @@ class SlowState:
         if self.require_white_mark:
             mission.armed = True
             return False
-        mission.deadline = now+self.hold
+        mission.deadline = now + (self.slow_hold if kind == 'slow' else self.hold)
         return True
 
     def receive_white(self, detected, now, eligible_kinds=None):
@@ -56,12 +58,15 @@ class SlowState:
         activated = []
         if detected:
             for kind, mission in self.missions.items():
-                if (mission.armed and mission.deadline is None
+                if (mission.armed and (mission.deadline is None or kind == 'slow')
                         and (eligible_kinds is None or kind in eligible_kinds)):
                     mission.armed = False
-                    mission.deadline = now + self.hold
+                    mission.deadline = now + (self.slow_hold if kind == 'slow' else self.hold)
                     activated.append(kind)
         return tuple(activated)
+
+    def stop_slow(self):
+        self.missions['slow'] = Mission()
 
     def selected(self, now):
         self.tick(now)

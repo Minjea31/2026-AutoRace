@@ -16,7 +16,7 @@ from .core import SignalState
 
 # Tune here; launch does not override these defaults. Restart after changes.
 CONFIRM_FRAMES = 2
-MAX_RED_WAIT_SEC = 10.0  # Restarted by every red received while stopping.
+MAX_RED_WAIT_SEC = 5.0  # Restarted by every red received while stopping.
 SIGNAL_GAP_TIMEOUT_SEC = 0.5
 PUBLISH_RATE_HZ = 30.0
 LANE_TIMEOUT_SEC = 0.25
@@ -45,6 +45,8 @@ class SignalNode(Node):
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                          durability=DurabilityPolicy.VOLATILE)
         self.command_pub = self.create_publisher(AckermannDriveStamped, '/mission/signal/command_02', qos)
+        self.start_signal_pub = self.create_publisher(Bool, '/start_signal', qos)
+        self.reported_stop_generation = 0
         self.signal_sub = self.create_subscription(Bool, '/yolo/signal', self.on_signal, qos)
         self.lane_sub = self.create_subscription(AckermannDriveStamped, '/mission/lane', self.on_lane, qos)
         self.steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
@@ -110,6 +112,10 @@ class SignalNode(Node):
         message.drive.speed = 0.0
         message.header.stamp = self.get_clock().now().to_msg()
         self.command_pub.publish(message)
+        # Announce each red-stop episode only after its first stop command.
+        if self.reported_stop_generation != self.state.stop_generation:
+            self.start_signal_pub.publish(Bool(data=True))
+            self.reported_stop_generation = self.state.stop_generation
 
 
 def main(args=None):

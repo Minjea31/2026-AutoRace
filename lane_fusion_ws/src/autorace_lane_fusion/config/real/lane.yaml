@@ -9,9 +9,10 @@
 # from the old 470 px BEV. Old values: lane_real_before_bev1 (git history).
 # Copied from lane_ws commit 0867daa.
 # 2026-11-07: single deep-first fusion pipeline (deep_mode / sliding-window keys removed).
-# Candidates: cell centroid chains (cell/max_gap/min_length); HSV only when deep is missing or weak.
-# 2026-11-09: hsv_min_quality 0.6 -> 0.2, hsv_penalty 0.35 -> 0.8 (short deep pieces in curves no longer
-#   switch HSV on; HSV wins only where deep has nothing). lane_fusion_node now pairs each frame with its own mask.
+# 2026-11-10: asynchronous candidate fusion. HSV (lane_ws detector) every frame, deep masks aligned with
+#   odometry (deep_max_age), candidates chosen by geometry only. Removed: cell chains, hsv_min_quality,
+#   hsv_penalty, max_target_jump_m (old YAML with these keys still loads).
+# 2026-11-12: fork (A/B, /yolo/LR_sign) logic removed from the lane node (to be redone).
 lane_lite:
   width: 640
   height: 480
@@ -38,20 +39,14 @@ lane_lite:
   white_max_length: 190
   line_width_max: 24
   min_area: 35
-  cell: 16
-  min_cell_pixels: 6
-  max_gap: 110
-  max_turn_deg: 35
-  min_length: 60
   max_residual: 6
+  histogram_start: 0.5
   windows: 12
   margin: 30
   min_pixels: 18
   max_misses: 3
   min_windows: 3
-  deep_max_age: 0.12
-  hsv_min_quality: 0.2
-  hsv_penalty: 0.8
+  deep_max_age: 0.2
   merge_px: 24
   lane_width_px: 277
   width_tolerance: 0.35
@@ -62,9 +57,12 @@ lane_lite:
   track_jump_px: 35
   track_memory: 0.5
   role_frames: 3
-  max_target_jump_m: 0.12
+  cone_exit_role_bias: 0.8  # only while fresh /cone_lane/exit_lane_active + a coherent recent turn
   max_curvature: 3.0
   curvature_span_m: 0.6
   lane_width_m: 0.52
+  curve_lane_width_m: 0.67  # 2026-11-11: right-hand bends are up to 0.67 m wide (left line only in view)
+  curve_angle_deg: 45
+  curve_memory: 2.0  # 2026-11-11: after a bend the lane just driven runs parallel outside the left line
   bev_near_m: 0.49
   bev_far_m: 1.39

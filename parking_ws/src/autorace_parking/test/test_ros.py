@@ -22,6 +22,7 @@ def test_ros_activation_markers_path_control_and_stale_stop():
     from limo_parking_sim.model import Simulation
     rclpy.init()
     node = ParkingNode(parameter_overrides=[Parameter('localization_source', value='scan'), Parameter('plan_period', value=.1),
+                                            Parameter('recognition_frames', value=3),
                                             Parameter('exit_heading_tolerance', value=.04)])
     assert node.follower.exit_heading_tolerance == .04
     driver = Node('parking_test_driver')

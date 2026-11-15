@@ -1,5 +1,6 @@
 """Departure handoff validation and ROS arbitration on a private DDS domain."""
 from concurrent.futures import Future
+from dataclasses import replace
 import time
 
 import pytest
@@ -12,11 +13,24 @@ from rclpy.signals import SignalHandlerOptions
 from ackermann_msgs.msg import AckermannDriveStamped
 from std_msgs.msg import Float32MultiArray, Header
 
-from autorace_parking.lane_handoff import ExitLaneGate
+from autorace_parking.lane_handoff import ExitLaneGate,ExitStopGate
 from autorace_parking.node import ParkingNode
 from autorace_mux.node import MuxNode
 
 VALID = [1., 0., 0., 1., 0., .9, 2., 0., 0., 0., .3]
+
+
+def test_early_exit_brakes_once_then_falls_back_if_lane_is_lost():
+    gate=ExitStopGate()
+    assert gate.update(False,False,1.)=='follow'
+    assert gate.update(True,False,1.1)=='hold'
+    assert gate.update(False,True,1.2)=='hold'
+    assert gate.update(False,True,1.91)=='follow'
+    assert gate.update(True,False,2.)=='follow'
+    assert gate.update(True,True,2.1)=='release'
+    gate.reset()
+    assert gate.update(True,False,3.)=='hold'
+    assert gate.update(True,True,3.2)=='release'
 
 
 def test_only_fresh_observations_after_actual_reverse_can_release():
@@ -163,6 +177,35 @@ def test_lane_seen_during_reverse_turn_waits_until_turn_finishes_then_skips_forw
     h.target_pub.publish(Float32MultiArray(data=VALID)); h.pump(.08)
     assert n.follower.exited and n.exit_lane_handed_off and len(h.releases) == 1
     assert h.mux._last_source == 'lane'
+
+
+def test_curve_only_handoff_brakes_before_releasing_the_remaining_straight_reverse(h):
+    n=h.parking;n.cfg=replace(n.cfg,exit_curve_handoff=True);n.follower.cfg=n.cfg
+    n.activation.active=True;n.follower.parked=n.follower.exiting=True
+    n.follower.entry_trace=[(0.,0.,0.)]
+    n.follower.path=[(0.,0.,.6),(-.2,-.1,.3),(-.4,-.1,0.),(-1.,-.1,0.)]
+    n.follower.index=2;n.tracker.pose=(-.4,-.1,0.)
+    n.follower.measured_speed=.15;n.follower.previous_sample=(n.tracker.pose,n.now_seconds())
+    n.publish_command(-.15,0.);h.pump(.03)
+    h.target_pub.publish(Float32MultiArray(data=VALID));h.pump(.07)
+    assert n.follower.exit_handoff_hold and not n.follower.exited
+    assert h.mux._last_source=='parking' and not h.releases
+    n.follower.measured_speed=0.;n.follower.previous_sample=(n.tracker.pose,n.now_seconds())
+    n.scan_time=n.now_seconds()
+    h.target_pub.publish(Float32MultiArray(data=VALID));h.pump(.06)
+    assert n.follower.exited and n.exit_lane_handed_off
+    assert h.mux._last_source=='lane' and len(h.releases)==1
+
+
+def test_curve_handoff_hold_keeps_observing_velocity(h):
+    n=h.parking;n.follower.parked=n.follower.exiting=True
+    n.follower.exit_handoff_hold=True
+    from autorace_parking.core import Scan
+    import math
+    scan=Scan([math.inf]*361,-math.pi,math.pi/180,.01,12.)
+    assert n.follower.command(scan,(0.,0.,0.),True,1.)==(0.,0.,'EXIT_LANE_STOPPING')
+    assert n.follower.command(scan,(-.01,0.,0.),True,1.1)==(0.,0.,'EXIT_LANE_STOPPING')
+    assert n.follower.measured_speed==pytest.approx(.1)
 
 
 def test_delayed_parking_packets_are_ignored_and_next_mission_can_take_control(h):

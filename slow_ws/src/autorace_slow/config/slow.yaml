@@ -3,10 +3,10 @@ slow_node:
     confirm_frames: 2
     white_roi_enabled: true
     # Ratios of the original camera image: shallow strip near the vehicle.
-    white_roi_left: 0.20
-    white_roi_right: 0.80
-    white_roi_top: 0.86
-    white_roi_bottom: 0.92
+    white_roi_left: 0.050
+    white_roi_right: 0.950
+    white_roi_top: 0.961
+    white_roi_bottom: 1.000
     white_roi_minimum_ratio: 0.08
     white_image_topic: /camera/color/image_raw/compressed
     white_image_timeout_sec: 0.30

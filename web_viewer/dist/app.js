@@ -8,8 +8,22 @@ document.querySelector('#host').textContent = location.host;
 
 function connectImage(card) {
   const image = card.querySelector('img');
+  if (card.dataset.source === 'fork') { pollFork(); return; }
   if (!image.getAttribute('src')) image.src = `/stream/${card.dataset.source}.mjpg?at=${Date.now()}`;
 }
+
+// The fork snapshot changes a few times per fork: polled as a still image, so
+// it does not hold one of the browser's 6 connections like an MJPEG stream
+// (a 6th stream starved /api/state and the page showed "disconnected").
+function pollFork() {
+  const card = cards.find(c => c.dataset.source === 'fork');
+  if (!card || card.hidden) return;
+  const image = card.querySelector('img');
+  const next = new Image();
+  next.onload = () => { image.src = next.src; card.querySelector('.stage').classList.add('has-frame'); };
+  next.src = `/snapshot/fork.jpg?at=${Date.now()}`;
+}
+setInterval(pollFork, 2000);
 
 function updateView(view) {
   currentView = view;
@@ -80,6 +94,15 @@ async function refresh() {
       badge.className = `feed-state ${source.status}`;
       badge.lastElementChild.textContent = source.status === 'live' ? 'LIVE' : source.status === 'stale' ? '신호 지연' : '대기 중';
       stage.classList.toggle('stale', source.status === 'stale');
+      if (source.id === 'fork') { // latched: an old picture is the normal case
+        badge.className = `feed-state ${source.width ? 'live' : 'waiting'}`;
+        badge.lastElementChild.textContent = source.width ? '마지막 장면' : '대기 중';
+        stage.classList.remove('stale');
+        card.querySelector('.dimensions').textContent = source.width ? `${source.width} × ${source.height}` : '—';
+        card.querySelector('.fps').textContent = source.age_ms != null ? `${Math.round(source.age_ms / 1000)} s 전` : '—';
+        card.querySelector('a').setAttribute('aria-disabled', !source.width);
+        continue;
+      }
       if (source.status === 'live' && card.querySelector('img').naturalWidth > 0) stage.classList.add('has-frame');
       card.querySelector('.dimensions').textContent = source.width ? `${source.width} × ${source.height}` : '—';
       card.querySelector('.fps').textContent = source.status === 'live' ? `${source.fps.toFixed(1)} FPS` : '— FPS';

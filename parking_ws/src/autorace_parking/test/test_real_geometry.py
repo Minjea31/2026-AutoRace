@@ -46,7 +46,7 @@ def test_real_limo_front_faces_require_a_retained_parking_pair(sample, radius):
     params = yaml.safe_load((package/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     cfg = Settings(**{f.name: params[f.name] for f in fields(Settings) if f.name in params})
     # Archived pre-grid scene: exercise the optional legacy candidate policy.
-    cfg = __import__('dataclasses').replace(cfg,automatic_target_selection=False,slot_map_enabled=False)
+    cfg = __import__('dataclasses').replace(cfg,automatic_target_selection=False,slot_map_enabled=False,obstacle_min_cluster_size=.12)
     cfg = replace(cfg, min_turn_radius=radius, blind_reverse_distance=0.,
                   max_turn_arc_length=max(cfg.max_turn_arc_length,radius*math.pi/2+.01))
     raw = json.loads((package/'test/data/limo_pro_stationary_scans.json').read_text())['scans'][sample]
@@ -110,7 +110,7 @@ def test_explicit_twenty_cm_option_generates_and_tracks_tight_turns(side):
     params = yaml.safe_load((package/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     cfg = Settings(**{f.name: params[f.name] for f in fields(Settings) if f.name in params})
     # Archived pre-grid scene: exercise the optional legacy candidate policy.
-    cfg = __import__('dataclasses').replace(cfg,automatic_target_selection=False,slot_map_enabled=False)
+    cfg = __import__('dataclasses').replace(cfg,automatic_target_selection=False,slot_map_enabled=False,obstacle_min_cluster_size=.12)
     cfg = replace(cfg, require_steering_calibration=False, steering_response_scale=1.,steering_gain=1.,min_turn_radius=.2, max_steering=math.pi/4,
                   max_inner_steering=math.atan(.2/(.2-.172/2)))
     assert cfg.turn_radius == pytest.approx(.2)

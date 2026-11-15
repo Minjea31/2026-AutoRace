@@ -3,13 +3,14 @@
 from dataclasses import fields
 from functools import partial
 import math
+import json
 import signal
 from threading import Event
 import time
 
 from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Header
+from std_msgs.msg import Header, String
 from rcl_interfaces.msg import ParameterDescriptor
 import rclpy
 from rclpy.clock import Clock, ClockType
@@ -18,6 +19,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.signals import SignalHandlerOptions
 
+from autorace_mux.parking_guard import ParkingGuard
 from autorace_mux.core import Arbitrator, Config, INPUTS, TwistConverter
 
 
@@ -57,6 +59,10 @@ class MuxNode(Node):
         self._last_release_clock = None
         handoff = self.declare_parameter('parking_handoff_topic', '/parking/lane_handoff', descriptor).value
         self._parking_handoff_subscription = self.create_subscription(Header, handoff, self._release_parking, qos)
+        self.parking_guard = ParkingGuard()
+        self.parking_guard_enabled = self.declare_parameter('parking_guard_enabled',False,descriptor).value
+        self.create_subscription(String,'/parking/control_state',self._parking_state,qos)
+        self.create_subscription(Header,'/parking/approach_start',self._parking_start,qos)
         self._last_source = None
         self._last_warning = {}
         # Continue the watchdog even if /clock pauses when use_sim_time=true.
@@ -66,6 +72,16 @@ class MuxNode(Node):
         self.get_logger().info(
             f'Mux ready: default={topics["lane"]}, output={output}, '
             f'timeout={self.config.input_timeout_sec:.3f}s')
+
+    def _parking_start(self, message):
+        if self.parking_guard_enabled:
+            self.parking_guard.arm(message.stamp.sec+message.stamp.nanosec*1e-9,
+                time.monotonic(),self._clock_ns()*1e-9)
+
+    def _parking_state(self, message):
+        if self.parking_guard_enabled:
+            try:self.parking_guard.receive(json.loads(message.data),time.monotonic(),self._clock_ns()*1e-9)
+            except (ValueError,TypeError):pass
 
     def _warn_rejected(self, source, reason):
         now = time.monotonic()
@@ -115,6 +131,8 @@ class MuxNode(Node):
     def _publish(self):
         now = time.monotonic()
         candidate = self.arbitrator.select(now, self._clock_ns())
+        if self.parking_guard_enabled:
+            candidate = self.parking_guard.apply(candidate,now,self._clock_ns()*1e-9)
         speed, yaw_rate = self.converter.convert(candidate, now)
         message = Twist()
         message.linear.x = speed

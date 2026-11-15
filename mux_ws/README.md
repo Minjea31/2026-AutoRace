@@ -29,8 +29,8 @@ ros2 launch autorace_mux mux.launch.py
 | 01 | `/mission/crosswalk/command_01` |
 | 02 | `/mission/signal/command_02` |
 | 03 | `/mission/parking/command_03` |
-| 04 | `/mission/cone/command_04` |
-| 05 | `/mission/objavoid/command_05` |
+| 04 | `/mission/cone/command_05` |
+| 05 | `/mission/objavoid/command_04` |
 | 08 | `/mission/slow/command_08` |
 | 기본 | `/mission/lane` |
 

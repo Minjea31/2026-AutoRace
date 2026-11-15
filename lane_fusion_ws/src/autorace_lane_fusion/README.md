@@ -24,21 +24,23 @@ cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane
 
 | 파일 | 역할 |
 | --- | --- |
-| `src/lane.cpp` | 설정(43개 파라미터) + 인식 코어 + 시각화 |
+| `src/lane.cpp` | 설정 + 퓨전(후보 선택·추적·센터패스) + 시각화 |
+| `src/candidates.cpp` | HSV 특징, 한 마스크(딥/HSV)에서의 좌우 경계 검출(lane_ws 방식) |
+| `include/.../odometry.hpp`, `deep_latest.hpp` | odom 이력(두 촬영 시각 사이 이동량), 최신 딥 마스크 선택 |
 | `src/node.cpp` | 카메라 → `/lane_fusion/target` (인식 전용, 주행 명령 없음) |
 | `src/tuner.cpp` | Qt 인식 튜너 (제어 파라미터 없음) |
 | `src/roi_view.cpp`, `src/bag.cpp` | 튜너용 ROI/BEV 드래그 화면, rosbag2 영상 리더 |
 | `src/eval.cpp` | bag 일괄 평가 / 단일 이미지 확인 |
 
-## 처리 단계 (2026-11-07 재설계: 딥 우선 단일 퓨전, 자세한 설명은 [워크스페이스 README](../../README.md))
+## 처리 단계 (2026-11-10 재설계: 비동기 후보 퓨전, 자세한 설명은 [워크스페이스 README](../../README.md))
 
-1. ROI ∩ BEV 사다리꼴 → BEV. 딥 클래스 마스크(0/1/2)는 최근접 보간으로, 컬러 영상은 HSV가 필요할 때만 변환
-2. **딥 후보**: 격자 중심점 → 방향 유지 체인(흰 점선 빈칸 연결, 끊긴 체인 잇기) → 체인을 시작점으로 **슬라이딩 윈도우 정제**(지그재그는 평균선) → 호 길이 다항식 피팅(`max_residual`) → 중복 띠 제거
-3. **HSV 후보**(딥 마스크가 없거나 한쪽이 없거나 약할 때만): Top-hat 흰색, `white_max_width`(횡단보도·글자), `white_max_length`(흰 실선), 색상별 두께 띠, 최소 면적 → 2와 같은 후보 생성. 딥 후보와 겹치면 확인(`deep+hsv`), 아니면 `hsv_penalty`를 안고 선택에 참여
-4. **좌우 선택**: 연속성·차량 기준 안쪽·차로 폭·방향·출처·길이를 한 비용으로 비교(없음 포함). 추적 중인 선은 차량이 넘어가도 역할 유지, 새로 잡은 가로 흰 선(정지선·횡단보도)은 경계 불가. 차로 폭 학습은 `lane_width_px` ±10% 안에서만
-5. **추적**: 평활, 급격한 이동·클래스 변경 3프레임 확인, `track_memory` 동안 유지
-6. **센터패스**: 기준 경계 하나(보이는 동안 유지)에서 반대쪽 대응점과의 중점 또는 폭 절반 오프셋. 한쪽만 보이면 역할이 확실할 때만(`role_frames`). 커브 안쪽은 반지름의 80%까지, 한 번 더 매끄럽게 피팅
-7. **출력 검증**: 가까운 점이 차로 밖이거나 목표점이 `max_target_jump_m` 넘게 바뀌면 3프레임 확인 전까지 직전 출력 유지. 곡률은 원 맞춤(`curvature_span_m`, `max_curvature`)
+1. ROI ∩ BEV 사다리꼴 → BEV(호모그래피·유효 영역은 설정이 바뀔 때만 계산)
+2. **HSV 검출(매 프레임, 주 검출기)**: Top-hat 흰색, `white_max_width`(횡단보도·글자), `white_max_length`(흰 실선), 색상별 두께 띠, 최소 면적 → `lane_ws`와 같은 검출(추적 시작점 또는 히스토그램 차로 쌍 → 방향 추종 슬라이딩 윈도우 → 3차 피팅 → 정지선·역할 교정). 추적 시작점에서 못 찾으면(`margin`보다 크게 이동) 가장 가까운 히스토그램 봉우리로 한 번 더 찾음
+3. **딥 검출(비동기 마스크가 있을 때)**: 촬영 시각 차 ≤ `deep_max_age`인 최신 마스크를 odom 이동량으로 **현재 프레임 BEV에 정합**(한 번의 warp)해 2와 같은 검출. odom이 없으면 0.04 s(약 1프레임) 이내 마스크만 사용
+4. **후보 선택**: 두 검출기의 좌/우 후보(최대 4개)를 기하로만 비교 — 추적 연속성, 차량 기준 안쪽, 차로 폭, 좌우 방향(노랑+노랑 제외), 피팅 품질. 딥·HSV가 같은 선(`merge_px`)이면 겹치는 구간을 평균한 하나의 후보(서로 확인, 약간 유리). **출처 가중치 없음**: 어느 한쪽만 맞게 잡아도 그 후보를 씀
+5. **추적(좌우 하나의 트래커)**: 평활(`smoothing`), 급격한 이동·클래스 변경 3프레임 확인, `track_memory` 동안 유지
+6. **센터패스**: 기준 경계 하나(보이는 동안 유지)에서 반대쪽 대응점(법선 교차)과의 중점, 없으면 폭 절반 오프셋. 한쪽만 보이면 역할이 확실할 때만(`role_frames`). 다항식 재피팅 없음(커브가 펴지지 않음). 이전 경로(odom으로 이동)와 `smoothing`으로 섞되 `track_jump_px`보다 큰 변화는 바로 반영
+7. **유실**: 검출이 끊기면 odom으로 옮긴 직전 경로를 `track_memory` 동안 유지(`held`), 그 뒤 무효 → PID가 정지. 곡률은 원 맞춤(`curvature_span_m`, `max_curvature`)
 
 ## 토픽
 
@@ -80,7 +82,7 @@ cd ~/2026-AutoRace/lane_ws
 source /opt/ros/humble/setup.bash
 PYTHONNOUSERSITE=1 colcon build --packages-select autorace_lane_fusion --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
-./build/autorace_lane_fusion/test_lane          # 합성 영상 단위 테스트 11개
+colcon test --packages-select autorace_lane_fusion   # 합성 영상·마스크·odom 단위 테스트 30개
 ```
 
 ## 인식 튜너 GUI

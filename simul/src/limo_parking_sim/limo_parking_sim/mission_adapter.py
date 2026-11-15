@@ -13,8 +13,8 @@ MISSION_TOPICS = (
     ('횡단보도 (crosswalk)', '/mission/crosswalk/command_01'),
     ('신호등 (signal)', '/mission/signal/command_02'),
     ('주차 (parking)', '/mission/parking/command_03'),
-    ('콘 (cone)', '/mission/cone/command_04'),
-    ('장애물 회피 (objavoid)', '/mission/objavoid/command_05'),
+    ('장애물 회피 (objavoid)', '/mission/objavoid/command_04'),
+    ('콘 (cone)', '/mission/cone/command_05'),
     ('서행 · 방지턱 (slow)', '/mission/slow/command_08'),
     ('차선 · 갈림길 (lane)', '/mission/lane'),
 )

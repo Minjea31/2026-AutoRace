@@ -29,9 +29,15 @@
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/parameter_client.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <QCheckBox>
+#include <set>
 #include <thread>
 
 namespace {
+// Parameters shown by default (perception): the ones tuned in practice. The rest
+// (calibration, rarely changed limits, unused ones) stay in the YAML and are
+// still loaded, saved and applied; "고급 파라미터 표시" shows them.
+const std::set<std::string> kBasic = {"yellow_h_min", "yellow_h_max", "yellow_s_min", "yellow_v_min", "white_s_max", "white_v_min", "white_tophat", "white_max_width", "white_max_length", "lane_width_px", "margin", "min_pixels", "smoothing", "track_jump_px", "track_memory", "lookahead_row", "deep_max_age"};
 double wall() {
   return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
       .count();
@@ -123,7 +129,7 @@ struct Shared {
   std::string config_path; // YAML loaded / saved last (GUI thread only)
   // Deep input. Bag: NNNNNN.png class masks per bag frame (deep_dir, default
   // <bag parent>/deep_masks/<bag name>). Live: the newest camera frame with the
-  // newest /lane_fusion/deep_mask no older than deep_max_age, as lane_fusion_node.
+  // newest earlier /lane_fusion/deep_mask (no odometry here: see process()).
   std::string deep_dir;
   lane_lite::DeepLatest deep;
   sensor_msgs::msg::CompressedImage::ConstSharedPtr frame; // newest live frame
@@ -169,7 +175,7 @@ void worker(Shared &s) {
           s.frame.reset();
           incoming = true;
           live_mask = s.deep.pick(lane_lite::DeepLatest::nanos(compressed->header.stamp),
-                                  config["deep_max_age"], mask_age, own);
+                                  1., mask_age, own);
         }
       }
       const bool changed = revision != new_revision;
@@ -262,18 +268,16 @@ void worker(Shared &s) {
       if (!process || frame.image.empty())
         continue;
       auto d = std::make_shared<Display>();
-      d->result = pipeline.process(frame.image, frame.time, true, deep);
+      // Live: the tuner has no odometry, so only a mask of (about) this frame
+      // is used (kDeepStillAge); the node aligns older ones with /odom.
+      lane_lite::DeepInput deep_input(deep);
+      deep_input.age = live ? std::max(0., mask_age) : 0.;
+      d->result = pipeline.process(frame.image, frame.time, true, deep_input);
       d->deep_mask = deep;
       const auto &r = d->result;
       d->deep = std::string("딥 마스크: ") +
-                (deep.empty() ? (live && mask_age >= 0 ? "너무 오래됨 " + std::to_string(int(mask_age * 1000)) +
-                                                             " ms → HSV만"
-                                                       : std::string("없음 → HSV만"))
-                 : !live ? std::string("bag 프레임 마스크")
-                 : own   ? std::string("이 프레임 것")
-                         : "이전 프레임 것 (" + std::to_string(int(mask_age * 1000)) + " ms 전)") +
-                " | HSV 후보: " + (r.hsv_used ? "계산함" : "안 함 (딥으로 충분)") +
-                " | 선택된 경계 출처: " + r.source;
+                (deep.empty() ? std::string("없음 → HSV만") : !live ? std::string("bag 프레임 마스크") : r.deep_note) +
+                (r.deep_used ? " | 사용" : " | 사용 안 함") + " | 선택된 경계 출처: " + r.source;
       d->frame = index;
       d->count = live ? 0 : bag.size();
       d->time = live ? 0 : frame.time;
@@ -364,9 +368,9 @@ public:
         }
         if (i == 2) {
           bev_mode = new QComboBox;
-          bev_mode->addItems({"BEV 원본", "BEV 특징 마스크 (딥+HSV)", "후보 (딥 보라 / HSV 주황)"});
+          bev_mode->addItems({"BEV 원본", "BEV 특징 마스크 (딥+HSV)", "후보 (딥 보라 / HSV 주황 / 둘 다 초록)"});
           bev_mode->setCurrentIndex(2);
-          bev_mode->setToolTip("후보: 보라=딥 후보, 주황 점선=HSV 단독 후보, 점=체인 중심점, "
+          bev_mode->setToolTip("후보: 보라=딥 후보, 주황 점선=HSV 후보, 초록=딥·HSV가 같은 선, 점=윈도우 중심, "
                                "초록/하늘=선택된 왼쪽/오른쪽, 회색 점선=이전 추적 경계. "
                                "밝은 노랑/흰=딥 마스크, 어두운 노랑/회색=HSV 특징");
           layout->addWidget(bev_mode);
@@ -395,12 +399,15 @@ public:
     auto scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setMinimumWidth(370);
+    auto advanced = new QCheckBox("고급 파라미터 표시 (BEV·윈도우·출력 등, 평소엔 숨김)");
+    panel_layout->addWidget(advanced);
     panel_layout->addWidget(jump);
     panel_layout->addWidget(scroll, 1);
     auto params = new QWidget;
     auto grouped = new QVBoxLayout(params);
     std::map<std::string, QVBoxLayout *> layouts;
     std::vector<QGroupBox *> boxes;
+    std::map<std::string, QGroupBox *> group_boxes;
     for (const char *group : lane_lite::groups()) {
       const QString title = QString("%1. %2").arg(boxes.size() + 1, 2, 10, QChar('0'))
                                 .arg(QString::fromUtf8(group));
@@ -408,6 +415,7 @@ public:
       boxes.push_back(box);
       jump->addItem(title);
       layouts[group] = new QVBoxLayout(box);
+      group_boxes[group] = box;
       grouped->addWidget(box);
     }
     grouped->addStretch();
@@ -417,6 +425,8 @@ public:
     split->addWidget(panel);
     split->setStretchFactor(0, 4);
     split->setStretchFactor(1, 1);
+    std::vector<QWidget *> hidden;
+    std::set<std::string> basic_groups;
     for (const auto &p : lane_lite::specs()) {
       auto row = new QWidget;
       auto stack = new QVBoxLayout(row);
@@ -439,6 +449,10 @@ public:
       line->addWidget(spin);
       stack->addLayout(line);
       layouts.at(p.group)->addWidget(row);
+      if (kBasic.count(p.name))
+        basic_groups.insert(p.group);
+      else
+        hidden.push_back(row);
       spins[p.name] = spin;
       sliders[p.name] = slider;
       connect(slider, &QSlider::valueChanged, this, [spin, p](int i) {
@@ -451,6 +465,14 @@ public:
                 applyConfig(c);
               });
     }
+    auto show_all = [hidden, group_boxes, basic_groups](bool all) {
+      for (auto *row : hidden)
+        row->setVisible(all);
+      for (const auto &[name, box] : group_boxes)
+        box->setVisible(all || basic_groups.count(name));
+    };
+    connect(advanced, &QCheckBox::toggled, this, show_all);
+    show_all(false);
     syncWidgets(s.config);
 
     outer->addWidget(new QLabel(
@@ -719,7 +741,7 @@ int main(int argc, char **argv) {
                    "[--config YAML] [--deep-masks DIR] [--screenshot PNG]\n"
                    "  live input: sensor_msgs/CompressedImage, default /camera/color/image_raw/compressed\n"
                    "  --profile NAME loads config/NAME/lane.yaml from the package source tree\n"
-                   "  deep: live uses the newest /lane_fusion/deep_mask within deep_max_age of the frame;\n"
+                   "  deep: live uses the newest earlier /lane_fusion/deep_mask (only ~this frame's: no odometry);\n"
                    "  a bag uses --deep-masks DIR (default <bag parent>/deep_masks/<bag name>) NNNNNN.png\n";
       return 0;
     }

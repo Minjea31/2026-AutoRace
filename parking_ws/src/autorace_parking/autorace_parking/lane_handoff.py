@@ -2,6 +2,34 @@
 import math
 
 
+class ExitStopGate:
+    """One bounded brake attempt before an early reverse-to-lane handoff."""
+    def __init__(self,timeout=.8):
+        self.timeout=timeout
+        self.reset()
+
+    def reset(self):
+        self.started=None
+        self.attempted=False
+
+    def update(self,eligible,stationary,wall):
+        if self.started is not None and wall-self.started>=self.timeout:
+            self.started=None
+            return 'follow'
+        if not eligible:
+            return 'hold' if self.started is not None else 'follow'
+        if stationary:
+            self.started=None
+            return 'release'
+        if self.started is not None:
+            return 'hold'
+        if self.attempted:
+            return 'follow'
+        self.started=wall
+        self.attempted=True
+        return 'hold'
+
+
 class ExitLaneGate:
     def __init__(self, timeout=.25, confidence=.1):
         if not math.isfinite(timeout) or timeout <= 0 or not math.isfinite(confidence) or not 0 <= confidence < 1:

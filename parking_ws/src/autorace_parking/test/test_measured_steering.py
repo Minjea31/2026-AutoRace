@@ -167,7 +167,7 @@ def test_goal_refinement_considers_later_candidates_that_improve_clearance():
 def test_actual_command_preview_catches_corner_cutting_outside_the_nominal_route():
     results=[]
     for enabled in (False,True):
-        cfg=replace(profile(),require_complete_entry_path=enabled)
+        cfg=replace(profile(),require_complete_entry_path=enabled,entry_obstacle_slowdown=False)
         follower=Follower(cfg,speed=.25,max_steering_rate=0.)
         path=[(i*.02,0.,0.) for i in range(51)]
         follower.accept(Gap(1.,0.,0.,.6,0,1),path,True,(0.,0.,0.))
@@ -177,6 +177,22 @@ def test_actual_command_preview_catches_corner_cutting_outside_the_nominal_route
         assert follower.path
     assert results[0][0]>0
     assert results[1]==(0.,0.,'ROUTE_BLOCKED')
+
+
+@pytest.mark.parametrize('actual_speed',[0.,.25])
+def test_entry_preview_can_slow_down_but_cannot_hide_actual_stopping_distance(actual_speed):
+    cfg=replace(profile(),require_complete_entry_path=True,entry_obstacle_slowdown=True)
+    follower=Follower(cfg,speed=.25,max_steering_rate=0.)
+    follower.accept(Gap(1.,0.,0.,.6,0,1),[(i*.02,0.,0.) for i in range(51)],True,(0.,0.,0.))
+    follower.observe_pose=lambda *a,**kw:None
+    follower.measured_speed=actual_speed
+    follower.measured_curvature=-1. if actual_speed else 0.
+    scan=clear_scan();scan.points=[(.23,-.172)]
+    v,a,state=follower.command(scan,(0.,.02,0.),now=0.,obstacle_scan=scan)
+    if actual_speed:
+        assert (v,a,state)==(0.,0.,'ROUTE_BLOCKED')
+    else:
+        assert 0<v<.25 and state=='PARKING'
 
 
 def test_terminal_braking_reaches_arrival_without_previewing_past_the_stop():

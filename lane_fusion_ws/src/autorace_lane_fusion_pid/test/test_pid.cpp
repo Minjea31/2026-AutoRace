@@ -261,6 +261,20 @@ TEST(Pid, YamlRoundTripKeepsDoubles) {
   EXPECT_NE(std::string(buffer, n).find("active: 1.0"), std::string::npos);
 }
 
+TEST(Pid, RealYamlNodeOptionsAreKept) {
+  // config/real/pid.yaml carries parking_calibration_stop (a node option, not
+  // a gain): loading must not fail and saving must write it back unchanged.
+  const auto path = testing::TempDir() + "/pid_options.yaml";
+  {
+    lane_pid::Config c;
+    c.options["parking_calibration_stop"] = "true";
+    c.save(path);
+  }
+  const auto c = lane_pid::Config::load(path);
+  ASSERT_EQ(c.options.count("parking_calibration_stop"), 1u);
+  EXPECT_EQ(c.options.at("parking_calibration_stop"), "true");
+  EXPECT_DOUBLE_EQ(c["kp"], lane_pid::Config()["kp"]);
+}
 TEST(Pid, RejectsInconsistentConfig) {
   Config c;
   c.values["confidence_stop"] = .6;
@@ -291,4 +305,49 @@ TEST(Pid, FarHeadingKeepsSteeringInsideACurve) {
   on.measure(m, c);
   EXPECT_NEAR(on.terms().error, .15, 1e-9);
   EXPECT_GT(on.terms().target_steering, 0);
+}
+
+TEST(ParkingApproach, CalibrationStopLatchesUntilExplicitMatchingReady) {
+  ParkingApproach gate(2,.3,10.,.5,5.,true);
+  EXPECT_FALSE(gate.receive(true,1.)); EXPECT_TRUE(gate.receive(true,1.1));
+  for(int i=0;i<100;++i) {
+    EXPECT_FALSE(gate.receive(true,2.+i));
+    EXPECT_DOUBLE_EQ(gate.limit(2.+i,.8),0.);
+  }
+  EXPECT_TRUE(gate.ready(102.)); EXPECT_FALSE(gate.ready(103.));
+  EXPECT_DOUBLE_EQ(gate.limit(111.9,.8),.3);
+  EXPECT_DOUBLE_EQ(gate.limit(112.,.8),.3);
+  gate.release();
+  EXPECT_DOUBLE_EQ(gate.limit(112.1,.8),.8);
+}
+
+TEST(ParkingApproach, SamePersistentSignCannotRestartCalibrationAfterCooldown) {
+  ParkingApproach gate(2,.3,10.,.5,5.,true);
+  EXPECT_FALSE(gate.receive(true,1.)); EXPECT_TRUE(gate.receive(true,1.1));
+  EXPECT_TRUE(gate.ready(4.));
+  for (int i=0;i<200;++i) EXPECT_FALSE(gate.receive(true,5.+i));
+  gate.release();
+  EXPECT_FALSE(gate.receive(false,205.));
+  EXPECT_FALSE(gate.receive(true,205.1)); // One false frame is insufficient.
+  EXPECT_FALSE(gate.receive(false,206.));
+  EXPECT_FALSE(gate.receive(false,206.6));
+  EXPECT_FALSE(gate.receive(true,207.));
+  EXPECT_TRUE(gate.receive(true,207.1));
+}
+
+#include "autorace_lane_fusion_pid/parking_stop.hpp"
+TEST(ParkingStop, WaitsForFreshResetCompletionInsteadOfFiveSeconds) {
+  lane_pid::ParkingStop stop;
+  stop.receive(false, 10.);
+  EXPECT_FALSE(stop.waiting());
+  stop.receive(true, 10.);
+  EXPECT_TRUE(stop.waiting());
+  EXPECT_FALSE(stop.ready(9.99, 10.));
+  EXPECT_FALSE(stop.ready(10.1, 16.));
+  EXPECT_TRUE(stop.waiting());
+  EXPECT_TRUE(stop.ready(16., 16.));
+  EXPECT_FALSE(stop.waiting());
+  stop.receive(true, 17.);
+  EXPECT_FALSE(stop.ready(16.99, 17.));
+  EXPECT_TRUE(stop.ready(17.1, 17.1));
 }

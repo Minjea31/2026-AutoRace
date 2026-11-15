@@ -7,14 +7,24 @@ parking_node:
     candidate_roi_right_min: 0.0
     candidate_roi_right_max: 2.0
     recognition_frames: 2
-    exit_on_lane_reacquired: true
+    exit_on_lane_reacquired: false
     exit_lane_timeout_sec: 0.25
     exit_lane_min_confidence: 0.10
+    prevent_active_retrigger: true
+    retain_parking_control: true
+    parking_center_adjustment: 0.05
+    entry_departure_reserve: 0.01
+    require_observed_parking_center: true
+    validate_reverse_entry: true
+    async_scan_matching: true
+    planner_prewarm: true
+    manual_mode_guard: true
+    control_mode_timeout_sec: 2.0
     white_roi_enabled: true
-    white_roi_left: 0.20
-    white_roi_right: 0.80
-    white_roi_top: 0.86
-    white_roi_bottom: 0.92
+    white_roi_left: 0.050
+    white_roi_right: 0.950
+    white_roi_top: 0.961
+    white_roi_bottom: 1.000
     white_roi_minimum_ratio: 0.08
     white_image_topic: /camera/color/image_raw/compressed
     white_image_timeout_sec: 0.30
@@ -33,8 +43,9 @@ parking_node:
     cluster_min_points: 3
     max_range: 3.0
     min_cluster_size: 0.14
-    # Close signs jitter above 10 cm. Preserve small, distant parking obstacles.
-    obstacle_min_cluster_size: 0.12
+    # Retain surfaces at least 5 cm wide, including the close parking sign.
+    # Candidate sizing is controlled separately above.
+    obstacle_min_cluster_size: 0.05
     small_cluster_filter_max_distance: 1.0
     max_cluster_size: 0.65
     row_yaw: 0.0
@@ -55,6 +66,7 @@ parking_node:
     # Target is the center of the measured gap; do not push it into the bay.
     goal_from_observed_front: false
     clearance: 0.10
+    yellow_boundary_clearance: 0.02
     initial_clear_radius: 0.3
     # Operator-selected policy: unobserved/zero-range sectors are assumed free.
     assume_unobserved_free: true
@@ -69,12 +81,12 @@ parking_node:
     recovery_front_clearance: 0.10
     recovery_left_when_goal_right: false
     recovery_straight_distance: 0.10
-    recovery_speed: 0.2
+    recovery_speed: 0.30
     # User-confirmed clear rear space; mission-total blind reverse allowance.
     blind_reverse_distance: 0.30
     max_recovery_attempts: 5
-    parking_speed: 0.25
-    min_turn_speed: 0.2
+    parking_speed: 0.40
+    min_turn_speed: 0.05
     parking_hold_seconds: 3.0
     exit_heading_tolerance: 0.05
     max_deceleration: 1.0
@@ -85,20 +97,28 @@ parking_node:
     plan_period: 0.30
     planning_timeout: 0.60
     localization_source: fused
+    parking_calibration_stop: true
+    parking_calibration_timeout: 10.0
+    localization_preserve_timeout: 1.0
+    search_enabled: true
+    search_speed: 0.20
+    search_max_distance: 1.5
+    search_timeout: 20.0
+    search_resume_scans: 2
     localization_topic: /odometry/filtered
     localization_timeout: 0.3
-    localization_max_stddev: 1.0
-    localization_max_yaw_stddev: 0.5
+    localization_max_stddev: 0.0  # 0 disables the covariance magnitude ceiling
+    localization_max_yaw_stddev: 0.0  # 0 disables the yaw covariance magnitude ceiling
     goal_tolerance: 0.035
     goal_yaw_tolerance: 0.12
     odom_frame: parking_odom
     min_turn_radius: 0.53
     # Allow wider curves and refine the goal while maintaining an active route.
-    preferred_turn_radius: 0.0
+    preferred_turn_radius: 0.67
     max_steering_paths_only: false
     # Follow the current segment: zero on straights, full signed steering on arcs.
     max_steering_on_curves: false
-    steering_gain: 2.0
+    steering_gain: 1.2
     curvature_feedforward: true
     steering_preview_time: 0.25
     # Nov 8 manual curve: measured radius about 0.506 m. The matching driver
@@ -111,14 +131,39 @@ parking_node:
     steering_command_deadband_expected: 0.23
     steering_command_limit_expected: 0.35
     prefer_straight_entry: true
-    max_planning_turn_radius: 0.58
+    max_planning_turn_radius: 0.70
     entry_outward_penalty: 3.0
     hold_entry_path: false
     validate_parking_space: true
     # Reject circuitous loops around the parking area. Zero disables this bound.
     max_entry_path_length: 4.0
     path_tracking_margin: 0.02
+    # Prefer room in the approach corridor without widening the final bay.
+    path_preferred_clearance: 0.18
+    path_clearance_weight: 6.0
+    path_clearance_candidates: 8
+    terminal_recovery_guard_distance: 0.12
+    terminal_approach_distance: 0.15
+    terminal_approach_speed: 0.40
+    respect_steering_settle_speed: true
+    entry_obstacle_slowdown: true
+    replan_while_following: false
+    exit_path_tracking_margin: 0.0
+    exit_collision_check_enabled: false
+    exit_curve_handoff: false
+    exit_curve_only: true
+    prefer_arc_finish_entry: true
     slot_map_enabled: true
+    # LIMO PRO body: manufacturer specification 322 x 220 mm (length x width).
+    slot_object_box_enabled: true
+    slot_object_length: 0.322
+    slot_object_width: 0.220
+    slot_object_fit_tolerance: 0.04
+    # Image row 1, column 2: the middle cell nearest the lane (internal id 4).
+    fixed_parking_slot_id: 4
+    # The course guarantees this one cell is empty; a locked occupied-cell
+    # pattern may establish it even when a cone occludes its central scan ray.
+    fixed_slot_empty_known: true
     slot_initial_right_only: true
     slot_columns: 3
     slot_rows: 2
@@ -130,7 +175,7 @@ parking_node:
     slot_ambiguity_margin: 0.02
     boundary_tolerance: 0.12
     automatic_target_selection: true
-    pair_fallback_enabled: true
+    pair_fallback_enabled: false
     target_heading_step: 0.08726646259971647
     center_stop_tolerance: 0.03
     pair_stop_tolerance: 0.05
@@ -140,7 +185,7 @@ parking_node:
     exit_lane_tolerance: 0.20
     exit_arrival_yaw_tolerance: 0.35
     exit_planning_timeout: 1.2
-    exit_start_speed: 0.05
+    exit_start_speed: 0.40
     exit_steering_settle_time: 0.40
     arrival_use_rear_axle: true
     rear_axle_offset_x: -0.10
@@ -152,7 +197,9 @@ parking_node:
     require_complete_entry_path: true
     control_preview_time: 0.40
     enclosure_min_objects: 3
-    enclosure_confirm_objects: 5
+    # Three non-collinear objects may identify the known occupied-cell template.
+    # Require a unique registration before using the known-empty target.
+    enclosure_confirm_objects: 3
     enclosure_grid_resolution: 0.05
     enclosure_support_radius: 1.0
     goal_update_gain: 0.25
@@ -161,6 +208,6 @@ parking_node:
     require_path_heading: false
     require_parking_heading: false
     parking_position_tolerance: 0.07
-    # Zero disables software slew limiting: publish the target angle immediately.
-    max_steering_rate: 0.0
+    # Limit rapid steering reversals; settling speed is capped after its floor.
+    max_steering_rate: 1.2
     require_goal_heading: false

@@ -2,9 +2,12 @@
 
 Publishes the network class mask (mono8: 0 background, 1 orange/yellow lane,
 2 white dashed lane) at the network input size, with the CAMERA header copied
-unchanged so lane_fusion_node can pair mask and frame by stamp. No tracking, no
-control output and no OpenCV fallback: if the model is unavailable nothing is
-published and lane_fusion_node keeps running on its own HSV features.
+unchanged so lane_fusion_node can align the mask with a later frame (capture
+time difference + odometry). Runs asynchronously on the newest frame, at most
+max_rate masks/s (default 10: leaves the Jetson CPU/GPU for the rest; raise it
+if the logged ms/frame allows). No tracking, no control output and no OpenCV
+fallback: if the model is unavailable nothing is published and
+lane_fusion_node keeps running on its own HSV detection.
 """
 import array
 import time
@@ -16,6 +19,7 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 
@@ -33,6 +37,9 @@ class LaneDeepMaskNode(Node):
         self.height = p('input_height', 480).value
         self.threshold = p('confidence_threshold', 0.5).value
         self.retry = p('retry_seconds', 5.0).value
+        # int or float on the command line (max_rate:=10 or 10.0)
+        rate = p('max_rate', 10.0, ParameterDescriptor(dynamic_typing=True)).value
+        self.period = 1.0 / max(0.1, float(rate))
         camera = p('camera_topic', '/camera/color/image_raw/compressed').value
         output = p('mask_topic', '/lane_fusion/deep_mask').value
         if not self.model_path:
@@ -51,7 +58,7 @@ class LaneDeepMaskNode(Node):
                 if 'CUDAExecutionProvider' not in onnxruntime.get_available_providers():
                     self.device = 'cpu'
         self.backend, self.retry_after = None, 0.0
-        self.latest, self.processed = None, None
+        self.latest, self.processed, self.started = None, None, 0.0
         self.count, self.ms, self.jpeg_ms, self.report = 0, 0.0, 0.0, time.monotonic()
         self.pub = self.create_publisher(Image, output, qos_profile_sensor_data)
         self.create_subscription(CompressedImage, camera, self._image, qos_profile_sensor_data)
@@ -79,7 +86,10 @@ class LaneDeepMaskNode(Node):
             if time.monotonic() >= self.retry_after:
                 self._load()
             return
+        if time.monotonic() - self.started < self.period:
+            return  # rate cap; the newest frame is taken at the next slot
         self.processed = message  # newest frame only; older ones are skipped
+        self.started = time.monotonic()
         start = time.perf_counter()
         try:
             bgr = cv2.imdecode(np.frombuffer(message.data, np.uint8), cv2.IMREAD_COLOR)

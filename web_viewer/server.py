@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read ROS images on the robot and serve JPEG/MJPEG over HTTP."""
 import argparse
+import base64
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -16,9 +17,12 @@ import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import CompressedImage, Image
+from parking_bridge import ParkingState
+from roi_bag import BagImages
+from roi_preview import defaults as roi_defaults, render_preview, validate as validate_roi
 
 
 SOURCES = (
@@ -26,9 +30,21 @@ SOURCES = (
     ('yolo', 'YOLO 검출', '/yolo/debug/compressed', CompressedImage),
     ('mask', '차선 마스크', '/lane_fusion/deep_mask', Image),
     ('lane', '차선 디버그', '/lane_fusion/debug', Image),
+    ('roi_camera', 'ROI 편집용 원본', '/camera/color/image_raw', Image),
     ('white_roi', '서행·방지턱 ROI', '/slow/white_roi/debug/compressed', CompressedImage),
+    # Latched: one picture per fork state change (lane_fusion_node), kept until the next one.
+    ('fork', '갈림길 스냅샷', '/lane_fusion/fork_debug', CompressedImage),
 )
 DIST = Path(__file__).resolve().parent / 'dist'
+LATCHED = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+
+
+def latest_fork_file():
+    # lane_fusion_node also saves every fork snapshot here; after a node
+    # restart (latched picture lost) the newest file is shown instead.
+    folder = Path(os.environ.get('FORK_SNAPSHOT_DIR', Path.home() / 'fork_snapshots'))
+    files = sorted(folder.glob('fork_*.jpg'), key=lambda f: f.stat().st_mtime) if folder.is_dir() else []
+    return files[-1] if files else None
 
 
 def jpeg_dimensions(data):
@@ -54,7 +70,7 @@ def jpeg_dimensions(data):
     return 0, 0
 
 
-def raw_jpeg(message, class_mask=False):
+def raw_jpeg(message):
     channels = {'mono8': 1, '8UC1': 1, 'bgr8': 3, 'rgb8': 3,
                 'bgra8': 4, 'rgba8': 4}.get(message.encoding)
     if channels is None:
@@ -71,11 +87,6 @@ def raw_jpeg(message, class_mask=False):
         image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
     elif channels == 4:
         image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
-    if class_mask and channels == 1:
-        # Class ids 1/2 would otherwise be almost black in a JPEG.
-        palette = np.zeros((256, 3), dtype=np.uint8)
-        palette[1], palette[2] = (0, 210, 255), (240, 240, 240)
-        image = palette[image]
     ok, encoded = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 82])
     if not ok:
         raise ValueError('JPEG 변환에 실패했습니다.')
@@ -93,8 +104,16 @@ class Stream:
         self.width = self.height = self.clients = 0
         self.times = deque(maxlen=50)
         self.error = ''
+        self.preview_until = 0.0
+
+    def active(self):
+        # The fork snapshot is latched and rare: always subscribed (no stream needed).
+        return self.key == 'fork' or self.clients > 0 or time.monotonic() < self.preview_until
 
     def receive(self, message):
+        # A parking-only viewer should not encode unused lane/debug streams.
+        if not self.active():
+            return
         now = time.monotonic()
         if now - self.updated < self.interval:
             return
@@ -103,7 +122,7 @@ class Stream:
                 data = bytes(message.data)
                 width, height = jpeg_dimensions(data)
             else:
-                data, width, height = raw_jpeg(message, class_mask=self.key == 'mask')
+                data, width, height = raw_jpeg(message)
         except (ValueError, cv2.error) as error:
             with self.condition:
                 self.error = str(error)
@@ -117,6 +136,12 @@ class Stream:
             self.condition.notify_all()
 
     def status(self):
+        if self.key == 'fork' and self.jpeg is None and latest_fork_file():
+            f = latest_fork_file()
+            width, height = jpeg_dimensions(f.read_bytes())
+            return dict(id=self.key, title=self.title, topic=self.topic + ' (saved file)', status='stale',
+                        age_ms=round((time.time() - f.stat().st_mtime) * 1000), fps=0, width=width,
+                        height=height, bytes=f.stat().st_size, clients=self.clients, error='')
         with self.condition:
             age = time.monotonic() - self.updated if self.jpeg else None
             fps = ((len(self.times) - 1) / (self.times[-1] - self.times[0])
@@ -130,15 +155,22 @@ class Stream:
 
 
 class Bridge(Node):
-    def __init__(self, streams):
+    def __init__(self, streams, parking):
         super().__init__('autorace_web_viewer')
-        self.image_subscriptions = [
-            self.create_subscription(kind, topic, streams[key].receive, qos_profile_sensor_data)
-            for key, _, topic, kind in SOURCES
-        ]
-        self.image_subscriptions.append(self.create_subscription(
-            Image, '/lane_deep/debug', streams['lane'].receive, qos_profile_sensor_data))
-        streams['lane'].topic = '/lane_fusion/debug | /lane_deep/debug'
+        self.streams = streams
+        self.image_subscriptions = {}
+        self.image_subscription_timer = self.create_timer(.5, self.update_image_subscriptions)
+        parking.attach(self)
+
+    def update_image_subscriptions(self):
+        # Avoid even deserializing raw debug images unless a browser displays them.
+        for key, _, topic, kind in SOURCES:
+            if self.streams[key].active() and key not in self.image_subscriptions:
+                self.image_subscriptions[key] = self.create_subscription(
+                    kind, topic, self.streams[key].receive,
+                    LATCHED if key == 'fork' else qos_profile_sensor_data)
+            elif not self.streams[key].active() and key in self.image_subscriptions:
+                self.destroy_subscription(self.image_subscriptions.pop(key))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -166,13 +198,37 @@ class Handler(BaseHTTPRequestHandler):
 
     def route(self):
         path = urlparse(self.path).path
-        if path in ('/', '/app.js', '/style.css'):
+        if path in ('/', '/app.js', '/style.css', '/parking', '/parking/', '/parking.js', '/parking.css',
+                    '/roi', '/roi/', '/roi.js', '/roi.css', '/roi-sample.jpg'):
             name, content_type = {
                 '/': ('index.html', 'text/html; charset=utf-8'),
                 '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
                 '/style.css': ('style.css', 'text/css; charset=utf-8'),
+                '/parking': ('parking.html', 'text/html; charset=utf-8'),
+                '/parking/': ('parking.html', 'text/html; charset=utf-8'),
+                '/parking.js': ('parking.js', 'text/javascript; charset=utf-8'),
+                '/parking.css': ('parking.css', 'text/css; charset=utf-8'),
+                '/roi': ('roi.html', 'text/html; charset=utf-8'),
+                '/roi/': ('roi.html', 'text/html; charset=utf-8'),
+                '/roi.js': ('roi.js', 'text/javascript; charset=utf-8'),
+                '/roi.css': ('roi.css', 'text/css; charset=utf-8'),
+                '/roi-sample.jpg': ('roi-sample.jpg', 'image/jpeg'),
             }[path]
             self.send_body((DIST / name).read_bytes(), content_type)
+        elif path == '/api/roi/bag':
+            try:
+                payload = self.server.roi_bag.latest()
+                self.send_body(json.dumps(payload, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
+            except ValueError as error:
+                self.send_body(json.dumps({'error': str(error)}, ensure_ascii=False).encode(), 'application/json; charset=utf-8', 404)
+        elif path == '/api/roi/config':
+            self.send_body(json.dumps(roi_defaults(), ensure_ascii=False).encode(),
+                           'application/json; charset=utf-8')
+        elif path == '/api/parking':
+            payload = self.server.parking.snapshot()
+            payload['camera'] = self.server.streams['camera'].status()
+            self.send_body(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode(),
+                           'application/json; charset=utf-8')
         elif path == '/api/state':
             payload = dict(streams=[stream.status() for stream in self.server.streams.values()],
                            uptime_s=round(time.monotonic() - self.server.started),
@@ -186,7 +242,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with stream.condition:
                 data, age = stream.jpeg, time.monotonic() - stream.updated
-            if data is None or age >= 2:
+            if data is None and key == 'fork' and latest_fork_file():
+                data, age = latest_fork_file().read_bytes(), 0.
+            if data is None or (age >= 2 and key != 'fork'):  # fork: last picture stays valid
                 self.send_body('최신 영상이 없습니다.'.encode(), 'text/plain; charset=utf-8', 503)
                 return
             filename = f'{key}-{time.strftime("%Y%m%d-%H%M%S")}.jpg'
@@ -207,6 +265,59 @@ class Handler(BaseHTTPRequestHandler):
             self.send_body(b'', 'image/x-icon', 204)
         else:
             self.send_body(b'Not found', 'text/plain', 404)
+
+    def do_POST(self):
+        if urlparse(self.path).path != '/api/roi/preview':
+            self.send_body(b'Not found', 'text/plain', 404)
+            return
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 0 < length <= 8_000_000:
+                self.close_connection = True
+                raise ValueError('요청 이미지가 너무 큽니다. 6MB 이하 이미지를 사용하세요.')
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError('요청 형식이 올바르지 않습니다.')
+            params = payload.get('params')
+            validate_roi(params)
+            source = payload.get('source')
+            if source == 'live':
+                candidates = []
+                for key in ('camera', 'roi_camera'):
+                    stream = self.server.streams[key]
+                    stream.preview_until = time.monotonic() + 4.
+                    with stream.condition:
+                        if stream.jpeg and time.monotonic() - stream.updated < 2.:
+                            candidates.append((stream.updated, stream.jpeg, stream.topic))
+                if not candidates:
+                    self.send_body(json.dumps({'error': '실시간 카메라를 기다립니다. 센서와 ROS 도메인을 확인하거나 bag 샘플을 사용하세요.'}, ensure_ascii=False).encode(),
+                                   'application/json; charset=utf-8', 503)
+                    return
+                updated, data, topic = max(candidates, key=lambda item: item[0])
+                metadata = dict(source='live', source_label=topic,
+                                age_ms=round((time.monotonic()-updated)*1000))
+            elif source == 'bag':
+                data, metadata = self.server.roi_bag.frame(payload.get('frame_index'), payload.get('bag_name'))
+            elif source == 'sample':
+                data = (DIST / 'roi-sample.jpg').read_bytes()
+                metadata = dict(source='sample', source_label=roi_defaults()['sample'], age_ms=None)
+            elif source == 'upload':
+                encoded = payload.get('image', '')
+                if not isinstance(encoded, str) or not encoded.startswith(('data:image/jpeg;base64,', 'data:image/png;base64,')):
+                    raise ValueError('JPEG 또는 PNG 이미지를 선택하세요.')
+                data = base64.b64decode(encoded.split(',', 1)[1], validate=True)
+                metadata = dict(source='upload', source_label='업로드 이미지', age_ms=None)
+            else:
+                raise ValueError('영상 소스를 선택하세요.')
+            result = render_preview(data, params)
+            result.update(metadata)
+            self.send_body(json.dumps(result, ensure_ascii=False, allow_nan=False).encode(),
+                           'application/json; charset=utf-8')
+        except (ValueError, TypeError, cv2.error) as error:
+            self.send_body(json.dumps({'error': str(error)}, ensure_ascii=False).encode(),
+                           'application/json; charset=utf-8', 400)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            self.close_connection = True
 
     def stream(self, source):
         self.connection.settimeout(5)
@@ -240,6 +351,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # Leave the final CPU available for the vehicle's localization processes.
+    if hasattr(os, 'sched_getaffinity'):
+        cpus = sorted(os.sched_getaffinity(0))
+        if len(cpus) >= 4:
+            os.sched_setaffinity(0, cpus[:-1])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8080)
@@ -253,10 +369,12 @@ def main():
     http.started = time.monotonic()
     http.slots = threading.BoundedSemaphore(12)
     http.streams = {key: Stream(key, title, topic, args.max_fps) for key, title, topic, _ in SOURCES}
+    http.parking = ParkingState()
+    http.roi_bag = BagImages(Path(__file__).resolve().parents[2])
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: http.stopping.set())
     rclpy.init(args=[], signal_handler_options=SignalHandlerOptions.NO)
-    bridge = Bridge(http.streams)
+    bridge = Bridge(http.streams, http.parking)
 
     def spin():
         try:

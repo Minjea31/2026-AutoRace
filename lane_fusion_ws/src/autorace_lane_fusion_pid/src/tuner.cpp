@@ -24,6 +24,8 @@
 #include <mutex>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <QCheckBox>
+#include <set>
 #include <thread>
 
 #ifndef LANE_PID_SOURCE_DIR
@@ -31,6 +33,10 @@
 #endif
 
 namespace {
+// Parameters shown by default (PID): the ones tuned in practice. The rest
+// (calibration, rarely changed limits, unused ones) stay in the YAML and are
+// still loaded, saved and applied; "고급 파라미터 표시" shows them.
+const std::set<std::string> kBasic = {"lateral_weight", "heading_weight", "lookahead_weight", "kp", "kd", "curvature_ff", "max_steering", "steering_rate", "speed", "steer_slowdown", "curvature_slowdown"};
 const char *kNode = "lane_fusion_pid_controller";
 
 struct Live {
@@ -77,6 +83,9 @@ public:
     bar->addWidget(connection_, 1);
     for (QWidget *w : std::initializer_list<QWidget *>{fetch, load, save, defaults})
       bar->addWidget(w);
+    auto advanced = new QCheckBox("고급 파라미터 표시");
+    advanced->setToolTip("안전·필터·제한값 등 평소엔 바꾸지 않는 파라미터");
+    bar->addWidget(advanced);
 
     auto split = new QSplitter;
     outer->addWidget(split, 1);
@@ -87,10 +96,14 @@ public:
     auto params = new QWidget;
     auto column = new QVBoxLayout(params);
     std::map<std::string, QVBoxLayout *> boxes;
+    std::map<std::string, QGroupBox *> group_boxes;
+    std::vector<QWidget *> hidden;
+    std::set<std::string> basic_groups;
     for (const char *group : lane_pid::groups()) {
       auto box = new QGroupBox(QString::fromUtf8(group));
       box->setStyleSheet("QGroupBox{font-weight:bold;}");
       boxes[group] = new QVBoxLayout(box);
+      group_boxes[group] = box;
       column->addWidget(box);
     }
     column->addStretch();
@@ -125,6 +138,10 @@ public:
       stack->addWidget(help);
       stack->addLayout(line);
       boxes.at(p.group)->addWidget(row);
+      if (kBasic.count(p.name))
+        basic_groups.insert(p.group);
+      else
+        hidden.push_back(row);
       spins_[p.name] = spin;
       sliders_[p.name] = slider;
       connect(slider, &QSlider::valueChanged, this,
@@ -142,6 +159,15 @@ public:
         "<span style='color:#888'>좌측 +, 조향은 ±max_steering·steering_rate로 제한</span>");
     formula->setWordWrap(true);
     mon->addWidget(formula);
+    auto show_all = [hidden, group_boxes, basic_groups](bool all) {
+      for (auto *row : hidden)
+        row->setVisible(all);
+      for (const auto &[name, box] : group_boxes)
+        box->setVisible(all || basic_groups.count(name));
+    };
+    connect(advanced, &QCheckBox::toggled, this, show_all);
+    show_all(false);
+
     auto values = new QGroupBox("실시간 제어 상태 (/lane_fusion_pid/state)");
     auto form = new QFormLayout(values);
     const char *names[] = {"추종 상태", "결합 오차 e", "P 항", "I 항", "D 항", "곡률 FF",
@@ -209,7 +235,11 @@ public:
         QMessageBox::warning(this, "YAML", e.what());
       }
     });
-    connect(defaults, &QPushButton::clicked, this, [this] { replaceAll(lane_pid::Config()); });
+    connect(defaults, &QPushButton::clicked, this, [this] {
+      lane_pid::Config c; // gains back to code defaults, node options (parking_calibration_stop ...) kept
+      c.options = config_.options;
+      replaceAll(c);
+    });
 
     if (!path_.empty()) {
       try {

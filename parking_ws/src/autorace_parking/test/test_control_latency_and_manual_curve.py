@@ -25,10 +25,13 @@ def test_sensor_subscriptions_keep_only_latest_sample(node):
 
 
 def test_health_timeout_and_unhealthy_input_still_stop_immediately(node):
+    clock=[100.1]
+    node.now_seconds=lambda:clock[0]
     node.tracker.healthy=lambda now:True
     node.on_fusion_health(String(data=json.dumps({'stamp':100.,'ready':True})))
     assert node.localization_ready(100.1)
     assert not node.localization_ready(100.31)
+    clock[0]=100.31
     node.on_fusion_health(String(data=json.dumps({'stamp':100.31,'ready':False,'reason':'missing IMU'})))
     assert not node.localization_ready(100.31)
     assert 'missing IMU' in node.reason
@@ -42,7 +45,10 @@ def layout():
 def test_snapshot_and_map_fit_reused_until_new_input_or_occupancy(node,monkeypatch):
     import autorace_parking.slot_map as maps
     calls=[]
-    def fit(objects,cfg,hint):calls.append(1);return dict(hint)
+    def fit(objects,cfg,hint,sensor_origin=None):
+        assert sensor_origin is not None
+        calls.append(1)
+        return dict(hint)
     monkeypatch.setattr(maps,'fit_slot_map',fit)
     node.cfg=replace(node.cfg,block_occupied_slots=True)
     node.follower.cfg=node.cfg
@@ -141,5 +147,6 @@ def test_exit_accepts_body_center_and_lane_heading_without_a_second_yaw_penalty(
     f.path=[(.2,0.,0.),(-.03,.045,-.2)]
     f.set_segment(0);f.last_drive_direction=f.motion_direction
     f.parked=f.exiting=True;f.entry_trace=[(0.,0.,0.)]
+    f.exit_route_ready=True;f.index=1
     for t in (0.,.1,.2):result=f.command(clear(),(0.,0.,0.),True,t)
     assert result[2]=='EXITED' and f.exited

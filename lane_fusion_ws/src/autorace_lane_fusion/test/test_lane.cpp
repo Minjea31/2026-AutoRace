@@ -1,5 +1,6 @@
 // Synthetic BEV-space checks with an identity-like BEV (full-frame trapezoid).
 #include "autorace_lane_fusion/lane.hpp"
+#include "autorace_lane_fusion/cone_exit_prior.hpp"
 #include <cmath>
 #include <gtest/gtest.h>
 #include <opencv2/imgproc.hpp>
@@ -76,30 +77,71 @@ TEST(LaneLite, HeldPathMovesWithOdometry) {
   ASSERT_TRUE(back.valid);
   EXPECT_LT(back.lateral_m, a.lateral_m - .005);
 }
+TEST(LaneLite, RightBendWithOnlyTheLeftLineUsesTheWiderCurveLane) {
+  // Right-hand bend: only the outer (left) line, turned right, is in view.
+  // With curve_lane_width_m the centre lies further inside (right) than half
+  // the straight width; a straight left line and a left bend are unchanged.
+  auto run = [](double curve_m, int far_x) {
+    auto c = identity();
+    c.values["curve_lane_width_m"] = curve_m;
+    lane_lite::Pipeline p(c);
+    cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+    cv::line(img, {150, 479}, {far_x, 0}, cv::Scalar(0, 200, 230), 14);
+    lane_lite::Result r;
+    for (int i = 0; i < 30; ++i)
+      r = p.process(img, i * .05);
+    return r;
+  };
+  const double base = identity()["lane_width_m"];
+  const auto off = run(0, 450), on = run(1.5 * base, 450);
+  ASSERT_TRUE(off.valid && on.valid);
+  EXPECT_EQ(on.state, "left only");
+  EXPECT_GT(on.target_x, off.target_x + 20);
+  EXPECT_LT(on.lateral_m, off.lateral_m);
+  EXPECT_NEAR(run(1.5 * base, 170).target_x, run(0, 170).target_x, 1); // straight
+}
+TEST(LaneLite, AfterARightBendTheLaneJustDrivenIsNotTakenAsTheLeftLine) {
+  // Right-hand bend: only the left line (turned right) is seen, the lane just
+  // driven runs parallel further left. The left line then drops out: with
+  // curve_memory the outer line is not taken as this lane's left boundary.
+  auto run = [](double memory) {
+    auto c = identity();
+    c.values["curve_lane_width_m"] = 1.3 * c["lane_width_m"];
+    c.values["curve_memory"] = memory;
+    lane_lite::Pipeline p(c);
+    auto frame = [](bool left) {
+      cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+      if (left)
+        cv::line(img, {200, 479}, {560, 0}, cv::Scalar(0, 200, 230), 14);
+      cv::line(img, {0, 300}, {330, 0}, cv::Scalar(0, 200, 230), 14); // lane just driven
+      return img;
+    };
+    double t = 0;
+    lane_lite::Result r;
+    for (; t < 1; t += .05) {
+      p.move(.02, 0);
+      r = p.process(frame(true), t);
+    }
+    EXPECT_EQ(r.state, "left only");
+    const double lane = r.target_x;
+    double worst = 0;
+    for (; t < 2.5; t += .05) {
+      p.move(1e-4, 0); // odometry running, car (nearly) still: the memory stays on the line
+      r = p.process(frame(false), t);
+      if (r.valid)
+        worst = std::max(worst, lane - r.target_x); // > 0: pulled toward the outer line
+    }
+    return worst;
+  };
+  EXPECT_GT(run(0), 100);  // without the memory the outer line becomes the left boundary
+  EXPECT_LT(run(2.), 20); // with it: no centre on the outer line
+}
 TEST(LaneLite, OneFrameJumpIsRejected) {
   lane_lite::Pipeline p(identity());
   for (int i = 0; i < 5; ++i)
     p.process(scene(170, 300), i * .05);
   auto r = p.process(scene(260, 300), .25); // both lines jump 90 px at once
   EXPECT_LT(std::abs(r.target_x - 330), 25);
-}
-TEST(LaneLite, OdometryKeepsBoundaryTracksThroughAShift) {
-  // The car slid 0.165 m left (= 90 px at 0.55 m / 300 px): with odometry the
-  // remembered left/right tracks move too, so the shifted lines continue the
-  // same tracks at once instead of being rejected as a jump.
-  lane_lite::Pipeline p(identity());
-  for (int i = 0; i < 5; ++i)
-    p.process(scene(170, 300), i * .05);
-  const double d = .165;
-  p.move(0, M_PI / 2);
-  p.move(d, 0);
-  p.move(0, -M_PI / 2);
-  auto r = p.process(scene(260, 300), .25);
-  ASSERT_TRUE(r.valid);
-  EXPECT_EQ(r.state, "both");
-  EXPECT_NEAR(r.target_x, 420, 12);
-  EXPECT_EQ(r.left.frames, 6);
-  EXPECT_EQ(r.right.frames, 6);
 }
 TEST(LaneLite, TransverseBendIsFollowed) {
   // Only the outer boundary of a right-hand hairpin: it starts vertical on
@@ -243,49 +285,74 @@ TEST(LaneLite, TrackedBoundaryKeepsItsRoleAcrossTheCarCentre) {
     EXPECT_NEAR(r.target_x, x + 10 + 150, 35) << i; // smoothing lags a moving line
   }
 }
-TEST(LaneLite, DeepFirstFillsTheMissedSideFromHsv) {
-  // The network sees only the yellow line; HSV also sees the white one and a
-  // white blob far left. The white line becomes the right boundary (HSV
-  // candidate at the lane width); the blob is never chosen. With HSV off the
-  // result stays deep only.
-  cv::Mat img = scene(170, 300);
-  cv::rectangle(img, {20, 300}, {40, 470}, cv::Scalar(240, 240, 240), cv::FILLED);
+TEST(LaneLite, EitherSourceAloneGivesItsBoundary) {
+  // HSV sees only the yellow left line (the white one is too dim for it);
+  // the network sees only the white right line. Each detector's correct
+  // boundary is used: both sides, and the source is never forced.
+  cv::Mat img = scene(170, 300, true, false);
+  cv::line(img, {470, 479}, {490, 0}, cv::Scalar(90, 90, 90), 14); // below white_v_min
   cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
-  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
-  for (const bool hsv : {true, false}) {
-    auto c = identity();
-    c.values["yellow_enabled"] = c.values["white_enabled"] = hsv;
-    lane_lite::Pipeline p(c);
-    lane_lite::Result r;
-    for (int i = 0; i < 4; ++i)
-      r = p.process(img, i * .05, true, deep);
-    ASSERT_TRUE(r.valid) << hsv;
-    EXPECT_EQ(r.state, hsv ? "both" : "left only") << hsv;
-    EXPECT_EQ(r.source, hsv ? "deep+hsv" : "deep") << hsv;
-    EXPECT_EQ(r.left.source & lane_lite::kDeep, lane_lite::kDeep) << hsv;
-    EXPECT_NEAR(r.target_x, 330, 12) << hsv;
-  }
-}
-TEST(LaneLite, ConfidentDeepSkipsHsvAndTheImage) {
-  // Both boundaries from the network: HSV is not computed and the frame is
-  // never decoded (no views).
-  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
-  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
-  cv::line(deep, {470, 479}, {490, 0}, 1, 14);
+  cv::line(deep, {470, 479}, {490, 0}, 2, 14);
   lane_lite::Pipeline p(identity());
-  int decoded = 0;
   lane_lite::Result r;
   for (int i = 0; i < 4; ++i)
-    r = p.process(lane_lite::Pipeline::Image([&] {
-                    ++decoded;
-                    return scene(170, 300);
-                  }),
-                  i * .05, false, deep);
+    r = p.process(img, i * .05, true, deep);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.state, "both");
+  EXPECT_EQ(r.left.source, lane_lite::kHsv);
+  EXPECT_EQ(r.right.source, lane_lite::kDeep);
+  EXPECT_NEAR(r.target_x, 330, 12);
+}
+TEST(LaneLite, DeepAloneKeepsTheLaneWhenHsvSeesNothing) {
+  cv::Mat img(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
+  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
+  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
+  cv::line(deep, {470, 479}, {490, 0}, 2, 14);
+  lane_lite::Pipeline p(identity());
+  lane_lite::Result r;
+  for (int i = 0; i < 4; ++i)
+    r = p.process(img, i * .05, false, deep);
   ASSERT_TRUE(r.valid);
   EXPECT_EQ(r.state, "both");
   EXPECT_EQ(r.source, "deep");
-  EXPECT_FALSE(r.hsv_used);
-  EXPECT_EQ(decoded, 0);
+  EXPECT_TRUE(r.hsv_used); // HSV always runs; it just found nothing
+}
+TEST(LaneLite, AgreeingSourcesConfirmEachOther) {
+  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
+  cv::line(deep, {170, 479}, {190, 0}, 1, 14);
+  cv::line(deep, {470, 479}, {490, 0}, 2, 14);
+  lane_lite::Pipeline p(identity());
+  const auto r = p.process(scene(170, 300), 0, true, deep);
+  ASSERT_TRUE(r.valid);
+  EXPECT_EQ(r.left.source, lane_lite::kDeep | lane_lite::kHsv);
+  EXPECT_EQ(r.right.source, lane_lite::kDeep | lane_lite::kHsv);
+  EXPECT_EQ(r.candidates.size(), 2u);
+}
+TEST(LaneLite, OlderDeepMaskIsAlignedWithOdometryOrDropped) {
+  // The mask was captured 0.1 s earlier; since then the car moved 5 cm left,
+  // so the lines lay 27 px further left in the mask (0.05 m / (0.55/300)).
+  // With the motion the mask lines up with this frame (both sources confirm
+  // each line); without it a mask that old is not used at all.
+  cv::Mat deep = cv::Mat::zeros(480, 640, CV_8U);
+  cv::line(deep, {143, 479}, {163, 0}, 1, 14);
+  cv::line(deep, {443, 479}, {463, 0}, 2, 14);
+  for (const bool moved : {true, false}) {
+    lane_lite::Pipeline p(identity());
+    lane_lite::DeepInput in(deep);
+    in.age = .1;
+    in.moved = moved;
+    in.dy = .05;
+    const auto r = p.process(scene(170, 300), 0, false, in);
+    ASSERT_TRUE(r.valid) << moved;
+    EXPECT_EQ(r.deep_used, moved);
+    EXPECT_EQ(r.source, moved ? "deep+hsv" : "hsv") << moved;
+    EXPECT_EQ(r.left.source, moved ? lane_lite::kDeep | lane_lite::kHsv : lane_lite::kHsv) << moved;
+  }
+  lane_lite::Pipeline p(identity());
+  lane_lite::DeepInput stale(deep);
+  stale.age = .5; // beyond deep_max_age even with odometry
+  stale.moved = true;
+  EXPECT_FALSE(p.process(scene(170, 300), 0, false, stale).deep_used);
 }
 TEST(LaneLite, HsvSolidWhiteDoesNotReplaceDeepBoundary) {
   // Deep sees the yellow line and only a short piece of the white right one
@@ -314,23 +381,19 @@ TEST(LaneLite, UncertainSingleSideGivesNoNewCentre) {
   const auto r = p.process(img, 0);
   EXPECT_FALSE(r.valid);
 }
-TEST(LaneLite, TargetJumpIsGatedThenConfirmed) {
-  // The whole lane jumps sideways by 0.2 m at once (beyond max_target_jump_m):
-  // the old target is held for two frames, the third confirms the new one.
+TEST(LaneLite, LaneShiftReachesTheOutputWithoutAnExtraGate) {
+  // Accepted boundaries go straight to the centre path (no output hold):
+  // with tracking unfiltered, a confirmed sideways shift shows up at once.
   auto c = identity();
-  c.values["track_jump_px"] = 400; // let the boundaries follow at once
-  c.values["smoothing"] = 1;       // no filter: the jump reaches the output in one frame
+  c.values["track_jump_px"] = 400;
+  c.values["smoothing"] = 1;
   lane_lite::Pipeline p(c);
   lane_lite::Result r;
   for (int i = 0; i < 4; ++i)
     r = p.process(scene(170, 300), i * .05);
   const double before = r.lateral_m;
-  for (int i = 4; i < 7; ++i) {
-    r = p.process(scene(280, 300), i * .05);
-    if (i < 6)
-      EXPECT_NEAR(r.lateral_m, before, .03) << i;
-  }
-  EXPECT_LT(r.lateral_m, before - .1);
+  r = p.process(scene(280, 300), .2);
+  EXPECT_LT(r.lateral_m, before - .15);
 }
 TEST(LaneLite, CentreFollowsTheMiddleOfABend) {
   // Concentric arcs (right-hand bend), radii 650 / 350 around (820, 479):
@@ -350,8 +413,107 @@ TEST(LaneLite, CentreFollowsTheMiddleOfABend) {
 }
 TEST(LaneLite, ConfigRoundTrip) {
   auto c = identity();
-  c.values["cell"] = 12;
+  c.values["merge_px"] = 12;
   const auto path = testing::TempDir() + "/lane_lite.yaml";
   c.save(path);
-  EXPECT_EQ(lane_lite::Config::load(path)["cell"], 12);
+  EXPECT_EQ(lane_lite::Config::load(path)["merge_px"], 12);
+}
+
+TEST(ConeExitPrior, LatchesRecentTurnAndRequiresFreshExplicitExitSignal) {
+  lane_lite::ConeExitPrior prior;
+  for (int i = 0; i <= 100; ++i)
+    prior.add(i * .02, .3, i < 60 ? -.5 : 0.);
+  EXPECT_EQ(prior.side(2.), -1); // a normal road bend must not activate recovery
+  prior.signal(true, 2.);
+  EXPECT_EQ(prior.side(2.), 0);
+  for (int i = 101; i <= 180; ++i) {
+    prior.add(i * .02, .3, 0.);
+    prior.signal(true, i * .02);
+  }
+  EXPECT_EQ(prior.side(3.6), 0); // remember the turn after the wheel has straightened
+  EXPECT_EQ(prior.side(3.9), -1); // odometry stale even with a recently fresh signal
+  prior.signal(false, 3.6);
+  EXPECT_EQ(prior.side(3.6), -1);
+}
+TEST(ConeExitPrior, MirrorsLeftTurnsAndRejectsStationaryOrAmbiguousMotion) {
+  for (auto values : {std::pair<double, double>{.3, .5}, {.0, -.5}, {.3, .0}}) {
+    lane_lite::ConeExitPrior prior;
+    for (int i = 0; i <= 100; ++i)
+      prior.add(i * .02, values.first, values.second);
+    prior.signal(true, 2.);
+    EXPECT_EQ(prior.side(2.), values.first > 0 && values.second > 0 ? 1 : -1);
+  }
+  lane_lite::ConeExitPrior weave;
+  for (int i = 0; i <= 100; ++i)
+    weave.add(i * .02, .3, i < 50 ? -.5 : .5);
+  weave.signal(true, 2.);
+  EXPECT_EQ(weave.side(2.), -1);
+}
+TEST(ConeExitPrior, LostSignalClockRewindAndSensorGapDisablePrior) {
+  lane_lite::ConeExitPrior prior;
+  for (int i = 0; i <= 100; ++i) prior.add(i * .02, .3, -.5);
+  prior.signal(true, 2.);
+  for (int i = 101; i <= 135; ++i) prior.add(i * .02, .3, 0.);
+  EXPECT_EQ(prior.side(2.7), -1); // exit publisher disappeared
+  prior.signal(true, 2.7);
+  prior.add(3.2, .3, 0.); // sensor gap resets the latched turn
+  EXPECT_EQ(prior.side(3.2), -1);
+  prior.add(1., .3, -.5); // bag loop
+  EXPECT_EQ(prior.side(1.), -1);
+}
+TEST(ConeExitRecovery, AmbiguousSingleBoundaryUsesRecentTurnRole) {
+  auto run = [](int side) {
+    auto c = identity(); c.values["cone_exit_role_bias"] = .8;
+    lane_lite::Pipeline p(c);
+    lane_lite::Result result;
+    for (int i = 0; i < 8; ++i)
+      result = p.process(scene(380, 300, true, false), i * .05, false, {}, side);
+    return result;
+  };
+  const auto normal = run(-1), recovery = run(0);
+  ASSERT_TRUE(normal.valid && recovery.valid);
+  EXPECT_EQ(normal.state, "right only");
+  EXPECT_EQ(recovery.state, "left only");
+  EXPECT_GT(recovery.target_x, normal.target_x + 200);
+}
+TEST(ConeExitRecovery, NoSignalIsIdenticalToOriginalAndPairsAreUnchanged) {
+  auto c = identity(), enabled = c;
+  enabled.values["cone_exit_role_bias"] = .8;
+  lane_lite::Pipeline original(c), no_signal(enabled), pair_hint(enabled);
+  for (int i = 0; i < 40; ++i) {
+    const auto image = scene(170 + i / 4, 300);
+    const auto a = original.process(image, i * .05, false);
+    const auto b = no_signal.process(image, i * .05, false);
+    const auto d = pair_hint.process(image, i * .05, false, {}, 1);
+    ASSERT_TRUE(a.valid && b.valid && d.valid);
+    EXPECT_EQ(a.state, b.state);
+    EXPECT_DOUBLE_EQ(a.lateral_m, b.lateral_m);
+    EXPECT_DOUBLE_EQ(a.heading, b.heading);
+    EXPECT_EQ(a.state, d.state);
+    EXPECT_DOUBLE_EQ(a.lateral_m, d.lateral_m);
+    EXPECT_DOUBLE_EQ(a.heading, d.heading);
+  }
+}
+TEST(ConeExitRecovery, ZeroGainAndDistantBoundaryIgnoreHint) {
+  lane_lite::Pipeline disabled(identity());
+  auto r = disabled.process(scene(380, 300, true, false), 0., false, {}, 0);
+  EXPECT_EQ(r.left.state, lane_lite::LineState::Lost);
+  auto c = identity(); c.values["cone_exit_role_bias"] = .8;
+  lane_lite::Pipeline distant(c);
+  r = distant.process(scene(540, 300, true, false), 0., false, {}, 0);
+  EXPECT_EQ(r.left.state, lane_lite::LineState::Lost);
+}
+TEST(ConeExitRecovery, LeftTurnPriorMirrorsRightTurnRecovery) {
+  auto c = identity(); c.values["cone_exit_role_bias"] = .8;
+  lane_lite::Pipeline normal(c), recovery(c);
+  lane_lite::Result a, b;
+  for (int i = 0; i < 8; ++i) {
+    const auto image = scene(240, 300, true, false);
+    a = normal.process(image, i * .05, false);
+    b = recovery.process(image, i * .05, false, {}, 1);
+  }
+  ASSERT_TRUE(a.valid && b.valid);
+  EXPECT_EQ(a.state, "left only");
+  EXPECT_EQ(b.state, "right only");
+  EXPECT_LT(b.target_x, a.target_x - 200);
 }

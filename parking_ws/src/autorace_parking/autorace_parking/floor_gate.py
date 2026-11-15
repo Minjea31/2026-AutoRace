@@ -11,7 +11,7 @@ from rcl_interfaces.srv import GetParameters
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
 
-from autorace_slow.white_roi import WhiteROI, load_lane_white, validate_white
+from .white_roi import WhiteROI, load_lane_white, validate_white
 from .core import Activation
 
 
@@ -23,8 +23,8 @@ class ParkingFloorGate:
             return node.declare_parameter(name, default, descriptor).value
         self.roi = WhiteROI(**{
             name: float(parameter('white_roi_' + name, default))
-            for name, default in (('left', .20), ('right', .80), ('top', .86),
-                                  ('bottom', .92), ('minimum_ratio', .08))})
+            for name, default in (('left', .05), ('right', .95), ('top', .961),
+                                  ('bottom', 1.0), ('minimum_ratio', .08))})
         self.timeout = float(parameter('white_image_timeout_sec', .3))
         self.hz = float(parameter('white_image_hz', 10.))
         if not all(math.isfinite(v) and v > 0 for v in (self.timeout, self.hz)):
@@ -40,6 +40,13 @@ class ParkingFloorGate:
         if not config:
             raise ValueError('Cannot find lane white HSV config; set lane_white_config')
         self.s_max, self.v_min = load_lane_white(config)
+        self.line_frames = int(parameter('white_line_confirmations',1))
+        self.line_min_span = float(parameter('white_line_min_span',0.))
+        self.line_max_angle = float(parameter('white_line_max_angle',.44))
+        if not 1 <= self.line_frames <= 5 or not 0 <= self.line_min_span <= 1 or not 0 < self.line_max_angle <= math.pi/2:
+            raise ValueError('Invalid parking start line confirmation settings')
+        self.line_count = 0
+        self.line_stamp = None
         self.confirmation = Activation(node.required_detections, node.sign_timeout)
         self.armed_stamp = None
         self.ratio = None
@@ -54,7 +61,7 @@ class ParkingFloorGate:
         self.subscription = node.create_subscription(CompressedImage, camera, self.on_image, qos_profile_sensor_data)
         node.get_logger().info(
             f'주차 바닥 조건: YOLO {node.required_detections}회 후 새 흰색 ROI 1회, '
-            f'흰색 비율 >= {self.roi.minimum_ratio:.0%} (lane HSV 공유)')
+            f'흰색 비율 >= {self.roi.minimum_ratio:.0%} (주차 내부 HSV 계산)')
 
     @property
     def armed(self):
@@ -64,6 +71,8 @@ class ParkingFloorGate:
         self.confirmation.reset()
         self.armed_stamp = None
         self.ratio = None
+        self.line_count = 0
+        self.line_stamp = None
 
     def clock(self):
         now = self.node.get_clock().now().nanoseconds
@@ -79,10 +88,29 @@ class ParkingFloorGate:
             return
         self.confirmation.required = self.node.required_detections
         self.confirmation.timeout = self.node.sign_timeout
-        if self.confirmation.update(message.data, time.monotonic()):
+        self.confirmation.count = self.confirmation.count + 1 if message.data else 0
+        if self.confirmation.count >= self.node.required_detections:
             self.armed_stamp = now
             self.node.get_logger().info(
                 f'PARKING: YOLO {self.node.required_detections}회 확인, 바닥 흰색 ROI 대기')
+
+    def observe(self, stamp, ratio, span, angle):
+        now = self.clock()
+        if (not self.armed
+                or time.monotonic() < self.node.sign_ignore_until
+                or stamp <= self.armed_stamp or (self.last_stamp is not None and stamp <= self.last_stamp)
+                or not -.05 <= (now-stamp)/1e9 <= self.timeout):
+            return
+        self.last_stamp = stamp
+        self.ratio = ratio
+        hit = ratio >= self.roi.minimum_ratio
+        if self.line_stamp is None or (stamp-self.line_stamp)/1e9 > .25:
+            self.line_count = 0
+        self.line_count = self.line_count+1 if hit else 0
+        self.line_stamp = stamp
+        if self.line_count >= 1:
+            self.reset()
+            self.start()
 
     def on_image(self, message):
         now, wall = self.clock(), time.monotonic()
@@ -94,20 +122,17 @@ class ParkingFloorGate:
                 or not -.05 <= (now - stamp) / 1e9 <= self.timeout
                 or wall - self.last_wall < 1. / self.hz):
             return
-        self.last_stamp, self.last_wall = stamp, wall
+        self.last_wall = wall
         try:
             image = cv2.imdecode(np.frombuffer(message.data, dtype=np.uint8), cv2.IMREAD_COLOR)
             if image is None:
                 raise ValueError('Cannot decode camera JPEG')
-            ratio, _, _ = self.roi.measure(image, self.s_max, self.v_min)
+            ratio, _, mask = self.roi.measure(image, self.s_max, self.v_min)
             # Re-check age after decoding so a delayed callback cannot start parking.
             age = (self.node.get_clock().now().nanoseconds - stamp) / 1e9
             if not -.05 <= age <= self.timeout:
                 return
-            self.ratio = ratio
-            if ratio >= self.roi.minimum_ratio:
-                self.reset()
-                self.start()
+            self.observe(stamp,ratio,0.,0.)
         except (ValueError, cv2.error) as error:
             self.node.get_logger().warning(f'Parking white ROI image rejected: {error}', throttle_duration_sec=5.)
 

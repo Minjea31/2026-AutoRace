@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from .core import wrap, advance
 from .tracking import ScanTracker, compose, inverse
@@ -33,8 +34,10 @@ class PoseHistory:
     def __init__(self, timeout=.3, max_speed=1.5, max_yaw_rate=3., max_std=.5, max_yaw_std=None):
         if max_yaw_std is None:
             max_yaw_std = max_std
-        if not all(math.isfinite(v) and v > 0 for v in (timeout, max_speed, max_yaw_rate, max_std, max_yaw_std)):
-            raise ValueError('Localization time, velocity and covariance bounds must be positive')
+        if not all(math.isfinite(v) and v > 0 for v in (timeout, max_speed, max_yaw_rate)):
+            raise ValueError('Localization time and velocity bounds must be positive')
+        if not all(math.isfinite(v) and v >= 0 for v in (max_std, max_yaw_std)):
+            raise ValueError('Covariance bounds must be nonnegative; zero disables the ceiling')
         self.samples = deque(maxlen=400)
         self.timeout, self.max_speed = timeout, max_speed
         self.max_yaw_rate, self.max_std = max_yaw_rate, max_std
@@ -47,8 +50,8 @@ class PoseHistory:
         if not all(math.isfinite(v) for v in values) or min(sample.variance) <= 0:
             self.reason = 'Invalid localization values/covariance'
             return False
-        if (max(sample.variance[:2]) > self.max_std ** 2
-                or sample.variance[2] > self.max_yaw_std ** 2):
+        if ((self.max_std > 0 and max(sample.variance[:2]) > self.max_std ** 2)
+                or (self.max_yaw_std > 0 and sample.variance[2] > self.max_yaw_std ** 2)):
             self.reason = 'Localization covariance exceeds configured limit'
             return False
         if abs(sample.speed) > self.max_speed or abs(sample.yaw_rate) > self.max_yaw_rate:
@@ -92,7 +95,11 @@ class PoseHistory:
         if self.discontinuity:
             return False
         if not self.samples:
-            self.reason = 'Waiting for calibrated wheel/IMU EKF odometry'
+            self.reason = self.reason or 'Waiting for calibrated wheel/IMU EKF odometry'
+            return False
+        # Keep the reason a newer EKF sample was rejected. The age of the last
+        # accepted sample must not hide a covariance/frame/velocity failure.
+        if self.reason:
             return False
         if not -.05 <= now-self.samples[-1].stamp <= self.timeout:
             self.reason = 'EKF odometry is stale or future-dated'
@@ -110,6 +117,8 @@ class KeyframeMatcher:
     def __init__(self, points):
         self.reference = sparse_points(points)
         self.target, self.normals = ScanTracker.surfaces(self.reference)
+        self.target_tree = cKDTree(self.target)
+        self.reference_tree = cKDTree(self.reference)
 
     def stationary_scene_changed(self, points, prior):
         current = sparse_points(points)
@@ -117,8 +126,8 @@ class KeyframeMatcher:
             return False
         c, s = math.cos(prior[2]), math.sin(prior[2])
         moved = current @ np.array([[c, -s], [s, c]]).T + prior[:2]
-        nearest = ((moved[:, None, :]-self.reference[None, :, :])**2).sum(axis=2).min(axis=1)
-        return float(np.mean(nearest > .08**2)) > .30
+        nearest, _ = self.reference_tree.query(moved, workers=1)
+        return float(np.mean(nearest > .08)) > .30
 
     def match(self, points, prior):
         current = sparse_points(points)
@@ -130,11 +139,10 @@ class KeyframeMatcher:
         error = math.inf
         for _ in range(12):
             moved = current @ rotation.T + translation
-            distances = ((moved[:, None, :]-self.target[None, :, :])**2).sum(axis=2)
-            nearest = distances.argmin(axis=1)
+            distances, nearest = self.target_tree.query(moved, workers=1)
             normals = self.normals[nearest]
             residual = ((moved-self.target[nearest])*normals).sum(axis=1)
-            mask = (distances[np.arange(len(moved)), nearest] < .18**2) & (abs(residual) < .06)
+            mask = (distances < .18) & (abs(residual) < .06)
             if mask.sum() < max(12, len(current)*.45):
                 raise ValueError('Insufficient keyframe overlap')
             a, n, r = moved[mask], normals[mask], residual[mask]
@@ -175,6 +183,11 @@ class FusedTracker:
         self.sample = None
         self.latched = False
         self.stationary_disagreements = 0
+        self.odometry_only = False
+
+    def freeze_corrections(self):
+        """Keep the parked route's frame; subsequent scans only timestamp odometry."""
+        self.odometry_only = True
 
     def update(self, points, stamp):
         if self.latched or self.history.discontinuity:
@@ -191,21 +204,31 @@ class FusedTracker:
         if self.origin is None:
             self.origin = predicted
             self.global_pose = predicted
+        if self.odometry_only:
+            self.global_pose = predicted
+            self.pose = compose(inverse(self.origin), predicted)
+            self.last_stamp = stamp
+            self.valid, self.reason = True, ''
+            self.lidar_status = 'departure: fixed-frame odometry'
+            return True
         if self.matcher is not None:
             prior = compose(inverse(self.key_pose), predicted)
-            if self.stationary and self.matcher.stationary_scene_changed(points, prior):
-                self.stationary_disagreements += 1
-                if self.stationary_disagreements >= 3:
-                    self.latched, self.valid = True, False
-                    self.reason = 'LiDAR detects motion inconsistent with stationary wheel/IMU; reset required'
-                    return False
-            else:
-                self.stationary_disagreements = 0
+            scene_changed = self.stationary and self.matcher.stationary_scene_changed(points, prior)
             try:
-                relative, self.error = self.matcher.match(points, prior)
+                # Unchanged stationary scenes need no iterative solve. A changed
+                # scene still goes through the full coherence/latch checks.
+                relative, self.error = ((prior,self.error) if self.stationary and not scene_changed
+                    else self.matcher.match(points, prior))
                 candidate = compose(self.key_pose, relative)
                 innovation = (candidate[0]-predicted[0], candidate[1]-predicted[1], wrap(candidate[2]-predicted[2]))
                 position_error = math.hypot(*innovation[:2])
+                # A moving foreground object is not proof that the stationary
+                # vehicle moved. Require a successful, coherent scene fit too.
+                if (scene_changed
+                        and (position_error > .06 or abs(innovation[2]) > .08)):
+                    self.stationary_disagreements += 1
+                else:
+                    self.stationary_disagreements = 0
                 if position_error > self.max_correction or abs(innovation[2]) > self.max_yaw_correction:
                     self.rejected += 1
                     self.lidar_status = 'rejected: disagrees with wheel/IMU prediction'
@@ -219,8 +242,13 @@ class FusedTracker:
                     self.corrections += 1
                     self.lidar_status = 'accepted'
             except ValueError as exc:
+                self.stationary_disagreements = self.stationary_disagreements+1 if scene_changed else 0
                 self.rejected += 1
                 self.lidar_status = 'EKF only: '+str(exc)
+            if self.stationary_disagreements >= 3:
+                self.latched, self.valid = True, False
+                self.reason = 'LiDAR detects motion inconsistent with stationary wheel/IMU; reset required'
+                return False
         if self.stationary and self.last_stamp is not None:
             predicted = self.global_pose
         self.global_pose = predicted

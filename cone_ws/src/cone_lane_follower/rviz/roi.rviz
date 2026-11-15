@@ -1,0 +1,158 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 30; 30; 30
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid (0.5 m)
+      Enabled: true
+      Cell Size: 0.5
+      Plane Cell Count: 20
+      Reference Frame: base_link
+    - Class: rviz_default_plugins/LaserScan
+      Name: Raw scan (cyan)
+      Enabled: true
+      Topic:
+        Value: /scan
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+      Color Transformer: FlatColor
+      Color: 0; 170; 255
+      Alpha: 0.5
+      Style: Points
+      Size (Pixels): 2
+      Decay Time: 0
+    - Class: rviz_default_plugins/Marker
+      Name: ROI boundary (yellow)
+      Enabled: true
+      Topic:
+        Value: /cone_lane/roi_marker
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/Marker
+      Name: ROI points (green)
+      Enabled: false
+      Topic:
+        Value: /cone_lane/roi_points
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/MarkerArray
+      Name: All scan clusters (individual colors)
+      Enabled: false
+      Topic:
+        Value: /cone_lane/clusters
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Cone candidate centers (red)
+      Enabled: true
+      Topic:
+        Value: /cone_lane/cone_centers
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces:
+        cone_candidate_centers: true
+        cone_candidate_labels: false
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Cone boundaries (left red, right blue)
+      Enabled: true
+      Topic:
+        Value: /cone_lane/boundaries
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Live center path (green)
+      Enabled: true
+      Topic:
+        Value: /cone_lane/center_path
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Center spot (yellow sections, magenta points)
+      Enabled: false
+      Topic:
+        Value: /cone_lane/center_spot
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Backup path (orange)
+      Enabled: true
+      Topic:
+        Value: /cone_lane/backup_path
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/Marker
+      Name: Control status and stop reason
+      Enabled: true
+      Topic:
+        Value: /cone_lane/control_status
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Control points (projection cyan, reference white)
+      Enabled: true
+      Topic:
+        Value: /cone_lane/control_points
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: false
+      Frames:
+        All Enabled: true
+      Show Axes: true
+      Show Names: true
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 7
+      Focal Point:
+        X: 1.5
+        Y: 0
+        Z: 0
+      Pitch: 1.5
+      Yaw: 0
+      Target Frame: base_link
+Window Geometry:
+  Width: 1100
+  Height: 800

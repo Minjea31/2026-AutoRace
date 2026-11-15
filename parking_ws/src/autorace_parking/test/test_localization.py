@@ -147,3 +147,51 @@ def test_imu_mounting_rotation_handles_an_upside_down_sensor():
 def test_one_metre_xy_limit_keeps_original_half_radian_yaw_limit(variance, accepted):
     history = PoseHistory(max_std=1., max_yaw_std=.5)
     assert history.add(replace(sample(1.), variance=variance)) is accepted
+
+
+@pytest.mark.parametrize('variance,accepted', [
+    ((1.08, 1.70, .09), True),
+    ((4., 4., .25), True),
+    ((4.001, .2, .1), False),
+    ((.2, 4.001, .1), False),
+    ((.2, .2, .2501), False),
+])
+def test_two_metre_xy_limit_preserves_half_radian_yaw_limit(variance, accepted):
+    history = PoseHistory(max_std=2., max_yaw_std=.5)
+    assert history.add(replace(sample(1.), variance=variance)) is accepted
+
+
+@pytest.mark.parametrize('with_old_sample', [False, True])
+def test_covariance_rejection_is_not_hidden_by_missing_or_stale_history(with_old_sample):
+    history = PoseHistory(max_std=1., max_yaw_std=.5)
+    if with_old_sample:
+        assert history.add(sample(1.))
+    assert not history.add(replace(sample(75.), variance=(1.08, 1.70, .09)))
+    assert not history.healthy(75.01)
+    assert history.reason == 'Localization covariance exceeds configured limit'
+    history.max_std=2.
+    assert history.add(replace(sample(75.02), variance=(1.08, 1.70, .09)))
+    assert history.healthy(75.03)
+
+
+@pytest.mark.parametrize('variance',[(1.62,2.639,.251),(1e20,1e20,1e20)])
+def test_disabled_covariance_ceilings_accept_any_finite_positive_variance(variance):
+    history=PoseHistory(max_std=0.,max_yaw_std=0.)
+    assert history.add(replace(sample(1.),variance=variance))
+    assert history.healthy(1.01)
+
+
+@pytest.mark.parametrize('variance',[(float('nan'),1.,1.),(float('inf'),1.,1.),(0.,1.,1.),(-1.,1.,1.)])
+def test_disabled_ceilings_still_reject_invalid_covariance(variance):
+    history=PoseHistory(max_std=0.,max_yaw_std=0.)
+    assert not history.add(replace(sample(1.),variance=variance))
+    assert history.reason=='Invalid localization values/covariance'
+
+
+def test_position_and_yaw_ceilings_can_be_disabled_independently():
+    position_unlimited=PoseHistory(max_std=0.,max_yaw_std=.5)
+    assert position_unlimited.add(replace(sample(1.),variance=(1e20,1e20,.1)))
+    assert not position_unlimited.add(replace(sample(1.1),variance=(1.,1.,.251)))
+    yaw_unlimited=PoseHistory(max_std=1.,max_yaw_std=0.)
+    assert yaw_unlimited.add(replace(sample(1.),variance=(1.,1.,1e20)))
+    assert not yaw_unlimited.add(replace(sample(1.1),variance=(1.001,1.,1.)))

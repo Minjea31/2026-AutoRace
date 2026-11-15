@@ -13,7 +13,7 @@ from limo_parking_sim.mission_adapter import CommandRelay, MISSION_TOPICS, Missi
 @pytest.fixture
 def relay():
     result = CommandRelay(load_config())
-    result.select('/mission/cone/command_04')
+    result.select('/mission/cone/command_05')
     return result
 
 
@@ -31,9 +31,9 @@ def test_only_selected_input_can_move_vehicle(relay):
     assert relay.output(10., 50.) == (0., 0.)
     assert relay.receive(relay.topic, .2, .1, 10., 10., 50.)
     assert relay.output(10., 50.) == pytest.approx((.2, .2*math.tan(.1)/.2))
-    relay.select('/mission/objavoid/command_05')
+    relay.select('/mission/objavoid/command_04')
     assert relay.output(10., 50.) == (0., 0.)
-    assert not relay.receive('/mission/cone/command_04', .2, .1, 10., 10., 50.)
+    assert not relay.receive('/mission/cone/command_05', .2, .1, 10., 10., 50.)
     assert relay.receive(relay.topic, -.2, .1, 10., 10., 50.)
     assert relay.output(10., 50.)[1] < 0
     relay.select(None)
@@ -71,7 +71,7 @@ def test_multiple_toggles_priority_timeout_and_lane_fallback():
     router = MissionRouter(load_config())
     lane = '/mission/lane'
     parking = '/mission/parking/command_03'
-    cone = '/mission/cone/command_04'
+    cone = '/mission/cone/command_05'
     for topic in (cone, lane, parking):
         router.enable(topic)
         router.receive(topic, .2, .1, 10., 10., 50.)

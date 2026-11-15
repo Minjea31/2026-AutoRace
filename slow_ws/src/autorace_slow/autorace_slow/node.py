@@ -30,7 +30,7 @@ from .white_roi import WhiteROI, load_lane_white, validate_white
 class SlowNode(Node):
     def __init__(self, **kwargs):
         super().__init__('slow_node', **kwargs)
-        defaults = dict(confirm_frames=2, hold_sec=8., signal_gap_timeout_sec=.5,
+        defaults = dict(confirm_frames=2, hold_sec=8., slow_hold_sec=15., signal_gap_timeout_sec=.5,
                         speed_mps=.2, publish_rate_hz=20.,
                         lane_timeout_sec=.25, future_tolerance_sec=.05)
         for name, default in defaults.items():
@@ -47,7 +47,7 @@ class SlowNode(Node):
             raise ValueError('white_roi_enabled must be a Bool')
         self.white_roi = WhiteROI(**{
             name: float(self.declare_parameter('white_roi_' + name, default, descriptor).value)
-            for name, default in (('left', .20), ('right', .80), ('top', .86), ('bottom', .92), ('minimum_ratio', .08))
+            for name, default in (('left', .05), ('right', .95), ('top', .961), ('bottom', 1.0), ('minimum_ratio', .08))
         })
         self.white_image_timeout = float(self.declare_parameter('white_image_timeout_sec', .3, descriptor).value)
         self.white_image_hz = float(self.declare_parameter('white_image_hz', 10., descriptor).value)
@@ -59,7 +59,7 @@ class SlowNode(Node):
         self.white_ratio = None
         self.white_arm_stamps = {}
         self.state = SlowState(self.confirm_frames, self.hold_sec, self.signal_gap_timeout_sec,
-                               require_white_mark=self.white_roi_enabled)
+                               require_white_mark=self.white_roi_enabled, slow_hold_sec=self.slow_hold_sec)
         self.lane = self.lane_received = self.last_ros_ns = None
         self.last_mode = None
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
@@ -68,6 +68,8 @@ class SlowNode(Node):
         self.lane_sub = self.create_subscription(AckermannDriveStamped, '/mission/lane', self.on_lane, qos)
         self.sign_subs = [self.create_subscription(Bool, topic, partial(self.on_sign, kind), qos)
                           for kind, topic in (('slow', '/yolo/slow_sign'), ('bump', '/yolo/bump_sign'))]
+        self.crosswalk_sub = self.create_subscription(Bool, '/start_crosswalk', self.on_crosswalk, qos)
+        self.signal_stop_sub = self.create_subscription(Bool, '/start_signal', self.on_signal_stop, qos)
         self.white_query = None
         self.white_client = None
         if self.white_roi_enabled:
@@ -133,7 +135,24 @@ class SlowNode(Node):
             return
         self.lane, self.lane_received = copy.deepcopy(message), now
 
+    def stop_slow(self, reason):
+        mission = self.state.missions['slow']
+        was_pending = mission.deadline is not None or mission.armed or mission.count > 0
+        self.state.stop_slow()
+        self.white_arm_stamps.pop('slow', None)
+        if was_pending:
+            self.get_logger().info(f'서행 종료: {reason}')
+
+    def on_crosswalk(self, message):
+        if message.data:
+            self.stop_slow('횡단보도 시작')
+
+    def on_signal_stop(self, message):
+        if message.data:
+            self.stop_slow('빨간불 정지')
+
     def on_sign(self, kind, message):
+        self.state.tick(time.monotonic())
         was_armed = self.state.missions[kind].armed
         self.state.receive(kind, message.data, time.monotonic())
         if not was_armed and self.state.missions[kind].armed:

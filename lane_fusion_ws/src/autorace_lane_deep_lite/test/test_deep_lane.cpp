@@ -1,10 +1,12 @@
 // Synthetic class masks drawn in BEV and warped back to the camera view.
+// Real-car config (lane_ws values): 277 px lane = 0.52 m.
 #include "autorace_lane_deep_lite/deep_lane.hpp"
 #include <gtest/gtest.h>
 #include <opencv2/imgproc.hpp>
 
 namespace {
 using deep_lite::Config;
+Config real() { return Config::load(std::string(DEEP_LITE_SOURCE_DIR) + "/config/real/lane.yaml"); }
 using deep_lite::LineState;
 using deep_lite::Pipeline;
 
@@ -36,7 +38,7 @@ deep_lite::Result run(Pipeline &p, const cv::Mat &cam, int frames = 6) {
 } // namespace
 
 TEST(DeepLite, StraightYellowAndDashedWhite) {
-  Config c;
+  const Config c = real();
   Pipeline p(c);
   cv::Mat bev = cv::Mat::zeros(480, 640, CV_8U);
   vertical(bev, 320 - 138, 1);
@@ -50,7 +52,7 @@ TEST(DeepLite, StraightYellowAndDashedWhite) {
 }
 
 TEST(DeepLite, SingleLineOffsetsByHalfLane) {
-  Config c;
+  const Config c = real();
   Pipeline p(c);
   cv::Mat bev = cv::Mat::zeros(480, 640, CV_8U);
   vertical(bev, 320 + 138, 2, 107, 80); // only the right dashed line
@@ -60,7 +62,7 @@ TEST(DeepLite, SingleLineOffsetsByHalfLane) {
 }
 
 TEST(DeepLite, PicksOwnLaneBesideAnotherLine) {
-  Config c;
+  const Config c = real();
   Pipeline p(c);
   cv::Mat bev = cv::Mat::zeros(480, 640, CV_8U);
   vertical(bev, 320 - 138, 1);
@@ -72,7 +74,7 @@ TEST(DeepLite, PicksOwnLaneBesideAnotherLine) {
 }
 
 TEST(DeepLite, LeftBendHasPositiveCurvature) {
-  Config c;
+  const Config c = real();
   Pipeline p(c);
   cv::Mat bev = cv::Mat::zeros(480, 640, CV_8U);
   // Bend to the left: centre of the circle to the left of the vehicle.
@@ -86,10 +88,31 @@ TEST(DeepLite, LeftBendHasPositiveCurvature) {
 }
 
 TEST(DeepLite, EmptyMaskIsLost) {
-  Config c;
+  const Config c = real();
   Pipeline p(c);
   const auto r = run(p, cv::Mat::zeros(480, 640, CV_8U));
   EXPECT_FALSE(r.valid);
   EXPECT_EQ(r.left.state, LineState::Lost);
   EXPECT_EQ(r.right.state, LineState::Lost);
+}
+
+TEST(DeepLite, ShortDropoutIsHeldThenLost) {
+  // lane_ws tracking: a lost mask keeps the last path for track_memory.
+  const Config c = real();
+  Pipeline p(c);
+  cv::Mat bev = cv::Mat::zeros(480, 640, CV_8U);
+  vertical(bev, 320 - 138, 1);
+  vertical(bev, 320 + 138, 2, 107, 80);
+  run(p, toCamera(bev, c));
+  const cv::Mat empty = cv::Mat::zeros(480, 640, CV_8U);
+  EXPECT_EQ(p.process(empty, .35).state, "held");
+  EXPECT_FALSE(p.process(empty, .35 + c["track_memory"] + .1).valid);
+}
+
+TEST(DeepLite, ConfigKeepsOnlyMaskKeysAndRoundTrips) {
+  for (const auto &s : deep_lite::specs())
+    EXPECT_NE(std::string(s.name).rfind("yellow_h", 0), 0u) << s.name;
+  const std::string path = testing::TempDir() + "deep_lite_roundtrip.yaml";
+  real().save(path);
+  EXPECT_EQ(Config::load(path).values, real().values);
 }

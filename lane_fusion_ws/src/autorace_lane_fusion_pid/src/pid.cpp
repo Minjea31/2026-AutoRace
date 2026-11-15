@@ -49,7 +49,7 @@ const std::vector<Spec> &specs() {
        0.0, 0, 1.5, .05},
       {"wheelbase", "조향 제한", "m", "축간거리. 곡률 피드포워드 계산용", 0.20, .05, .6, .005},
       {"max_steering", "조향 제한", "rad", "조향각 절댓값 상한(가상 중심 조향각). 시뮬 LIMO 약 0.41",
-       0.40, .05, .7, .01},
+       0.40, .05, 1.2, .01},
       {"steering_rate", "조향 제한", "rad/s", "조향각 최대 변화율. 너무 낮으면 커브에서 늦음", 2.0, .1, 8, .1},
       {"speed", "속도", "m/s", "기본(최대) 주행 속도", 0.25, 0, 1, .01},
       {"min_speed", "속도", "m/s", "주행 중 최저 속도(감속 후에도 이 값 이상, 단 정지 조건은 0)", 0.08, 0, .5, .01},
@@ -109,8 +109,14 @@ Config Config::load(const std::string &path, const std::string &node) {
     const auto key = kv.first.as<std::string>();
     if (key == "use_sim_time" || key == "enable_vehicle_output")
       continue; // node launch options, not gains
-    if (!c.values.count(key))
+    if (!c.values.count(key)) {
+      double number;
+      if (kv.second.IsScalar() && !YAML::convert<double>::decode(kv.second, number)) {
+        c.options[key] = kv.second.Scalar(); // bool / string node option
+        continue;
+      }
       throw std::invalid_argument("Unknown PID parameter: " + key);
+    }
     c.values[key] = kv.second.as<double>();
   }
   c.validate();
@@ -134,6 +140,8 @@ void Config::save(const std::string &path, const std::string &node) const {
     else
       e << v;
   }
+  for (const auto &[key, text] : options)
+    e << YAML::Key << key << YAML::Value << text;
   e << YAML::EndMap << YAML::EndMap << YAML::EndMap;
   // yaml-cpp prints integral doubles as "1"; ROS would then declare an
   // integer. Force a decimal point on every scalar value.

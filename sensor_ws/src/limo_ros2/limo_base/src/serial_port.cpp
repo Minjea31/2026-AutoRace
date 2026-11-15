@@ -64,8 +64,9 @@ int SerialPort::openPort() {
 
     //set stopbits
     termios_opt.c_cflag &= ~CSTOPB;
-    termios_opt.c_cc[VTIME] = 0;
-    termios_opt.c_cc[VMIN] = 1;
+    // 100 ms 타임아웃: 데이터가 없어도 read가 돌아와 종료 시 스레드 join이 막히지 않게 한다.
+    termios_opt.c_cc[VTIME] = 1;
+    termios_opt.c_cc[VMIN] = 0;
     tcflush(fd_,TCIFLUSH);
 
     if (tcsetattr(fd_, TCSANOW, &termios_opt) != 0) {

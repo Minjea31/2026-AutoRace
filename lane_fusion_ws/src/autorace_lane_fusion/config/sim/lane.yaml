@@ -30,20 +30,14 @@ lane_lite:
   white_max_length: 0
   line_width_max: 30
   min_area: 60
-  cell: 14
-  min_cell_pixels: 5
-  max_gap: 90
-  max_turn_deg: 35
-  min_length: 50
   max_residual: 5
+  histogram_start: 0.5
   windows: 12
   margin: 45
   min_pixels: 25
   max_misses: 3
   min_windows: 3
-  deep_max_age: 0.12
-  hsv_min_quality: 0.6
-  hsv_penalty: 0.35
+  deep_max_age: 0.2
   merge_px: 20
   lane_width_px: 240
   width_tolerance: 0.35
@@ -54,7 +48,6 @@ lane_lite:
   track_jump_px: 50
   track_memory: 0.5
   role_frames: 3
-  max_target_jump_m: 0.12
   max_curvature: 3.0
   curvature_span_m: 0.6
   lane_width_m: 0.55

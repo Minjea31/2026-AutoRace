@@ -23,10 +23,10 @@ def validate_white(saturation_max, value_min):
 
 @dataclass(frozen=True)
 class WhiteROI:
-    left: float = .20
-    right: float = .80
-    top: float = .86
-    bottom: float = .92
+    left: float = .05
+    right: float = .95
+    top: float = .961
+    bottom: float = 1.0
     minimum_ratio: float = .08
 
     def __post_init__(self):

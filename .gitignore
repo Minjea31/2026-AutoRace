@@ -15,3 +15,178 @@ Agent.md
 # Sensor SDK runtime logs
 /sensor_ws/Log/
 /mux_ws/Log/
+
+# Local assistant workspace files
+*[gG][pP][tT]*
+.codex/
+.claude/
+.openai/
+CLAUDE.md
+CODEX.md
+
+# ROS bag recordings
+rosbag2_*/
+*.[bB][aA][gG]
+*.[bB][aA][gG].*
+*.[dD][bB]3
+*.[dD][bB]3-wal
+*.[dD][bB]3-shm
+*.[mM][cC][aA][pP]
+*.[mM][cC][aA][pP].*
+
+# Video recordings
+*.[mM][pP]4
+*.[mM]4[vV]
+*.[aA][vV][iI]
+*.[mM][oO][vV]
+*.[mM][kK][vV]
+*.[wW][eE][bB][mM]
+*.[mM][pP][gG]
+*.[mM][pP][eE][gG]
+*.[wW][mM][vV]
+*.[fF][lL][vV]
+*.[mM][tT][sS]
+*.[mM]2[tT][sS]
+*.3[gG][pP]
+*.[oO][gG][vV]
+*.[hH]264
+*.[hH]265
+*.[hH][eE][vV][cC]
+
+# Generated Python files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Runtime logs
+/log/
+/Log/
+
+# Bag directories and compressed SQLite bag files
+bag/
+bags/
+*.[dD][bB]3.*
+
+# camera_compat_ws
+/camera_compat_ws/**/build/
+/camera_compat_ws/**/install/
+/camera_compat_ws/**/log/
+
+# cone_ws
+/cone_ws/**/build/
+/cone_ws/**/install/
+/cone_ws/**/log/
+/cone_ws/**/__pycache__/
+/cone_ws/**/.pytest_cache/
+/cone_ws/**/*.egg-info/
+
+# crosswalk_ws
+/crosswalk_ws/build/
+/crosswalk_ws/install/
+/crosswalk_ws/log/
+/crosswalk_ws/**/__pycache__/
+/crosswalk_ws/**/.pytest_cache/
+
+# lane_fusion_ws
+/lane_fusion_ws/build/
+/lane_fusion_ws/install/
+/lane_fusion_ws/log/
+/lane_fusion_ws/.venv/
+/lane_fusion_ws/**/__pycache__/
+
+# lane_ws
+/lane_ws/build/
+/lane_ws/install/
+/lane_ws/log/
+/lane_ws/artifacts/
+/lane_ws/**/__pycache__/
+
+# mux_ws
+/mux_ws/build/
+/mux_ws/install/
+/mux_ws/log/
+/mux_ws/**/__pycache__/
+/mux_ws/**/*.py[cod]
+/mux_ws/**/*.egg-info/
+/mux_ws/**/.pytest_cache/
+/mux_ws/**/*.pyc
+/mux_ws/.pytest_cache/
+
+# objavoid_ws
+/objavoid_ws/**/build/
+/objavoid_ws/**/install/
+/objavoid_ws/**/log/
+/objavoid_ws/**/__pycache__/
+/objavoid_ws/**/*.py[cod]
+/objavoid_ws/**/.pytest_cache/
+/objavoid_ws/**/*.egg-info/
+/objavoid_ws/src/autorace_objavoid/test/
+
+# parking_ws
+/parking_ws/Log/
+/parking_ws/**/*.pyc
+/parking_ws/backups/
+
+# sensor_ws
+/sensor_ws/build/
+/sensor_ws/install/
+/sensor_ws/log/
+/sensor_ws/**/__pycache__/
+/sensor_ws/**/*.pyc
+/sensor_ws/.pytest_cache/
+
+# signal_ws
+/signal_ws/build/
+/signal_ws/install/
+/signal_ws/log/
+/signal_ws/dist/
+/signal_ws/**/.eggs/
+/signal_ws/**/__pycache__/
+/signal_ws/**/*.py[cod]
+/signal_ws/**/*.egg-info/
+/signal_ws/**/.pytest_cache/
+
+# simul
+/simul/**/build/
+/simul/**/install/
+/simul/**/log/
+/simul/**/captures/
+/simul/**/__pycache__/
+/simul/**/*.py[cod]
+/simul/**/*.egg-info/
+/simul/**/.pytest_cache/
+
+# slow_ws
+/slow_ws/build/
+/slow_ws/install/
+/slow_ws/log/
+/slow_ws/captures/
+/slow_ws/dist/
+/slow_ws/**/.eggs/
+/slow_ws/**/__pycache__/
+/slow_ws/**/*.py[cod]
+/slow_ws/**/*.egg-info/
+/slow_ws/**/.pytest_cache/
+
+# web_viewer
+/web_viewer/**/.run/
+/web_viewer/**/__pycache__/
+
+# yolo_ws
+/yolo_ws/build/
+/yolo_ws/install/
+/yolo_ws/log/
+/yolo_ws/**/__pycache__/
+/yolo_ws/**/*.pyc
+/yolo_ws/**/.pytest_cache/
+/yolo_ws/**/*.egg-info/
+
+# Bringup build outputs
+/tensor_bringup/build/
+/tensor_bringup/install/
+/tensor_bringup/log/
+
+# Existing alternative colcon output directories
+/parking_ws/build_tensor_repair/
+/parking_ws/install_tensor_repair/

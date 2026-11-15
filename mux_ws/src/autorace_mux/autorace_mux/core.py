@@ -10,8 +10,8 @@ INPUTS = (
     ('crosswalk', '/mission/crosswalk/command_01'),
     ('signal', '/mission/signal/command_02'),
     ('parking', '/mission/parking/command_03'),
-    ('cone', '/mission/cone/command_04'),
-    ('objavoid', '/mission/objavoid/command_05'),
+    ('objavoid', '/mission/objavoid/command_04'),  # 04번 11-15: 장애물 V3를 콘보다 우선
+    ('cone', '/mission/cone/command_05'),
     ('slow', '/mission/slow/command_08'),
     ('lane', '/mission/lane'),
 )

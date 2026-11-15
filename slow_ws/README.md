@@ -56,6 +56,8 @@ ros2 run autorace_slow slow_node --ros-args   -p use_sim_time:=true -p hold_sec:
 | 구독 | `/yolo/slow_sign` | `std_msgs/msg/Bool` |
 | 구독 | `/yolo/bump_sign` | `std_msgs/msg/Bool` |
 | 구독 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` |
+| 구독 | `/start_crosswalk` | `std_msgs/msg/Bool` |
+| 구독 | `/start_signal` | `std_msgs/msg/Bool` |
 | 발행 | `/mission/slow/command_08` | `ackermann_msgs/msg/AckermannDriveStamped` |
 
 QoS는 Reliable / Volatile / KeepLast(1)이며 토픽은 ROS remapping으로 변경할 수 있습니다. `/mission/lane`이나 `/cmd_vel`에는 발행하지 않습니다.
@@ -138,3 +140,21 @@ HSV S 상한과 V 하한은 real lane.yaml의 `lane_lite.white_s_max`, `white_v_
 ROI 확인 영상: `/slow/white_roi/debug/compressed`, 비율: `/slow/white_roi/ratio`, 검출 결과: `/slow/white_roi/detected`.
 웹 뷰어의 '서행 · 방지턱 ROI' 화면에서 위치와 실제 흰색 비율을 확인할 수 있습니다.
 수동 Bool 발행만으로는 시작되지 않으며 카메라 바닥 조건도 충족해야 합니다.
+
+## 서행 갱신 및 횡단보도 연동 (현재 동작)
+
+서행은 표지판 True 연속 2회와 이후 새 바닥 ROI 양성으로 시작하며,
+`slow_hold_sec` 기본값인 15초 동안 0.2 m/s로 lane 조향을 따릅니다.
+실행 중에도 표지판 2회 확인 후 새 ROI 양성을 확인한 시점부터 15초를 다시 셉니다.
+기존 시간이 먼저 만료되면 갱신 대기도 초기화합니다.
+`/start_crosswalk` (std_msgs/msg/Bool, Reliable/Volatile)의 True는 서행과 대기를
+초기화하며 False는 무시합니다. 이후 새 진입 조건으로 재시작할 수 있습니다.
+방지턱은 기존 hold_sec=8초 및 표지판 재감지 연장 정책을 유지합니다.
+이 절의 서행 동작이 위의 과거 8초·직진 설명을 대체합니다.
+
+## 횡단보도·신호등에서 서행 종료
+
+`/start_crosswalk=True` 또는 `/start_signal=True`를 받으면 서행 미션의
+타이머·표지판 확인 횟수·흰색 ROI 대기 상태를 초기화합니다. False는 무시합니다.
+`/start_signal`은 `signal_ws`가 빨강을 확정하고 첫 정지 명령을 발행할 때 보냅니다.
+방지턱 미션은 유지하며, 다음 서행은 새 표지판 확인과 새 흰색 영상이 필요합니다.

@@ -27,7 +27,8 @@ def test_lane_slowdown_event_reaches_parking_without_resetting_ekf(monkeypatch, 
     log = (tmp_path / 'lane.log').open('w')
     process = subprocess.Popen([str(binary), '--ros-args', '-p', 'active:=1.0', '-p', 'speed:=0.6'], stdout=log, stderr=subprocess.STDOUT)
     rclpy.init(domain_id=191)
-    parking = ParkingNode(parameter_overrides=[Parameter('localization_source', value='fused')])
+    parking = ParkingNode(parameter_overrides=[Parameter('localization_source', value='fused'),
+                                             Parameter('white_roi_enabled', value=True)])
     probe = Node('parking_approach_integration_probe')
     executor = SingleThreadedExecutor()
     executor.add_node(parking); executor.add_node(probe)
