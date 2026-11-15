@@ -20,6 +20,7 @@ _autorace_source_selected_ws() {
     '2026-AutoRace/lane_fusion_ws'
     '2026-AutoRace/lane_ws'
     '2026-AutoRace/mux_ws'
+    '2026-AutoRace/objavoid_ws'
     '2026-AutoRace/parking_ws'
     '2026-AutoRace/sensor_ws'
     '2026-AutoRace/signal_ws'

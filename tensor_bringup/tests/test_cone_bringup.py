@@ -66,7 +66,7 @@ def test_readiness_requires_cone_node_and_fresh_status_but_no_drive_command():
     module = load('scripts/ready.py')
     assert '/cone_lane_roi' in module.BASE_NODES
     assert '/cone_lane/control_status' in module.BASE_TOPICS
-    assert '/mission/cone/command_04' not in module.BASE_TOPICS
+    assert '/mission/cone/command_05' not in module.BASE_TOPICS
     names = [(name.lstrip('/'), '/') for name in module.BASE_NODES
              if name != '/cone_lane_roi']
     graph = SimpleNamespace(get_node_names_and_namespaces=lambda: names)

@@ -109,6 +109,21 @@ def _setup(context):
         group = GroupAction(actions=[SetLaunchConfiguration('launch-prefix', process_prefix), action])
         return TimerAction(period=delay, actions=[group]) if delay else group
 
+    # 장애물 회피 V3(objavoid_ws, C++): 비활성 동안 명령 없음. 흰 정지선+점선+장애물을 보면 스스로 켜져
+    # /mission/objavoid/command_04(MUX에서 lane보다 우선)로 주행, 갈림길 진입 후 DONE이면 명령을 멈춰 lane으로 넘어감.
+    objavoid = []
+    if C('objavoid').perform(context) == 'true':
+        try:
+            objavoid_launch = share('autorace_objavoid_v3') + '/launch/objavoid_v3.launch.py'
+        except PackageNotFoundError as error:
+            raise RuntimeError('objavoid:=true: autorace_objavoid_v3 not found, '
+                               'source ~/2026-AutoRace/objavoid_ws/install/setup.bash') from error
+        objavoid = [TimerAction(period=4., actions=[IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(objavoid_launch),
+            launch_arguments={'profile': 'real', 'car': C('objavoid_car'),
+                              'command_topic': '/mission/objavoid/command_04'}.items(),
+        )])]
+
     mux = include('autorace_mux', 'mux.launch.py', {'output_topic': C('output_topic'), 'parking_guard_enabled':'true'})
     timeout = ParameterValue(C('startup_timeout'), value_type=float)
     ready = Node(
@@ -136,7 +151,7 @@ def _setup(context):
 
     return [
         LogInfo(msg=f'Lane mode: {mode} ({", ".join(LANE_NODES[mode])})'),
-        LogInfo(msg='Mission startup stagger: parking 0s, slow/crosswalk/signal/cone 2s, lane 4s, YOLO 8s'),
+        LogInfo(msg='Mission startup stagger: parking 0s, slow/crosswalk/signal/cone 2s, lane 4s, objavoid V3 4s, YOLO 8s'),
         RegisterEventHandler(OnProcessExit(target_action=ready, on_exit=inputs_ready)),
         RegisterEventHandler(OnProcessExit(target_action=report, on_exit=reported)),
         heavy(include('autorace_parking', 'parking.launch.py', {
@@ -150,6 +165,7 @@ def _setup(context):
             'use_sim_time': 'false', 'rviz': 'false', 'params_file': C('cone_params'),
         }), 2.),
         heavy(GroupAction(actions=lane), 4.),
+        *objavoid,
         heavy(Node(
             package='yolo_detect', executable='yolo_detect',
             parameters=[{'use_sim_time': False, 'model_path': C('yolo_model')}],
@@ -170,6 +186,7 @@ def _defaults():
         'startup_timeout': '60.0', 'output_topic': '/cmd_vel',
         'lane_speed': '0.5',
         'lane_mode': 'fusion',
+        'objavoid': 'true', 'objavoid_car': '04',
     }
 
 
