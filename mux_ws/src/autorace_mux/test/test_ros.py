@@ -24,7 +24,7 @@ from autorace_mux.node import MuxNode
 
 
 class Harness:
-    def __init__(self, simulated=False):
+    def __init__(self, simulated=False, parking_guard=False):
         self.context = Context()
         rclpy.init(context=self.context, domain_id=180 + os.getpid() % 20,
                    signal_handler_options=SignalHandlerOptions.NO)
@@ -32,6 +32,7 @@ class Harness:
         self.topics = {name: prefix + '/' + name for name, _ in INPUTS}
         parameters = {
             'output_topic': prefix + '/output', 'publish_rate_hz': 60.0,
+            'parking_guard_enabled': parking_guard,
             'active_source_topic': prefix + '/active_source',
             'input_timeout_sec': 0.18,
             'max_acceleration_mps2': 100.0, 'max_deceleration_mps2': 100.0,
@@ -211,3 +212,95 @@ def test_active_source_tracks_stopping_missions_timeout_late_join_and_shutdown(c
         assert 'Selected:' not in captured.out + captured.err
     finally:
         h.close()
+
+
+
+def test_parking_handoff_allows_only_lane_and_repeats_for_new_parking_trigger():
+    from std_msgs.msg import Header
+    h=Harness()
+    try:
+        lane={'lane':(.4,0.)}
+        others={source:(0.,0.) for source,_ in INPUTS if source not in ('lane','parking')}
+        h.output(.4,0.,lane)
+        first=h.mux.get_clock().now().to_msg()
+        h.mux._release_parking(Header(stamp=first))
+        h.output(.4,0.,{**lane,**others})
+        assert h.mux._last_source=='lane' and h.mux._parking_lane_mode=='lane'
+        # No lane command means STOP, never another available mission.
+        h.output(0.,0.,others)
+        h.output(.4,0.,{**lane,**others})
+        deadline=h.mux._parking_lane_hold_until
+        assert 8.0 < deadline-time.monotonic() <= 10.0
+        h.output(.4,0.,{**lane,**others,'parking':(-.15,0.)})
+        # Repeated release messages must not restart the ten-second window.
+        h.mux._release_parking(Header(stamp=h.mux.get_clock().now().to_msg()))
+        assert h.mux._parking_lane_hold_until==deadline
+        h.mux._parking_lane_hold_until=time.monotonic()-.001
+        delayed=Header(stamp=h.mux.get_clock().now().to_msg())
+        h.output(-.15,0.,{**lane,**others,'parking':(-.15,0.)})
+        assert h.mux._last_source=='parking' and h.mux._parking_lane_mode=='parking'
+        # This packet is still fresh, but predates the NEW parking run.
+        h.mux._release_parking(delayed)
+        h.mux._release_parking(Header(stamp=first))
+        h.output(-.15,0.,{**lane,**others,'parking':(-.15,0.)})
+        # Missing parking commands do not fall through to lane while parking runs.
+        h.output(0.,0.,{**lane,**others})
+        h.output(-.15,0.,{**lane,**others,'parking':(-.15,0.)})
+        h.mux._release_parking(Header(stamp=h.mux.get_clock().now().to_msg()))
+        h.output(.4,0.,{**lane,**others})
+        assert h.mux._last_source=='lane' and h.mux._parking_lane_mode=='lane'
+    finally:h.close()
+
+
+def test_handoff_header_clears_guard_and_old_drive_cannot_rearm_it():
+    from std_msgs.msg import Header
+    import json
+    h=Harness(parking_guard=True)
+    try:
+        lane={'lane':(.4,0.)}
+        now=h.mux.get_clock().now().nanoseconds*1e-9
+        drive=String(data=json.dumps(dict(stamp=now,phase='DRIVE',ready=True)))
+        h.mux._parking_state(drive)
+        h.output(-.15,0.,{**lane,'parking':(-.15,0.),'crosswalk':(0.,0.)})
+        h.mux._release_parking(Header(stamp=h.mux.get_clock().now().to_msg()))
+        h.mux._parking_state(drive)
+        assert not h.mux.parking_guard.armed
+        h.output(.4,0.,{**lane,'signal':(0.,0.),'objavoid':(.2,0.)})
+        # Fresh HOLD/DRIVE/start messages during the mandatory lane window are ignored.
+        now=h.mux.get_clock().now().nanoseconds*1e-9
+        h.mux._parking_state(String(data=json.dumps(dict(stamp=now,phase='HOLD',ready=False))))
+        h.mux._parking_start(Header(stamp=h.mux.get_clock().now().to_msg()))
+        assert not h.mux.parking_guard.armed
+        h.output(.4,0.,{**lane,'parking':(-.15,0.)})
+        h.mux._parking_lane_hold_until=time.monotonic()-.001
+        # A fresh start after expiry re-arms parking before its first command.
+        now=h.mux.get_clock().now().nanoseconds*1e-9
+        h.mux._parking_state(String(data=json.dumps(dict(stamp=now,phase='HOLD',ready=False))))
+        h.output(0.,0.,lane)
+        now=h.mux.get_clock().now().nanoseconds*1e-9
+        h.mux._parking_state(String(data=json.dumps(dict(stamp=now,phase='DRIVE',ready=True))))
+        h.output(-.15,0.,{**lane,'parking':(-.15,0.),'crosswalk':(0.,0.)})
+        now=h.mux.get_clock().now().nanoseconds*1e-9
+        h.mux._parking_state(String(data=json.dumps(dict(stamp=now,phase='RELEASE',ready=True))))
+        h.output(.4,0.,{**lane,'crosswalk':(0.,0.)})
+        assert not h.mux.parking_guard.armed and h.mux._parking_lane_mode=='lane'
+    finally:h.close()
+
+
+def test_lane_hold_expires_at_ten_seconds_without_queuing_a_trigger(monkeypatch):
+    from std_msgs.msg import Header
+    import autorace_mux.node as module
+    h=Harness(parking_guard=True)
+    try:
+        now=h.mux.get_clock().now().to_msg()
+        h.mux._release_parking(Header(stamp=now))
+        deadline=h.mux._parking_lane_hold_until
+        with monkeypatch.context() as patch:
+            patch.setattr(module.time,'monotonic',lambda:deadline-.001)
+            assert h.mux._lane_hold_active()
+            h.mux._parking_start(Header(stamp=h.mux.get_clock().now().to_msg()))
+            assert not h.mux.parking_guard.armed
+            patch.setattr(module.time,'monotonic',lambda:deadline)
+            assert not h.mux._lane_hold_active()
+            assert h.mux._parking_lane_mode=='lane' and not h.mux.parking_guard.armed
+    finally:h.close()

@@ -90,3 +90,24 @@ def test_release_sends_one_stop_then_no_drive_guard_or_replanning(node):
     n.reset_motion()
     n.publish_command(0.,0.)
     assert not n.parking_commands_released and len(commands)==2
+
+
+def test_release_ignores_signs_for_exactly_ten_seconds(node,monkeypatch):
+    import autorace_parking.node as module
+    from std_msgs.msg import Bool
+    n,_=node
+    wall=[100.]
+    monkeypatch.setattr(module.time,'monotonic',lambda:wall[0])
+    n.sign_ignore_until=0.
+    n.activation.active=True
+    n.follower.exited=n.follower.parked=True
+    n.release_parking_commands()
+    assert n.sign_ignore_until==110.
+    n.floor_gate=Mock()
+    n.accepts_parking_start=Mock(return_value=True)
+    wall[0]=109.999
+    n.on_sign(Bool(data=True))
+    n.floor_gate.on_sign.assert_not_called()
+    wall[0]=110.
+    n.on_sign(Bool(data=True))
+    n.floor_gate.on_sign.assert_called_once()

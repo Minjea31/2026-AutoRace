@@ -638,6 +638,7 @@ TEST(Island, ClosedLoopBothBranchesAndFreshLaneHandoff) {
       core.on_odom(t,x,y,yaw,v,v*std::tan(steer)/p.wheelbase);
       if(step==0) {
         ASSERT_TRUE(core.activate(t));
+        core.island_section_reached_at=t; // Inject an already confirmed post-line mission.
         core.island_mapper.shape.pose={2,0,0,0,3,true,true};
         core.on_sign(t,side<0);core.on_sign(t,side<0);
       }
@@ -878,10 +879,10 @@ TEST(Projection, FullImageSampledBothColorsAndTwoMeterLimit) {
   bgr.setTo(cv::Scalar(0,0,0));
   EXPECT_TRUE(full.yellow_points(mask,bgr).empty());EXPECT_TRUE(full.white_points(mask,bgr).empty());
 }
-TEST(Mission, OutlineReframePreservesIslandWorldPoseAndIgnoresDuplicateFrame) {
+TEST(Mission, OutlineReframePreservesCandidateWorldPoseAndIgnoresDuplicateFrame) {
   Params p;p.road_outline=true;p.fork_shape=true;p.lane_lidar_filter=false;
   ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));
-  core.island_mapper.shape.pose={3,0,0,0,3,true,true};
+  core.island_mapper.shape.pose={3,0,0,0,2,true,false};
   RoadOutline outline(p);std::vector<XY> yellow,view;
   const double c=std::cos(0.035),sn=std::sin(0.035);
   for(const auto & e:outline.edges) for(int i=0;i<80;++i) {
@@ -896,7 +897,7 @@ TEST(Mission, OutlineReframePreservesIslandWorldPoseAndIgnoresDuplicateFrame) {
     EXPECT_EQ(core.yellow_history.size(),size);
     core.process_scan(t,std::vector<float>(720,INFINITY),-M_PI,2*M_PI/720,t);
   }
-  EXPECT_TRUE(core.aligned);ASSERT_TRUE(core.island_mapper.shape.pose.confirmed);
+  EXPECT_TRUE(core.aligned);ASSERT_TRUE(core.island_mapper.shape.pose.valid);
   const auto & ip=core.island_mapper.shape.pose;double x,y;core.frame->to_odom(ip.s,ip.d,x,y);
   EXPECT_NEAR(x,3,1e-6);EXPECT_NEAR(y,0,1e-6);
   EXPECT_NEAR(core.frame->yaw0,0.035,0.02);EXPECT_NEAR(core.frame->y0,0.05,0.025);
@@ -945,6 +946,7 @@ TEST(Mission, FreshYoloEventAfterActivationSelectsRequestedLatticeSide) {
     core.on_sign(1.01,right);
     EXPECT_EQ(core.fork_side(),right?-1:1);
     EXPECT_DOUBLE_EQ(core.island_sign_after,1.01);
+    core.island_section_reached_at=1;
     core.island_mapper.shape.pose={2,0.02,0.06,0,3,true,true};
     core.on_sign(1,right);core.island_frame_at=1;
     // Trigger the pending branch update by changing the command before entering.
@@ -1001,6 +1003,7 @@ TEST(Mission, GoalArrivalEndsOutputEvenWithoutPathOrLaneCommand) {
     Params p;p.use_lane=false;p.fork_shape=true;p.fork_sign_min=1;
     p.boundary_s={-1,8};p.boundary_left={0.77,0.77};p.boundary_right={-0.77,-0.77};
     ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));
+    core.island_section_reached_at=1;
     core.island_mapper.shape.pose={2,0,0,0,3,true,true};core.on_sign(1,side<0);
     const auto goal=core.fork_goal();ASSERT_TRUE(goal);
     double v=0,steer=0;
@@ -1250,4 +1253,283 @@ TEST(Mission, NearForkWithoutSignOrIslandDoesNotEnterSearchLimit) {
     EXPECT_FALSE(core.searching);EXPECT_EQ(core.reason=="search_limit",false);
     EXPECT_DOUBLE_EQ(core.search_distance,0);EXPECT_TRUE(core.path_);
   }
+}
+
+
+TEST(Mission, IslandFitWaitsForPurpleLineAndReusesEarlierObservations) {
+  for(bool outline:{false,true}) {
+    Params p;p.fork_shape=true;p.road_outline=outline;p.lane_align=false;
+    p.lane_lidar_filter=false;p.fork_sign_min=1;
+    p.boundary_s={-1,8};p.boundary_left={0.77,0.77};p.boundary_right={-0.77,-0.77};
+    ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));
+    core.on_sign(1.01,false);
+    IslandShape truth;truth.pose={4.6,0.05,0.1,0,0,true,true};
+    const auto vertices=truth.vertices();std::vector<XY> full,side;
+    for(int edge:{0,1,5}) for(int i=0;i<30;++i) {
+      const auto a=vertices[edge],b=vertices[(edge+1)%6];const double t=i/29.0;
+      const XY q{a.x+t*(b.x-a.x),a.y+t*(b.y-a.y)};
+      full.push_back(q);if(edge==1) side.push_back(q);
+    }
+    const std::vector<float> scan(720,8);
+    auto image=[&](double t,double x,const std::vector<XY> & world) {
+      core.on_odom(t,x,0,0,0,0);std::vector<XY> base;
+      for(const auto & q:world) base.push_back({q.x-x,q.y});
+      EXPECT_TRUE(core.on_lane(t,base,{},nullptr));
+      EXPECT_TRUE(core.process_scan(t,scan,-M_PI,2*M_PI/720,t));
+    };
+    const double crossing=p.section_end-p.body_front;
+    for(double t:{2.0,2.1,2.2}) image(t,crossing-0.02,full);
+    EXPECT_FALSE(core.island_section_reached_at);
+    EXPECT_FALSE(core.island_mapper.shape.pose.valid);
+    EXPECT_EQ(core.island_mapper.evaluations,0u);
+    EXPECT_STREQ(core.island_mapper.rejection,"waiting_section_line");
+    EXPECT_FALSE(core.fork_goal());EXPECT_FALSE(core.planner.fork_target);
+    if(core.path_) {EXPECT_LE(core.path_->end_s(),p.section_end+.10001);}
+    // Arrival may use the latest image even when captured before the crossing.
+    core.on_odom(2.3,crossing,0,0,0,0);
+    ASSERT_TRUE(core.process_scan(2.3,scan,-M_PI,2*M_PI/720,2.3));
+    ASSERT_TRUE(core.island_section_reached_at);
+    EXPECT_DOUBLE_EQ(*core.island_section_reached_at,2.3);
+    EXPECT_DOUBLE_EQ(core.island_fit_stamp,2.2);
+    ASSERT_TRUE(core.island_mapper.shape.pose.valid);
+    EXPECT_FALSE(core.fork_goal());EXPECT_FALSE(core.planner.fork_target);EXPECT_FALSE(core.path_);
+    EXPECT_GE(core.island_mapper.input_count,full.size());
+    // Earlier corners remain usable with fresh side-only observations.
+    for(double t:{2.4,2.5}) image(t,crossing,side);
+    ASSERT_TRUE(core.island_mapper.shape.pose.confirmed);
+    EXPECT_NEAR(core.island_s(),4.6,0.08);
+    ASSERT_TRUE(core.fork_goal());ASSERT_TRUE(core.planner.fork_target);
+    image(2.7,crossing-0.1,full);
+    EXPECT_DOUBLE_EQ(*core.island_section_reached_at,2.3);
+    const auto status=YAML::Load(core.status_json());
+    EXPECT_TRUE(status["island_mapping"]["section_reached"].as<bool>());
+    ASSERT_TRUE(core.reset_mapping(2.7));
+    EXPECT_FALSE(core.island_section_reached_at);
+    EXPECT_FALSE(core.island_mapper.shape.pose.valid);
+    core.on_odom(1,0,0,0,0,0);
+    EXPECT_FALSE(core.island_section_reached_at);
+  }
+}
+
+TEST(Mission, PurpleLineStillRequiresDirectionAndPostSignObservations) {
+  Params p;p.fork_shape=true;p.lane_align=false;p.lane_lidar_filter=false;p.fork_sign_min=1;
+  ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));
+  const std::vector<float> scan(720,8);
+  core.on_odom(2,p.section_end-p.body_front,0,0,0,0);
+  // The image precedes arrival, but processing occurs after arrival.
+  ASSERT_TRUE(core.on_lane(1.9,{}, {},nullptr));
+  ASSERT_TRUE(core.process_scan(2,scan,-M_PI,2*M_PI/720,2));
+  ASSERT_TRUE(core.island_section_reached_at);
+  EXPECT_STREQ(core.island_mapper.rejection,"waiting_lr_sign");
+  core.on_sign(2,false);
+  ASSERT_TRUE(core.on_lane(1.95,{}, {},nullptr));
+  ASSERT_TRUE(core.process_scan(2,scan,-M_PI,2*M_PI/720,2));
+  EXPECT_EQ(core.island_mapper.evaluations,0u);
+  EXPECT_LT(core.island_fit_stamp,0);
+  core.on_odom(2.1,p.section_end-p.body_front,0,0,0,0);
+  ASSERT_TRUE(core.on_lane(2.1,{}, {},nullptr));
+  ASSERT_TRUE(core.process_scan(2.1,scan,-M_PI,2*M_PI/720,2.1));
+  EXPECT_DOUBLE_EQ(core.island_fit_stamp,2.1);
+  core.on_odom(1,0,0,0,0,0);
+  EXPECT_FALSE(core.island_section_reached_at);
+}
+
+
+TEST(Mission, IslandCorrectsRoadSidesWithoutMovingEgoFrame) {
+  for(double turn:{-0.35,0.35}) {
+    Params p;p.fork_shape=true;p.road_outline=true;p.lane_lidar_filter=false;p.fork_sign_min=1;
+    p.boundary_s={-1,8};p.boundary_left={0.77,0.77};p.boundary_right={-0.77,-0.77};
+    ObjAvoidCore core(p);core.on_odom(1,1.2,-0.8,0.4,0,0);ASSERT_TRUE(core.activate(1));
+    core.aligned=true;  // The entrance map has already been aligned.
+    const RoadFrame initial=*core.frame;core.on_sign(1.01,false);
+    IslandShape truth;truth.pose={4.6,0.10,0.08,0,0,true,true};
+    const auto vertices=truth.vertices();std::vector<XY> world;
+    for(int edge:{0,1,5}) for(int i=0;i<30;++i) {
+      const auto a=vertices[edge],b=vertices[(edge+1)%6];const double u=i/29.0;
+      XY q;initial.to_odom(a.x+u*(b.x-a.x),a.y+u*(b.y-a.y),q.x,q.y);world.push_back(q);
+    }
+    double car_x,car_y;initial.to_odom(4.1,-0.1,car_x,car_y);
+    const double heading=initial.yaw0+turn,c=std::cos(heading),sn=std::sin(heading);
+    const std::vector<float> scan(720,8);
+    auto image=[&](double t,const std::vector<XY> & observed) {
+      core.on_odom(t,car_x,car_y,heading,0,0);std::vector<XY> base;
+      for(const auto & q:observed) base.push_back({c*(q.x-car_x)+sn*(q.y-car_y),-sn*(q.x-car_x)+c*(q.y-car_y)});
+      XY tip;initial.to_odom(truth.pose.s,truth.pose.d,tip.x,tip.y);
+      const std::vector<XY> view{{c*(tip.x-car_x)+sn*(tip.y-car_y),-sn*(tip.x-car_x)+c*(tip.y-car_y)}};
+      EXPECT_TRUE(core.on_lane(t,base,view,nullptr));
+      EXPECT_TRUE(core.process_scan(t,scan,-M_PI,2*M_PI/720,t));
+      EXPECT_DOUBLE_EQ(core.frame->x0,initial.x0);EXPECT_DOUBLE_EQ(core.frame->y0,initial.y0);
+      EXPECT_DOUBLE_EQ(core.frame->yaw0,initial.yaw0);
+    };
+    for(double t:{2.0,2.15,2.30}) image(t,world);
+    ASSERT_TRUE(core.island_section_reached_at);
+    ASSERT_TRUE(core.island_mapper.shape.pose.confirmed);
+    const auto island=core.navigation_island();
+    EXPECT_NEAR(island.pose.s,truth.pose.s,0.08);EXPECT_NEAR(island.pose.d,truth.pose.d,0.06);
+    EXPECT_NEAR(island.pose.yaw,truth.pose.yaw,0.09);
+    // The island retains its measured offset; it is not forced to d=yaw=0.
+    EXPECT_GT(island.pose.d,0.04);
+    const double sample_s=4.9;double saved_r,saved_l;core.boundary()->limits(sample_s,saved_r,saved_l);
+    const double center=island.pose.d+std::tan(island.pose.yaw)*(sample_s-island.pose.s);
+    EXPECT_NEAR((saved_l-center)*std::cos(island.pose.yaw)-island.width/2,0.50,1e-9);
+    EXPECT_NEAR((center-saved_r)*std::cos(island.pose.yaw)-island.width/2,0.50,1e-9);
+    const auto goal=core.fork_goal();ASSERT_TRUE(goal);
+    // Contradictory outer paint cannot override the confirmed island reference.
+    std::vector<XY> shifted_outer;RoadOutline outline(p);
+    for(const auto & edge:outline.edges) for(int i=0;i<60;++i) {
+      const double u=i/59.0,sk=edge.first.x+u*(edge.second.x-edge.first.x);
+      const double d=edge.first.y+u*(edge.second.y-edge.first.y);
+      XY q;initial.to_odom(std::cos(-0.04)*sk-std::sin(-0.04)*d,
+        0.05+std::sin(-0.04)*sk+std::cos(-0.04)*d,q.x,q.y);shifted_outer.push_back(q);
+    }
+    for(double t:{2.45,2.60,2.90}) {
+      image(t,shifted_outer);double r,l;core.boundary()->limits(sample_s,r,l);
+      EXPECT_DOUBLE_EQ(r,saved_r);EXPECT_DOUBLE_EQ(l,saved_l);
+    }
+    const auto status=YAML::Load(core.status_json());
+    EXPECT_EQ(status["road_mapping"]["center_source"].as<std::string>(),"island");
+    EXPECT_FALSE(status["road_mapping"]["frozen"].as<bool>());
+    EXPECT_TRUE(status["road_mapping"]["island_anchored"].as<bool>());
+    EXPECT_DOUBLE_EQ(status["road_mapping"]["island_side_gap_m"].as<double>(),0.5);
+    ASSERT_TRUE(core.fork_goal());EXPECT_DOUBLE_EQ(core.fork_goal()->x,goal->x);EXPECT_DOUBLE_EQ(core.fork_goal()->y,goal->y);
+    core.on_sign(2.91,true);EXPECT_EQ(core.fork_side(),1);
+    // Fresh island observations may correct the road again: there is no map freeze.
+    std::vector<XY> shifted_island=world;
+    for(auto & q:shifted_island) {q.x-=initial.s*0.05;q.y+=initial.c*0.05;}
+    for(double t:{3.0,3.15,3.30,3.45,3.60,3.75}) image(t,shifted_island);
+    const auto updated=core.navigation_island();EXPECT_GT(updated.pose.d,island.pose.d+0.015);
+    double new_r,new_l;core.boundary()->limits(sample_s,new_r,new_l);
+    EXPECT_GT(new_l,saved_l+0.015);
+    const double axis=updated.pose.d+std::tan(updated.pose.yaw)*(sample_s-updated.pose.s);
+    EXPECT_NEAR((new_l-axis)*std::cos(updated.pose.yaw)-updated.width/2,0.5,1e-9);
+    EXPECT_NEAR((axis-new_r)*std::cos(updated.pose.yaw)-updated.width/2,0.5,1e-9);
+    EXPECT_DOUBLE_EQ(core.fork_goal()->x,goal->x);EXPECT_DOUBLE_EQ(core.fork_goal()->y,goal->y);
+    ASSERT_TRUE(core.reset_mapping(3.75));
+    EXPECT_FALSE(YAML::Load(core.status_json())["road_mapping"]["island_anchored"].as<bool>());
+    core.on_odom(1,0,0,0,0,0);EXPECT_FALSE(core.fork_goal());
+  }
+}
+
+TEST(Outline, IslandRoadHasFiftyCentimeterNormalGapAndContinuousTapers) {
+  Params p;
+  for(double yaw:{-0.25,0.,0.25}) for(double offset:{-0.17,0.13}) {
+    IslandShape island;island.pose={3.1,offset,yaw,0,3,true,true};RoadOutline road(p,island);
+    for(double s:{3.3,3.8,4.3}) {
+      double r,l;road.limits(s,r,l);const double center=offset+std::tan(yaw)*(s-3.1);
+      EXPECT_NEAR((l-center)*std::cos(yaw)-island.width/2,0.5,1e-9);
+      EXPECT_NEAR((center-r)*std::cos(yaw)-island.width/2,0.5,1e-9);
+      EXPECT_NEAR((l-r)*std::cos(yaw),1.5,1e-9);
+    }
+    for(const auto & edge:road.edges) for(const auto q:{edge.first,edge.second}) {
+      double r,l;road.limits(q.x,r,l);EXPECT_TRUE(std::isfinite(r));EXPECT_TRUE(std::isfinite(l));
+      EXPECT_LT(std::min(std::abs(q.y-r),std::abs(q.y-l)),1e-8);
+    }
+  }
+}
+
+TEST(Mission, SelectedForkPathStaysAndOnlyYellowBlockingBacksOppositeTwentyCentimeters) {
+  for(int side:{-1,1}) for(bool island_paint:{false,true}) {
+    Params p;p.fork_shape=true;p.fork_sign_min=1;p.road_outline=false;p.lane_align=false;
+    p.section_end=1.;p.reverse_wait=0.1;p.reverse_max=3;p.lane_lidar_filter=false;
+    p.boundary_s={-1,8};p.boundary_left={0.77,0.77};p.boundary_right={-0.77,-0.77};
+    ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));
+    core.aligned=true;core.on_sign(1.01,side<0);core.island_mapper.shape.pose={3,0,0,0,3,true,true};
+    core.island_section_reached_at=1.1;
+    const std::vector<float> clear(720,8);
+    double t=1.1,x=.7,y=0,yaw=0,v=0,delta=0;
+    auto scan=[&] {
+      core.on_odom(t,x,y,yaw,0,0);core.island_frame_at=core.island_fit_stamp=t;
+      core.grid->mark_free(-1,8,-1,1);
+      EXPECT_TRUE(core.process_scan(t,clear,-M_PI,2*M_PI/720,t));
+    };
+    scan();ASSERT_TRUE(core.path_) << core.status_json();
+    const auto target=core.fork_goal();ASSERT_TRUE(target);
+    ASSERT_GE(core.path_->end_s(),target->x);
+    ASSERT_NEAR(core.path_->d_at(target->x),target->y,.06);
+    const auto chosen=core.path_;
+    for(int i=0;i<4;++i) {t+=.1;scan();EXPECT_EQ(core.path_,chosen);}
+    // A new object stops the selected path, without choosing another side or reversing.
+    Track object;object.id=70;object.confirmed=true;object.hits=10;object.last_seen=t;
+    object.box={1.4,1.7,-.65,.65};core.tracker->tracks.push_back(object);
+    for(int i=0;i<4;++i) {t+=.05;scan();core.control(t,.05,v,delta);EXPECT_GE(v,0);}
+    EXPECT_EQ(core.path_,chosen);EXPECT_NE(core.state,State::REVERSE);
+    EXPECT_EQ(core.reason,"path_obstacle_blocked");
+    core.tracker->tracks.clear();
+    // Move only the observed yellow boundary across the selected corridor.
+    auto * lane=const_cast<LaneBoundary *>(core.lane_boundary());
+    ASSERT_TRUE(lane);
+    if(island_paint) core.island_mapper.shape.pose.d=side*0.25;
+    else for(size_t i=0;i<lane->s_bins.size();++i) if(lane->s_bins[i]>1.0) {
+      if(side>0) lane->left[i]=0.3;else lane->right[i]=-0.3;
+    }
+    bool reversing=false,finished=false;double moved=0,back_y=0;
+    for(int i=0;i<160;++i) {
+      t+=.04;scan();core.control(t,.04,v,delta);
+      if(core.state==State::REVERSE) {
+        reversing=true;EXPECT_EQ(core.path_,chosen);
+        EXPECT_LE(side*delta,0.001);EXPECT_GE(v,-.08001);
+      }
+      if(v<0) {
+        moved+=-v*.04;
+        const double next_yaw=yaw+v*std::tan(delta+p.steer_trim)/p.wheelbase*.04;
+        x+=v*std::cos((yaw+next_yaw)/2)*.04;y+=v*std::sin((yaw+next_yaw)/2)*.04;
+        yaw=next_yaw;back_y=y;
+      }
+      if(reversing && core.reason=="reversed") {finished=true;break;}
+    }
+    EXPECT_TRUE(reversing);EXPECT_TRUE(finished);EXPECT_NEAR(moved,.20,.006);
+    EXPECT_LT(side*back_y,0.); // left goal -> right rear; right goal -> left rear
+    ASSERT_TRUE(core.fork_goal());EXPECT_DOUBLE_EQ(core.fork_goal()->x,target->x);
+    EXPECT_DOUBLE_EQ(core.fork_goal()->y,target->y);
+    // A persistent blocked line must not cause several blind 20cm reverses.
+    for(int i=0;i<4;++i) {
+      t+=.15;scan();core.control(t,.04,v,delta);
+      EXPECT_GE(v,0);EXPECT_NE(core.state,State::REVERSE);
+    }
+    core.island_mapper.shape.pose.d=0;lane->rebuild({});t+=.04;scan();
+    for(int i=0;i<8 && (!core.path_ || core.path_->end_s()<target->x);++i) {t+=.15;scan();}
+    ASSERT_TRUE(core.path_);ASSERT_GE(core.path_->end_s(),target->x) << core.status_json();
+    EXPECT_NEAR(core.path_->d_at(target->x),target->y,.06);
+  }
+}
+
+TEST(Outline, RecoversLargeLateralOffsetFromVisibleBendAndKeepsVehicleInside) {
+  Params p;RoadOutline outline(p);
+  for(double offset:{-.9,-.75,-.55,.55,.75,.9}) {
+    const double yaw=.06,c=std::cos(yaw),sn=std::sin(yaw);
+    std::vector<XY> observed;
+    // Only one outer boundary is visible, including its straight/ramp transition.
+    for(int k=0;k<3;++k) for(int i=0;i<80;++i) {
+      const auto edge=outline.edges[k];const double u=i/79.;
+      const double s=edge.first.x+u*(edge.second.x-edge.first.x),d=edge.first.y+u*(edge.second.y-edge.first.y);
+      if(s<-.4 || s>2.) continue;
+      observed.push_back({c*s-sn*d,offset+sn*s+c*d});
+    }
+    const XY car{c,offset+sn};
+    const auto fit=outline.fit(observed,true,car);ASSERT_TRUE(fit.valid) << offset;
+    EXPECT_NEAR(fit.d,offset,.06);EXPECT_NEAR(fit.yaw,yaw,.04);
+    double s,d;RoadFrame(fit.s,fit.d,fit.yaw).to_road(car.x,car.y,s,d);
+    double r,l;outline.limits(s,r,l);EXPECT_GT(d,r);EXPECT_LT(d,l);
+  }
+}
+
+TEST(Mission, ResetEpochClearsObservedPointsAndRejectsPacketsFromPreviousMap) {
+  Params p;p.fork_shape=true;p.lane_lidar_filter=false;p.lane_align=false;
+  ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));
+  std::vector<XY> points;for(int i=0;i<20;++i) points.push_back({.5+i*.03,.7});
+  for(double t:{1.1,1.2,1.3,1.4}) {
+    core.on_odom(t,0,0,0,0,0);ASSERT_TRUE(core.on_lane(t,points,points,&points));
+  }
+  ASSERT_FALSE(core.ymap->confirmed().empty());ASSERT_FALSE(core.yellow_observed.empty());
+  const auto epoch=core.mapping_epoch;core.on_odom(2,0,0,0,0,0);
+  ASSERT_TRUE(core.reset_mapping(2));EXPECT_EQ(core.mapping_epoch,epoch+1);
+  EXPECT_TRUE(core.ymap->confirmed().empty());EXPECT_TRUE(core.wmap->confirmed().empty());
+  EXPECT_TRUE(core.yellow_observed.empty());EXPECT_TRUE(core.white_observed.empty());
+  EXPECT_TRUE(core.yellow_history.empty());EXPECT_FALSE(core.fork_goal());EXPECT_FALSE(core.path_);
+  EXPECT_FALSE(core.on_lane(1.4,points,points,&points));
+  EXPECT_FALSE(core.process_scan(1.4,std::vector<float>(720,8),-M_PI,2*M_PI/720,2));
+  EXPECT_TRUE(core.yellow_observed.empty());
+  core.on_odom(2.1,0,0,0,0,0);EXPECT_TRUE(core.on_lane(2.1,points,points,&points));
+  EXPECT_FALSE(core.yellow_observed.empty());
+  EXPECT_EQ(YAML::Load(core.status_json())["mapping_epoch"].as<unsigned long>(),core.mapping_epoch);
 }

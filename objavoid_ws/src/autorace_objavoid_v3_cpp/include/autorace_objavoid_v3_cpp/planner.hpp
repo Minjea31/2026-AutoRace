@@ -81,6 +81,9 @@ public:
 
   IslandShape island;
   int island_side = 0;
+  std::optional<XY> fork_target;
+  bool awaiting_island=false;
+  double fork_target_yaw=0;
   double desired_d(double s) const;
   double clearance(double s, double d, double psi, const std::vector<Obs> & obs, const Params & p) const;
   PathPtr observe(double s, double d, double psi, double delta, double target_s, double target_d,

@@ -18,6 +18,8 @@ struct Segment {
 RoadOutline::RoadOutline(const Params & p) {
   const double w=p.fork_road_width/2,n=p.start_lane_width/2;
   const double ramp=(p.road_outline_length-p.road_outline_straight)/2;
+  ramp_=ramp;straight_end_=ramp+p.road_outline_straight;
+  s_min=-1;s_max=p.road_outline_length+1;
   if(ramp<=0 || n<=0 || w<=n) throw std::invalid_argument("invalid road outline dimensions");
   for(double side:{-1.0,1.0}) {
     const std::vector<XY> v{{-1,side*n},{0,side*n},{ramp,side*w},
@@ -26,14 +28,48 @@ RoadOutline::RoadOutline(const Params & p) {
     for(size_t i=1;i<v.size();++i) edges.push_back({v[i-1],v[i]});
   }
 }
+RoadOutline::RoadOutline(const Params & p,const IslandShape & island)
+: RoadOutline([&] {Params dimensions=p;dimensions.fork_road_width=island.width+1.0;return dimensions;}()) {
+  island_=island;
+  const auto & ip=island.pose;const double c=std::cos(ip.yaw),sn=std::sin(ip.yaw);
+  // Keep the entrance/exit stations. Correct lateral position and heading about
+  // the measured island tip, without rotating the ego frame about its origin.
+  s_min=kInf;s_max=-kInf;
+  for(auto & e:edges) for(auto * q:{&e.first,&e.second}) {
+    const double x=q->x-ip.s,y=q->y;
+    q->x=ip.s+c*x-sn*y;q->y=ip.d+sn*x+c*y;
+    s_min=std::min(s_min,q->x);s_max=std::max(s_max,q->x);
+  }
+}
+void RoadOutline::limits(double s,double & right,double & left) const {
+  right=kInf;left=-kInf;
+  // Intersect each side with a cross-section in the unchanged road frame.
+  for(size_t side=0;side<2;++side) {
+    double d=kNaN;
+    for(size_t j=side*5;j<side*5+5;++j) {
+      const auto & e=edges[j];const double dx=e.second.x-e.first.x;
+      if(std::abs(dx)<1e-9) continue;
+      if((s>=std::min(e.first.x,e.second.x)-1e-9 && s<=std::max(e.first.x,e.second.x)+1e-9) ||
+         (j==side*5 && s<e.first.x) || (j==side*5+4 && s>e.second.x)) {
+        d=e.first.y+(s-e.first.x)*(e.second.y-e.first.y)/dx;break;
+      }
+    }
+    if(std::isfinite(d)) {right=std::min(right,d);left=std::max(left,d);}
+  }
+}
+
 double RoadOutline::distance(const XY & q) const {
   double best=kInf;for(const auto & e:edges) best=std::min(best,Segment(e.first,e.second).squared(q));
   return std::sqrt(best);
 }
 bool RoadOutline::island_region(const XY & q) const {
-  return q.x>edges[1].second.x && q.x<edges[2].second.x && std::abs(q.y)<0.48;
+  XY local=q;
+  if(island_) {
+    local=island_->local(q.x,q.y);local.x+=island_->pose.s;
+  }
+  return local.x>ramp_ && local.x<straight_end_ && std::abs(local.y)<0.48;
 }
-OutlineFit RoadOutline::fit(const std::vector<XY> & input,bool acquire) const {
+OutlineFit RoadOutline::fit(const std::vector<XY> & input,bool acquire,std::optional<XY> ego) const {
   // Spatial density rejects isolated speckles; one vote per cell prevents thick
   // paint or a dense noise cluster from dominating the geometric objective.
   std::map<std::pair<int,int>,XY> grid;
@@ -47,6 +83,10 @@ OutlineFit RoadOutline::fit(const std::vector<XY> & input,bool acquire) const {
   }
   if(pts.size()>192) {std::vector<XY> sample;for(size_t i=0;i<192;++i) sample.push_back(pts[i*pts.size()/192]);pts.swap(sample);}
   OutlineFit best;if(pts.size()<12) return best;
+  // An island stripe alone is never an exterior-road measurement. A displaced
+  // road can still reacquire from its entrance/ramp outside the centre corridor.
+  const auto outside=std::count_if(pts.begin(),pts.end(),[&](const XY & q){return !island_region(q);});
+  if(outside<12) return best;
   std::vector<Segment> segments;for(const auto & e:edges) segments.emplace_back(e.first,e.second);
   double best_cost=kInf;
   auto optimize=[&](double initial_s,double initial_d,double initial_yaw) {
@@ -96,19 +136,24 @@ OutlineFit RoadOutline::fit(const std::vector<XY> & input,bool acquire) const {
       cv::Vec3d delta;if(!cv::solve(h,rhs,delta,cv::DECOMP_SVD)) return;
       // Evaluate the actual current pose, not the unevaluated final iteration step.
       if(iteration==9 || cv::norm(delta)<1e-5) {
-        out.valid=out.error<0.04 && out.inlier_ratio>=0.50;
+        bool car_inside=true;
+        if(ego) {
+          const double gs=c*(ego->x-out.s)+sn*(ego->y-out.d),gd=-sn*(ego->x-out.s)+c*(ego->y-out.d);
+          double r,l;limits(gs,r,l);car_inside=gd>=r+.06 && gd<=l-.06;
+        }
+        out.valid=out.error<0.04 && out.inlier_ratio>=0.50 && car_inside;
         const double objective=cost/std::max(1,exterior_count)+1e-6*(out.s*out.s+out.d*out.d+out.yaw*out.yaw);
         if(out.valid && objective<best_cost) {best_cost=objective;best=out;}
         return;
       }
       out.s+=std::clamp(delta[0],-0.12,0.12);out.d+=std::clamp(delta[1],-0.08,0.08);
       out.yaw+=std::clamp(delta[2],-0.06,0.06);
-      if(std::abs(out.s)>(acquire?1.2:0.45)||std::abs(out.d)>0.5||std::abs(out.yaw)>0.45) return;
+      if(std::abs(out.s)>(acquire?1.2:0.45)||std::abs(out.d)>1.2||std::abs(out.yaw)>0.45) return;
     }
   };
   optimize(0,0,0);
   if(acquire || !best.valid) {
-    for(double s:{-0.7,0.0,0.7}) for(double d:{-0.25,0.0,0.25})
+    for(double s:{-0.7,0.0,0.7}) for(double d:{-1.0,-0.75,-0.5,-0.25,0.0,0.25,0.5,0.75,1.0})
       for(double yaw:{-0.20,0.0,0.20}) optimize(s,d,yaw);
   }
   return best;

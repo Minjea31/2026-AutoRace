@@ -40,15 +40,15 @@ def detector():
 
 
 @pytest.mark.parametrize('ident,name', [(6,'red'), (7,'green')])
-@pytest.mark.parametrize('area', [1999, 2000, 2001])
+@pytest.mark.parametrize('area', [1499, 1500, 1501])
 def test_signal_ids_and_exact_original_pixel_area_boundary(ident, name, area):
     row = [0., 0., 50., area/50., .9, float(ident)]
     for width,height in [(640,480),(1280,720)]:
         detected = ns['filter_detections']([row], NAMES, width, height)
-        assert (name in detected) == (area >= 2000)
+        assert (name in detected) == (area >= 1500)
     d = detector()
     result = d.classify_detections([row], np.zeros((480,640,3),np.uint8))
-    assert (name in result[0]) == (area >= 2000)
+    assert (name in result[0]) == (area >= 1500)
     assert d.box_details[0]['class'] == name
 
 

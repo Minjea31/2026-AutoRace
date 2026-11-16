@@ -1,6 +1,6 @@
 """Stop after a white floor mark; release on green or a fixed red deadline."""
 # 시간 설정 (초) — 이 값을 수정한 뒤 빌드하고 노드를 다시 실행하세요.
-STOP_DELAY_SEC = 0.5        # 빨간불 확인·흰선 감지 후 정지 시작까지 주행
+STOP_DELAY_SEC = 0.0        # 빨간불 확인·흰선 감지 후 정지 시작까지 주행
 MAX_RED_WAIT_SEC = 10.0     # 빨간불 2회 확인부터 정지 해제까지, 재수신으로 연장하지 않음
 SIGNAL_GAP_TIMEOUT_SEC = 0.5  # 같은 신호 확인 횟수를 초기화하는 수신 간격
 LANE_TIMEOUT_SEC = 0.25
@@ -160,8 +160,9 @@ class SignalNode(Node):
             self.white_ratio_pub = self.create_publisher(Float32, '/signal/white_roi/ratio', 1)
             self.white_detected_pub = self.create_publisher(Bool, '/signal/white_roi/detected', 1)
             self.white_timer = self.create_timer(1., self.poll_lane_white)
+            stop_timing='즉시 정지' if self.stop_delay_sec==0 else f'{self.stop_delay_sec:.1f}초 뒤 정지'
             self.get_logger().info(
-                f'신호등: 빨간불 {self.confirm_frames}회와 새 흰선 후 {self.stop_delay_sec:.1f}초 뒤 정지; '
+                f'신호등: 빨간불 {self.confirm_frames}회와 새 흰선 확인 시 {stop_timing}; '
                 f'ROI x={self.white_roi.left:.2f}..{self.white_roi.right:.2f}, '
                 f'y={self.white_roi.top:.2f}..{self.white_roi.bottom:.2f}, '
                 f'white >= {self.white_roi.minimum_ratio:.0%}; '
@@ -266,7 +267,8 @@ class SignalNode(Node):
             if (self.white_arm_stamp is not None and stamp >= self.white_arm_stamp
                     and self.state.receive_white(hit, time.monotonic())):
                 self.white_arm_stamp = None
-                self.get_logger().info(f'신호등: 흰선 확인, {self.stop_delay_sec:.1f}초 뒤 정지')
+                stop_timing='즉시 정지' if self.stop_delay_sec==0 else f'{self.stop_delay_sec:.1f}초 뒤 정지'
+                self.get_logger().info(f'신호등: 흰선 확인, {stop_timing}')
             self.white_ratio_pub.publish(Float32(data=ratio))
             self.white_detected_pub.publish(Bool(data=hit))
             if self.white_debug_pub.get_subscription_count():

@@ -9,7 +9,7 @@ from threading import Event
 
 import rclpy
 from rclpy.node import Node
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
 from rclpy.clock import Clock, ClockType
@@ -199,14 +199,18 @@ def main(args=None):
     previous = {}
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     node = SensorFusion()
+    executor = SingleThreadedExecutor(context=node.context)
+    executor.add_node(node)
     try:
         for signum in (signal.SIGINT, signal.SIGTERM):
             previous[signum] = signal.signal(signum, lambda *_: stopped.set())
         while rclpy.ok() and not stopped.is_set():
-            rclpy.spin_once(node, timeout_sec=.1)
+            executor.spin_once(timeout_sec=.1)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        executor.remove_node(node)
+        executor.shutdown()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

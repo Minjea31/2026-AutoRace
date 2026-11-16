@@ -64,6 +64,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
   const RoadFrame & f = *core.frame;
   const Params & p = core.p;
   Marker clear;
+  clear.header.stamp=stamp;
   clear.action = Marker::DELETEALL;
   arr.markers.push_back(clear);
 
@@ -96,7 +97,9 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
   }
 
   // Gap 후보·노드
-  const PlanDiag & last = core.planner.last;
+  const bool fork_ready=!p.fork_shape || core.planner.fork_target.has_value();
+  const PlanDiag empty;
+  const PlanDiag & last = fork_ready?core.planner.last:empty;
   Marker gm = mk("gaps", 0, Marker::LINE_LIST, stamp, {0.1, 0.9, 0.2, 0.9}, {0.02, 0, 0});
   for (auto & [sk, gaps] : last.gaps) {
     for (auto & [a, b] : gaps) {
@@ -125,10 +128,11 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
   // 선택 경로(진한 분홍)와 검증 끝
   const PathPtr path = core.path_;
   if (path) {
-    Marker pm = mk("path", 0, Marker::LINE_STRIP, stamp, {1.0, 0.2, 0.6, 1.0}, {0.035, 0, 0});
+    Marker pm = mk(fork_ready?"path":"approach_path", 0, Marker::LINE_STRIP, stamp,
+      fork_ready?std::array<double,4>{1.0,0.2,0.6,1.0}:std::array<double,4>{0.65,0.7,0.75,0.9}, {0.035, 0, 0});
     for (size_t q = 0; q < path->s.size(); ++q) {pm.points.push_back(pt(f, path->s[q], path->d[q], 0.04));}
     arr.markers.push_back(pm);
-    if (std::isfinite(core.verified_s)) {
+    if (fork_ready && std::isfinite(core.verified_s)) {
       Marker vm = mk("verified_end", 0, Marker::SPHERE, stamp, {1.0, 1.0, 0.0, 0.9}, {0.05, 0.05, 0.05});
       const double dv = core.verified_s <= path->end_s() ? path->d_at(core.verified_s) : path->d.back();
       vm.pose.position = pt(f, core.verified_s, dv, 0.05);
@@ -148,7 +152,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
     }
     arr.markers.push_back(em);
     const CtrlInfo & info = core.last_info;
-    if (info.valid) {
+    if (fork_ready && info.valid) {
       Marker tm = mk("target", 0, Marker::SPHERE, stamp, {0.1, 0.3, 1.0, 1.0}, {0.05, 0.05, 0.05});
       tm.pose.position = pt(f, info.ref_s, info.ref_d, 0.05);
       arr.markers.push_back(tm);
@@ -255,7 +259,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
     arr.markers.push_back(it);
   }
   if(p.road_outline) {
-    RoadOutline outline(p);
+    const auto outline=core.road_outline();
     auto model=mk("road_outline",0,Marker::LINE_LIST,stamp,{0.2,0.8,1,0.8});
     for(const auto & e:outline.edges) {model.points.push_back(pt(f,e.first.x,e.first.y));model.points.push_back(pt(f,e.second.x,e.second.y));}
     arr.markers.push_back(model);

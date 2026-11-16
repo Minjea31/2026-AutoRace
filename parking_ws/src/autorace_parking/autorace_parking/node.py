@@ -17,7 +17,7 @@ from rclpy.node import Node
 from rcl_interfaces.msg import SetParametersResult
 from rcl_interfaces.srv import GetParameters
 from rclpy.qos import QoSProfile, qos_profile_sensor_data, ReliabilityPolicy
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.signals import SignalHandlerOptions
 from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import Point, PoseStamped
@@ -197,6 +197,10 @@ class ParkingNode(StartSequence, Node):
         if self.localization_source not in ('scan', 'fused'):
             raise ValueError('localization_source 설정은 auto, scan, fused 중 하나여야 합니다.')
         self.localization_timeout = parameter('localization_timeout', .3)
+        self.health_path_hold_timeout = parameter('health_path_hold_timeout', 0.)
+        if not math.isfinite(self.health_path_hold_timeout) or self.health_path_hold_timeout < 0:
+            raise ValueError('Health path hold timeout must be nonnegative')
+        self.health_path_tracking = False
         self.odom_frame = parameter('odom_frame', 'parking_odom' if self.localization_source == 'fused' else 'odom')
         self.odometry = PoseHistory(timeout=self.localization_timeout,
                                    max_std=parameter('localization_max_stddev', .5),
@@ -364,7 +368,8 @@ class ParkingNode(StartSequence, Node):
             self.create_subscription(Header, '/parking/approach_start', self.on_approach_start, 10)
             self.create_subscription(Odometry, parameter('localization_topic', '/odometry/filtered'),
                                      self.on_localization, QoSProfile(depth=1,reliability=ReliabilityPolicy.BEST_EFFORT))
-            self.create_subscription(String, '/localization/health', self.on_fusion_health, QoSProfile(depth=1))
+            self.create_subscription(String, '/localization/health', self.on_fusion_health,
+                                     QoSProfile(depth=1,reliability=ReliabilityPolicy.BEST_EFFORT))
         # Launch profiles enable the floor gate; bare controller construction stays usable without a camera.
         self.floor_gate = None
         if parameter('white_roi_enabled', False):
@@ -529,8 +534,16 @@ class ParkingNode(StartSequence, Node):
                 self.fusion_health = health
                 self.fusion_health_received = time.monotonic()
                 return
-            if not -.05 <= self.now_seconds()-health['stamp'] <= self.localization_timeout:
-                self.hold_localization(self.now_seconds(), 'Fusion health is stale or future-dated')
+            now = self.now_seconds()
+            age = now-health['stamp']
+            if age < -.05:
+                self.hold_localization(now, 'Fusion health is stale or future-dated')
+                return
+            if age > self.localization_timeout:
+                # Do not replace a newer usable heartbeat or discard freshly
+                # recovered EKF/scan buffers because a queued heartbeat is late.
+                if not self.can_follow_saved_path(now):
+                    self.wait_for_fusion_health(now, 'Fusion health is stale or future-dated')
                 return
             if not health['ready']:
                 reason='Fusion inputs not ready: '+str(health.get('reason') or 'Wheel/IMU inputs unavailable or gyro calibration not complete')
@@ -585,9 +598,10 @@ class ParkingNode(StartSequence, Node):
                 and -SCAN_FUTURE_TOLERANCE <= self.now_seconds()-self.scan_time <= self.scan_timeout)
         elif phase == 'APPROACH' or (phase == 'DRIVE' and self.localization_source == 'fused'):
             ready = ready and self.fusion_health is not None and self.fusion_health_received is not None
-            ready = bool(ready and self.fusion_health.get('ready') is True
+            fresh = bool(ready and self.fusion_health.get('ready') is True
                 and time.monotonic()-self.fusion_health_received <= self.localization_timeout
                 and -.05 <= self.now_seconds()-self.fusion_health['stamp'] <= self.localization_timeout)
+            ready = bool(ready and (fresh or (phase == 'DRIVE' and self.can_follow_saved_path(self.now_seconds()))))
         if self.planner_ready_future is not None and phase in ('APPROACH','DRIVE'):
             ready = ready and self.planner_ready_future.done() and self.planner_ready_future.exception() is None
         limit = .3
@@ -783,6 +797,8 @@ class ParkingNode(StartSequence, Node):
         stamp=self.odometry.samples[-1].stamp if self.odometry.samples else None
         return {'method':'scan_stamp_odometry_interpolation',
             'localization_recovering':self.localization_recovering,
+            'health_path_tracking':self.health_path_tracking,
+            'health_path_hold_timeout_s':self.health_path_hold_timeout,
             'localization_restart_count':self.localization_restart_count,
             'localization_hold_since':self.localization_hold_since,
             'last_localization_restart':self.last_localization_restart,
@@ -902,7 +918,76 @@ class ParkingNode(StartSequence, Node):
             self.get_logger().warning('EKF 입력 오류: 이전 위치·스캔·매칭 기준·지도·경로·접근 기준점을 모두 폐기했습니다. 최신 정상 데이터로 다시 매칭합니다.')
         self.state, self.reason = 'WAITING_LOCALIZATION', reason
 
+    def can_follow_saved_path(self, now):
+        """A late heartbeat may use an existing route, never stale EKF or scans."""
+        health = self.fusion_health
+        if (self.health_path_hold_timeout <= 0 or self.localization_source != 'fused'
+                or not self.activation.active or self.start_phase != 'IDLE'
+                or self.motion_failed or self.manual_interrupted or self.follower.exited
+                or self.departure_active() or not self.follower.path
+                or self.localization_recovering or self.localization_hold_since is not None
+                or health is None or health.get('ready') is not True
+                or self.fusion_health_received is None):
+            return False
+        age, callback_age = now-health['stamp'], time.monotonic()-self.fusion_health_received
+        if (not -.05 <= age <= self.health_path_hold_timeout
+                or not 0 <= callback_age <= self.health_path_hold_timeout
+                or (age <= self.localization_timeout and callback_age <= self.localization_timeout)):
+            return False
+        received = self.last_scan_received_stamp
+        return bool(self.scan is not None and self.scan_time is not None and received is not None
+            and -SCAN_FUTURE_TOLERANCE <= now-self.scan_time <= self.scan_timeout
+            and -SCAN_FUTURE_TOLERANCE <= now-received <= min(self.scan_timeout,self.localization_timeout)
+            and self.odometry.healthy(now) and self.tracker.healthy(now))
+
+    def saved_path_collision(self, scan, pose):
+        """Recheck the stopping corridor even in profiles without continuous replanning."""
+        cfg = self.cfg
+        checker = CollisionChecker(scan, replace(cfg, initial_clear_radius=cfg.max_range+1.))
+        if not checker.free((0.,0.,0.)):
+            return dict(checker.last_block_detail or {}, kind=checker.last_block)
+        path = self.follower.path
+        start = self.follower.index
+        stop = min(len(path), start+30, self.follower.segment_end+1)
+        if stop <= start:
+            return None
+        nearest = min(range(start,stop), key=lambda i: math.dist(path[i][:2],pose[:2]))
+        transform = inverse(pose)
+        velocity = max(abs(self.speed), self.follower.measured_speed)
+        horizon = max(.25,velocity*cfg.control_preview_time+velocity**2/(2*self.deceleration))
+        distance, previous = 0., (0.,0.,0.)
+        for point in path[nearest:self.follower.segment_end+1]:
+            local = compose(transform,point)
+            length = math.dist(previous[:2],local[:2])
+            covered = min(length,max(0.,horizon-distance))
+            count = max(1,math.ceil(covered/cfg.collision_step))
+            for i in range(1,count+1):
+                fraction = covered*i/count/length if length>1e-9 else 1.
+                sample = (previous[0]+fraction*(local[0]-previous[0]),
+                          previous[1]+fraction*(local[1]-previous[1]),
+                          wrap(previous[2]+fraction*wrap(local[2]-previous[2])))
+                if not checker.free(sample):
+                    return dict(checker.last_block_detail or {}, kind=checker.last_block)
+            distance += length
+            if distance >= horizon:
+                break
+            previous = local
+        return None
+
+    def wait_for_fusion_health(self, now, reason):
+        self.health_path_tracking = False
+        # A heartbeat delay does not invalidate a measured coordinate frame.
+        # Keep partial recovery too, so fresh scans can finish matching.
+        if (self.health_path_hold_timeout > 0 and not self.odometry.discontinuity
+                and (not self.odometry.samples or self.odometry.healthy(now))):
+            if self.activation.active:
+                self.publish_command(0., 0.)
+            self.state, self.reason = 'WAITING_LOCALIZATION', reason
+            return
+        self.hold_localization(now, reason)
+
     def localization_ready(self, now):
+        self.health_path_tracking = False
         if self.localization_source == 'scan':
             return True
         if self.departure_active():
@@ -914,12 +999,15 @@ class ParkingNode(StartSequence, Node):
         health = self.fusion_health
         if health is None or self.fusion_health_received is None:
             self.reason = 'Fusion health unavailable'
-            self.hold_localization(now,self.reason)
+            self.wait_for_fusion_health(now,self.reason)
             return False
         if (time.monotonic()-self.fusion_health_received > self.localization_timeout
                 or not -.05 <= now-health['stamp'] <= self.localization_timeout):
+            if self.can_follow_saved_path(now):
+                self.health_path_tracking = True
+                return True
             self.reason = 'Fusion health is stale or future-dated'
-            self.hold_localization(now, self.reason)
+            self.wait_for_fusion_health(now, self.reason)
             return False
         if not health['ready']:
             self.reason = 'Fusion inputs not ready: '+str(health.get('reason') or
@@ -1009,6 +1097,7 @@ class ParkingNode(StartSequence, Node):
         follower.accept_exit_route(route,reason,now=self.now_seconds())
 
     def reset_motion(self):
+        self.health_path_tracking = False
         if self.localization_source == 'fused':
             self.odometry.samples = deque(self.odometry.samples,maxlen=16)
         self.departure_wheel = False
@@ -1599,7 +1688,7 @@ class ParkingNode(StartSequence, Node):
         self.follower.entry_path=[]
         self.follower.exit_path=[]
         self.state,self.reason='EXITED',''
-        self.sign_ignore_until=max(self.sign_ignore_until,time.monotonic()+5.)
+        self.sign_ignore_until=max(self.sign_ignore_until,time.monotonic()+10.)
         if self.floor_gate is not None:self.floor_gate.reset()
         self.active_pub.publish(Bool(data=False))
         self.clear_visuals()
@@ -1652,7 +1741,7 @@ class ParkingNode(StartSequence, Node):
         self.state, self.reason = 'EXITED', ''
         if self.floor_gate is not None:
             self.floor_gate.reset()
-        self.sign_ignore_until = max(self.sign_ignore_until, time.monotonic() + 5.)
+        self.sign_ignore_until = max(self.sign_ignore_until, time.monotonic() + 10.)
         # The stop precedes the stamped release. A delayed stop/drive packet
         # cannot reclaim the mux after that release.
         self.publish_command(0., 0.)
@@ -1664,6 +1753,8 @@ class ParkingNode(StartSequence, Node):
         self.get_logger().info('곡선 후진 완료·차선 재인식: 남은 직선 후진/전진 경로를 생략하고 lane으로 제어권을 반환합니다.')
 
     def poll_plan(self):
+        if self.can_follow_saved_path(self.now_seconds()):
+            return  # Keep the accepted route until the heartbeat is fresh again.
         if self.pending is None or not self.pending[0].done():
             return
         future, epoch, origin, started = self.pending
@@ -2091,8 +2182,14 @@ class ParkingNode(StartSequence, Node):
                 self.follower.lookahead_point=None
                 self.state='LANE_REPLAN'
             else:
-                speed, steering, self.state = self.follower.command(
-                    self.scan, control_pose, fresh_control_scan, now=now, obstacle_scan=obstacle_scan)
+                collision = self.saved_path_collision(obstacle_scan,control_pose) if self.health_path_tracking else None
+                if collision:
+                    self.follower.observe_pose(control_pose,now,fresh_control_scan)
+                    self.follower.last_collision = collision
+                    speed, steering, self.state = self.follower.stop('ROUTE_BLOCKED',now)
+                else:
+                    speed, steering, self.state = self.follower.command(
+                        self.scan, control_pose, fresh_control_scan, now=now, obstacle_scan=obstacle_scan)
                 self.lock_departure_localization()
             if self.state in ('APPROACHING', 'PARKING', 'REVERSING', 'RECOVERING', 'CHANGING_DIRECTION',
                               'RECOVERY_BLOCKED', 'REOBSERVE', 'REPLAN', 'PATH_HELD', 'ROUTE_BLOCKED', 'CONFIRMING', 'PARKED', 'EXITING', 'EXIT_CONFIRMING', 'EXITED'):
@@ -2111,7 +2208,7 @@ class ParkingNode(StartSequence, Node):
                     self.last_plan_wall = -math.inf
             if not self.follower.recovering:
                 self.recovery_running = False
-            search = self.search_command(now,control_pose,obstacle_scan)
+            search = None if self.health_path_tracking else self.search_command(now,control_pose,obstacle_scan)
             if search is not None:
                 speed,steering = search
                 search_control = True
@@ -2133,7 +2230,7 @@ class ParkingNode(StartSequence, Node):
                 and ((not self.cfg.replan_while_following and self.follower.goal.confirmed)
                      or math.dist(control_pose[:2],(self.follower.goal.x,self.follower.goal.y))
                         <=self.cfg.terminal_recovery_guard_distance))
-            if (not search_exhausted and not retain_entry and not self.follower.parked and self.pending is None
+            if (not self.health_path_tracking and not search_exhausted and not retain_entry and not self.follower.parked and self.pending is None
                     and not self.recovery_running
                     and not (self.follower.entry_locked and self.state != 'FRONT_BLOCKED')
                     and not (self.follower.final_approach and self.follower.path and self.state != 'FRONT_BLOCKED' and not self.cfg.continuous_replanning)
@@ -2177,7 +2274,11 @@ class ParkingNode(StartSequence, Node):
         elif self.had_control_path:
             # Stop the previous route once, then let the mux input expire.
             self.publish_command(0.,0.)
-        if (self.retain_parking_control and self.activation.active and not self.follower.exited
+        waiting_for_localization = (self.state in ('WAITING_LOCALIZATION','WAITING_SCAN','WAITING_CALIBRATION')
+            or self.localization_recovering or self.localization_hold_since is not None)
+        if waiting_for_localization:
+            self.motion_stall_since = None
+        elif (self.retain_parking_control and self.activation.active and not self.follower.exited
                 and not self.follower.parked and not self.manual_interrupted and self.vehicle_automatic()):
             if (self.follower.previous_sample is not None and 0<=now-self.follower.previous_sample[1]<=.2
                     and self.follower.measured_speed>.01):
@@ -2346,11 +2447,13 @@ def main(args=None):
         rclpy.shutdown()
         return 1
     exit_code = 0
+    executor = SingleThreadedExecutor(context=node.context)
+    executor.add_node(node)
     try:
         for signum in (signal.SIGINT, signal.SIGTERM):
             previous[signum] = signal.signal(signum, lambda *_: stopped.set())
         while rclpy.ok() and not stopped.is_set():
-            rclpy.spin_once(node, timeout_sec=.1)
+            executor.spin_once(timeout_sec=.1)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     except Exception as exc:
@@ -2358,6 +2461,8 @@ def main(args=None):
         node.get_logger().error('주차 노드 실행 중 오류가 발생해 종료합니다: '+reason_text(str(exc))
                                +f'\n{type(exc).__name__}: {exc}\n'+traceback.format_exc())
     finally:
+        executor.remove_node(node)
+        executor.shutdown()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

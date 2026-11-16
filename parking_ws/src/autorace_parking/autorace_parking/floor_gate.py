@@ -88,6 +88,8 @@ class ParkingFloorGate:
             return
         self.confirmation.required = self.node.required_detections
         self.confirmation.timeout = self.node.sign_timeout
+        self.confirmation.expire(now*1e-9)
+        self.confirmation.last=now*1e-9
         self.confirmation.count = self.confirmation.count + 1 if message.data else 0
         if self.confirmation.count >= self.node.required_detections:
             self.armed_stamp = now

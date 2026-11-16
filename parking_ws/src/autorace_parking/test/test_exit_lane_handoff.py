@@ -229,6 +229,11 @@ def test_delayed_parking_packets_are_ignored_and_next_mission_can_take_control(h
     new.drive.speed = -.1
     mux._receive('parking', new)
     mux._publish()
+    assert mux._last_source == 'lane'
+    mux._parking_lane_hold_until=time.monotonic()-.001
+    new.header.stamp=h.probe.get_clock().now().to_msg()
+    mux._receive('parking',new)
+    mux._publish()
     assert mux._last_source == 'parking'
 
 
@@ -267,7 +272,7 @@ def test_stale_future_and_late_release_do_not_cancel_a_newer_mission(h):
     assert mux._last_source == 'parking'
 
 
-def test_release_preserves_other_mission_priority_and_clock_reset_allows_new_parking(h):
+def test_release_excludes_other_missions_and_clock_reset_allows_new_parking(h):
     mux = h.mux
     h.pump(.04)
     command = AckermannDriveStamped()
@@ -275,7 +280,7 @@ def test_release_preserves_other_mission_priority_and_clock_reset_allows_new_par
     command.drive.speed = 0.
     mux._receive('signal', command)
     mux._release_parking(Header(stamp=h.probe.get_clock().now().to_msg()))
-    assert mux._last_source == 'signal'
+    assert mux._last_source == 'lane' and mux._parking_lane_mode == 'lane'
     mux.arbitrator.discard('signal')
     now = h.probe.get_clock().now().nanoseconds
     mux._parking_release_stamp = now + 1_000_000_000

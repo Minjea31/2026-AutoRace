@@ -2,7 +2,7 @@ from autorace_crosswalk.core import CrosswalkState
 
 
 def test_confirmation_reset_and_no_gap_timeout():
-    state = CrosswalkState()
+    state = CrosswalkState(stop_hold_sec=3.)
     state.receive_white(True)
     state.receive(True)
     assert not state.tick(0., True)
@@ -47,12 +47,12 @@ def test_full_stop_despite_false_and_cooldown_ignores_detections():
     assert state.phase == 'waiting_white'
     state.receive_white(True)
     assert state.tick(23.3, True)
-    assert not state.tick(26.3, True)
+    assert not state.tick(26.301, True)
     assert state.phase == 'cooldown'
 
 
 def test_cooldown_starts_when_stop_publishing_completes():
-    state = CrosswalkState()
+    state = CrosswalkState(stop_hold_sec=3.)
     state.receive(True)
     state.receive(True)
     state.receive_white(True)
@@ -66,7 +66,7 @@ def test_cooldown_starts_when_stop_publishing_completes():
 
 
 def test_waits_for_first_lane_before_starting_timer():
-    state = CrosswalkState()
+    state = CrosswalkState(stop_hold_sec=3.)
     state.receive(True)
     state.receive(True)
     state.receive_white(True)
@@ -78,7 +78,7 @@ def test_waits_for_first_lane_before_starting_timer():
 
 
 def test_white_detection_delay_is_not_postponed_and_full_stop_starts_after_delay():
-    state=CrosswalkState(stop_delay_sec=.5)
+    state=CrosswalkState(stop_delay_sec=.5,stop_hold_sec=3.)
     state.receive(True)
     state.receive(True)
     assert not state.receive_white(False,10.)
@@ -103,7 +103,7 @@ def test_white_detection_delay_is_not_postponed_and_full_stop_starts_after_delay
 
 
 def test_delay_expires_without_lane_but_stop_duration_waits_for_lane():
-    state=CrosswalkState(stop_delay_sec=.5)
+    state=CrosswalkState(stop_delay_sec=.5,stop_hold_sec=3.)
     state.receive(True)
     state.receive(True)
     state.receive_white(True,10.)

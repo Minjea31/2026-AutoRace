@@ -22,6 +22,8 @@ class ParkingGuard:
             self.armed,self.phase,self.ready = True,'HOLD',False
             self.event_stamp = stamp
             self.received = now
+            return True
+        return False
 
     def receive(self, state, now, ros_now):
         try:

@@ -82,6 +82,7 @@ double Planner::plan_limit(const std::vector<Box> & boxes) const
   for (const Box & b : boxes) {
     if (b.s0 < p.section_end) {lim = std::max(lim, b.s1 + p.body_rear + p.pass_margin + p.stop_buffer + 0.1);}
   }
+  if(awaiting_island) lim=p.section_end+0.10;
   return std::min(lim, boundary_->s_max - p.body_front - 0.05);
 }
 
@@ -142,6 +143,11 @@ std::vector<double> Planner::nodes_for(double sk, const std::vector<std::pair<do
   const Path * prev, double keep) const
 {
   const Params & p = p_;
+  if(fork_target && std::abs(sk-fork_target->x)<1e-5) {
+    for(const auto & iv:intervals)
+      if(iv.first<=fork_target->y && fork_target->y<=iv.second) return {fork_target->y};
+    return {};
+  }
   std::vector<std::pair<double, int>> cand;
   for (auto & [a, b] : intervals) {
     std::vector<std::pair<double, int>> pts{{0.5 * (a + b), 0}};
@@ -176,7 +182,8 @@ std::vector<double> Planner::nodes_for(double sk, const std::vector<std::pair<do
 std::vector<double> Planner::stations(double s0, const std::vector<Obs> & obs, double & s_end) const
 {
   const Params & p = p_;
-  s_end = std::min(s0 + p.horizon, plan_limit(boxes_));
+  const double horizon=fork_target?std::max(p.horizon,fork_target->x-s0+0.25):p.horizon;
+  s_end = std::min(s0 + horizon, plan_limit(boxes_));
   std::vector<double> cand;
   for (const Obs & o : obs) {cand.push_back(o.cs);}
   for (const Obs & o : obs) {cand.push_back(o.cs - o.hs - p.body_front - 0.02);}
@@ -211,6 +218,10 @@ std::vector<double> Planner::stations(double s0, const std::vector<Obs> & obs, d
     prev = s;
   }
   if (static_cast<int>(out.size()) > p.max_layers) {out.resize(p.max_layers);}
+  if(fork_target && fork_target->x>s0+p.station_min_ahead && fork_target->x<=out.back()) {
+    out.erase(std::remove_if(out.begin(),out.end(),[&](double s){return std::abs(s-fork_target->x)<0.12;}),out.end());
+    out.push_back(fork_target->x);std::sort(out.begin(),out.end());
+  }
   return out;
 }
 
@@ -257,6 +268,7 @@ PathPtr Planner::plan(const PlanStart & start,const std::vector<Box> & boxes,con
   Params comfort=p_;const double extra=preferred-comfort.margin_obstacle;
   comfort.margin_obstacle=preferred;comfort.fork_shape_margin=std::max(0.0,comfort.fork_shape_margin-extra);
   Planner trial(comfort,boundary_);trial.island=island;trial.island_side=island_side;
+  trial.fork_target=fork_target;trial.fork_target_yaw=fork_target_yaw;trial.awaiting_island=awaiting_island;
   const auto roomy=trial.plan_impl(start,boxes,grid,prev,w_cons,stamp);
   auto select_roomy=[&]() {
     last=trial.last;last_ego_clear=trial.last_ego_clear;has_ego_clear=trial.has_ego_clear;
@@ -324,6 +336,7 @@ PathPtr Planner::plan_impl(const PlanStart & start, const std::vector<Box> & box
     const double sj = L[j][0].s;
     for (size_t i = (j > static_cast<size_t>(p.max_skip) ? j - p.max_skip : 0); i < j; ++i) {
       const double si = L[i].empty() ? 0.0 : L[i][0].s;
+      if(fork_target && si<fork_target->x-1e-6 && sj>fork_target->x+1e-6) continue;
       const double T = sj - si;
       const int n = std::max(4, static_cast<int>(std::ceil(T / p.sample_ds))) + 1;
       std::vector<double> tau(n), S(n), w(n, T / (n - 1));
@@ -516,7 +529,8 @@ PathPtr Planner::escape(double s0, double d0, double psi0, double delta0, const 
       double need_o, need_b;
       recovery_need(travel, std::clamp(travel / 0.3, 0.2, 1.0), eo, eb, need_o, need_b);
       const double ds = i == 0 ? 1.0 : t.S[i] - t.S[i - 1];
-      const bool ok = t.C[i] >= need_o && t.B[i] >= need_b && std::abs(t.PSI[i]) < psi_lim && ds > 0;
+      const bool ok = t.C[i] >= need_o && t.B[i] >= need_b && std::abs(t.PSI[i]) < psi_lim && ds > 0 &&
+        (!awaiting_island || t.S[i]<=p.section_end+0.10);
       if (!ok) {t.first = i; break;}
     }
     for (int i = t.first; i < n; ++i) {  // 막힌 뒤 표본도 시각화·출력 일관성 위해 계산
@@ -616,6 +630,12 @@ double Planner::verified_until(const Path & path, double s_from, const Visibilit
 }
 
 double Planner::desired_d(double s) const {
+  if(fork_target) {
+    const double target=fork_target->y+std::tan(fork_target_yaw)*(s-fork_target->x);
+    const double tip=fork_target->x-island.width/2-0.5;
+    const double u=std::clamp((s-(tip-1.2))/1.2,0.0,1.0);
+    return p_.home_d+u*u*u*(10+u*(-15+6*u))*(target-p_.home_d);
+  }
   if(p_.fork_shape && island.pose.confirmed && island_side) {
     double right,left;boundary_->limits(s,right,left);
     const double center=island.pose.d+std::tan(island.pose.yaw)*(s-island.pose.s);

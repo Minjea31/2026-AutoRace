@@ -6,7 +6,7 @@ ROS 2 Humble의 `autorace_signal` 패키지입니다. [신호·미션 토픽 규
 
 - `/yolo/signal`의 **false는 빨강, true는 초록**입니다. 최초 미수신·미확정 상태에서는 명령을 발행하지 않습니다.
 - **같은 값이 2회 연속** 들어와야 확정합니다. 반대 값이 들어오거나 수신 간격이 0.5초를 넘으면 연속 횟수를 초기화합니다. 확인 중에는 기존 정지 상태를 유지합니다.
-- 빨강 2회 확인 후 촬영된 유효 영상에서 흰색 바닥 ROI 비율이 8% 이상이면 0.5초 뒤 정지합니다. 대기 중에는 명령을 발행하지 않습니다.
+- 빨강 2회 확인 후 촬영된 유효 영상에서 흰색 바닥 ROI 비율이 8% 이상이면 즉시 정지합니다. 대기 중에는 명령을 발행하지 않습니다.
 - 정지 시 최신 lane 메시지를 복사해 **`drive.speed`만 0**으로 바꿔 30 Hz 발행합니다. 헤더 시각은 현재 ROS 시각으로 갱신하며 조향각·조향각 변화율·가속도·jerk·frame은 유지합니다.
 - lane이 없거나 만료·비정상이면 **속도와 조향이 0인 기본 정지 명령**을 발행합니다. 정상 lane이 복구되면 그 조향을 반영합니다.
 - **빨강 2회 확인 시점부터 고정 10초**를 셉니다. 흰선 대기와 정지 지연 시간도 포함하며, 빨강을 다시 받아도 기한을 연장하지 않습니다.
@@ -22,7 +22,7 @@ ROS 2 Humble의 `autorace_signal` 패키지입니다. [신호·미션 토픽 규
 
 ```python
 CONFIRM_FRAMES = 2
-STOP_DELAY_SEC = 0.5
+STOP_DELAY_SEC = 0.0
 MAX_RED_WAIT_SEC = 10.0
 SIGNAL_GAP_TIMEOUT_SEC = 0.5
 PUBLISH_RATE_HZ = 30.0
@@ -66,7 +66,7 @@ ros2 run autorace_signal signal_node
 
 # 설정 변경 예시
 ros2 run autorace_signal signal_node --ros-args \
-  -p confirm_frames:=2 -p max_red_wait_sec:=10.0 -p stop_delay_sec:=0.5
+  -p confirm_frames:=2 -p max_red_wait_sec:=10.0 -p stop_delay_sec:=0.0
 ```
 
 `signal_node`는 `/cmd_vel`을 발행하지 않습니다. 실차에서는 lane·YOLO·mux를 별도로 실행합니다. 비활성·출발·종료 시에는 signal command 발행을 멈추며, mux가 마지막 후보를 만료시킵니다. 상태 전환은 터미널 로그로 확인합니다.
@@ -138,11 +138,11 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest \
   -p no:cacheprovider -q signal_ws/src/autorace_signal/test
 ```
 
-연속 2회·노이즈·수신 공백·새 흰선·0.5초 지연·반복 빨강에도 고정된 10초 기한·초록 해제·새 빨강 재정지, lane 필드 보존과 유효성, 실제 DDS pub/sub와 기존 mux의 정지 유지 및 lane 복귀를 검사합니다. ROS 통합 테스트는 별도 도메인과 고유 토픽을 사용하며 실제 `/cmd_vel`에는 발행하지 않습니다. mux 통합 테스트는 같은 저장소의 `mux_ws` 소스를 사용합니다.
+연속 2회·노이즈·수신 공백·새 흰선 즉시 정지·선택 지연 설정·반복 빨강에도 고정된 10초 기한·초록 해제·새 빨강 재정지, lane 필드 보존과 유효성, 실제 DDS pub/sub와 기존 mux의 정지 유지 및 lane 복귀를 검사합니다. ROS 통합 테스트는 별도 도메인과 고유 토픽을 사용하며 실제 `/cmd_vel`에는 발행하지 않습니다. mux 통합 테스트는 같은 저장소의 `mux_ws` 소스를 사용합니다.
 
 ## 서행 종료 신호
 
-빨강 확정·새 흰선·0.5초 지연 후 첫 `/mission/signal/command_02` 정지 명령을 발행할 때
+빨강 확정·새 흰선 확인 후 첫 `/mission/signal/command_02` 정지 명령을 발행할 때
 `/start_signal` (`std_msgs/msg/Bool`)에 `True`를 한 번 발행합니다.
 같은 정지 에피소드에서는 반복 발행하지 않습니다.
 초록 또는 시간 초과로 정지가 해제된 뒤 새 빨강으로 다시 정지하면 새 신호를 발행합니다.

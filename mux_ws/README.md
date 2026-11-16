@@ -70,3 +70,16 @@ Selected: STOP (no fresh input) | input=none | output=/cmd_vel | speed=0.000 m/s
 - 가감속 제한과 전후진 전환 시 정지 처리는 유지합니다.
 
 설정 기본값은 `src/autorace_mux/autorace_mux/core.py`, 토픽 연결은 `node.py`에서 확인할 수 있습니다.
+
+
+## 주차 이후 lane 전용 인계
+주차 시작 상태(HOLD/APPROACH/DRIVE)를 받은 뒤에는 parking과 주차 접근용 lane만
+제어 후보로 사용한다. 곡선 후진 완료 후 `/parking/lane_handoff` 또는 정상 RELEASE를
+받으면 즉시 lane만 선택하며, 횡단보도·신호·감속·OBJ·cone 명령은 0속도 명령까지
+모두 제외한다. lane 명령도 만료되면 정지하며 다른 미션으로 넘어가지 않는다.
+새 parking 트리거가 정상 시작 상태 또는 새로운 주차 명령을 만들면 parking으로
+재진입하고, 다음 완료 때 다시 lane 전용으로 돌아간다. 오래된 주차 명령·상태·인계는
+이미 끝난 주차를 다시 켜지 못한다. MUX 재시작 또는 ROS 시간 되감기 전까지 이 정책을 유지한다.
+노드 프로세스를 종료하는 방식이 아니라 차량 출력의 제어권을 제한한다.
+
+주차 종료 후 lane 우선권을 단조 시계로 10초 유지한다. 이 시간에는 parking 시작/상태/명령 재수신도 무시하며 재시작 요청을 예약하지 않는다. 10초 후 새 parking 표지를 받고 흰 바닥선 조건을 만족하면 다시 parking으로 전환한다. lane 명령이 끊기면 정지한다. 다른 미션은 주차 이후 lane/parking 반복에서 선택하지 않는다.

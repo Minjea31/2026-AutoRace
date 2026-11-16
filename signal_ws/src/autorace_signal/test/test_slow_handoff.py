@@ -32,7 +32,7 @@ def test_red_stop_event_clears_slow_once_and_allows_a_fresh_second_mission(bump_
     topics = {
         '/start_signal': 'start', '/start_crosswalk': 'crosswalk',
         '/mission/lane': 'lane', '/yolo/signal': 'light',
-        '/mission/signal/command_02': 'signal', '/mission/slow/command_08': 'slow',
+        '/mission/signal/command_02': 'signal', '/mission/slow/command_04': 'slow',
         '/yolo/slow_sign': 'slow_sign', '/yolo/bump_sign': 'bump_sign',
         '/camera/color/image_raw/compressed': 'camera',
     }

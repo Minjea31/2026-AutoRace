@@ -110,9 +110,11 @@ class Arbitrator:
             source, speed, steering_angle, stamp_ns, received_at)
         return True, ''
 
-    def select(self, steady_now: float, ros_now_ns: int) -> Optional[Candidate]:
+    def select(self, steady_now: float, ros_now_ns: int, allowed_sources=None) -> Optional[Candidate]:
         self._observe_clock(ros_now_ns)
         for source, _ in INPUTS:
+            if allowed_sources is not None and source not in allowed_sources:
+                continue
             candidate = self._candidates.get(source)
             if candidate is None:
                 continue

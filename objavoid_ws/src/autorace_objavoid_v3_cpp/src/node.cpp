@@ -391,7 +391,8 @@ private:
         last_reentry_epoch_=core_->mapping_restarts;note_reentry_start(now_s());
       }
     }
-    if(core_->active() && core_->get_state()!=State::DONE && core_->p.start_entrance && steady()-last_reentry_check_>=0.2) {
+    if(core_->active() && core_->get_state()!=State::DONE && core_->p.start_entrance &&
+        steady()-last_reentry_check_>=0.2) {
       last_reentry_check_=steady();
       const auto entrance=objavoid::eval_entrance_gate(pts,false,core_->p);
       // Use transverse white paint from this image, never cached observations.
@@ -802,7 +803,11 @@ private:
     pmsg.header.frame_id = "odom";
     {
       std::lock_guard<std::recursive_mutex> g(core_->mutex());
-      if (!core_->frame) {return;}
+      if (!core_->frame) {
+        visualization_msgs::msg::Marker clear;clear.header.stamp=stamp;
+        clear.action=visualization_msgs::msg::Marker::DELETEALL;arr.markers.push_back(clear);
+        marker_pub_->publish(arr);path_pub_->publish(pmsg);return;
+      }
       arr = objavoid::build_markers(*core_, stamp, t);
       if (marker_frame_ != "odom") {
         const auto pose = core_->pose_at(t, 0.3);

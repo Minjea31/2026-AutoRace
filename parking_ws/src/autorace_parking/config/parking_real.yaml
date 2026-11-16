@@ -101,6 +101,7 @@ parking_node:
     parking_calibration_stop: true
     parking_calibration_timeout: 10.0
     localization_preserve_timeout: 1.0
+    health_path_hold_timeout: 2.0  # Late heartbeat: follow the saved path only with fresh EKF + collision scans.
     search_enabled: true
     search_speed: 0.20
     search_max_distance: 1.5

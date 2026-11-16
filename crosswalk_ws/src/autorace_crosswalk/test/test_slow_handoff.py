@@ -27,7 +27,7 @@ def test_stop_start_signal_cancels_slow_via_dds():
     prefix = '/handoff_' + uuid4().hex
     args = ['--ros-args', '-r', '/start_crosswalk:=' + prefix + '/start',
             '-r', '/mission/crosswalk/command_01:=' + prefix + '/stop',
-            '-r', '/mission/slow/command_08:=' + prefix + '/slow',
+            '-r', '/mission/slow/command_04:=' + prefix + '/slow',
             '-r', '/mission/lane:=' + prefix + '/lane',
             '-r', '/camera/color/image_raw/compressed:=' + prefix + '/camera',
             '-r', '/yolo/crosswalk_sign:=' + prefix + '/crosswalk_sign',

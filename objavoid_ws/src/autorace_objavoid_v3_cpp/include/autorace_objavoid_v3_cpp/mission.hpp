@@ -70,8 +70,10 @@ public:
   Box island_box() const {return {island_s(), island_s() + p.fork_island_len, -p.fork_island_half, p.fork_island_half};}
   IslandShape navigation_island() const;
   bool reset_mapping(double t,double shift=0,double yaw_offset=0,double d_shift=0);
+  RoadOutline road_outline() const;
   std::optional<XY> fork_goal() const;
   int mapping_restarts=0;
+  unsigned long mapping_epoch=0;
   int fork_side() const {return fork_side_;}  // +1 왼쪽(A), -1 오른쪽(B), 0 미정
   IslandMapper island_mapper;
   bool searching = false;
@@ -82,6 +84,7 @@ public:
   std::vector<XY> fresh_island_odom, fresh_view_odom;
   double island_fit_stamp=-1e9;
   double island_sign_after=1e100;
+  std::optional<double> island_section_reached_at;
   std::deque<std::pair<double,std::vector<XY>>> yellow_history;
   std::vector<XY> road_match_points, island_match_points, unmatched_points;
   OutlineFit outline_fit;
@@ -131,9 +134,11 @@ private:
   std::optional<Veh> lane_update(Veh veh, double t);
   bool lane_blocking(double t) const;
   void reframe(double a, double dc, double t, double ds=0.0);
+  void classify_outline_points(std::vector<Pt2> & sd);
   bool emergency(const std::vector<float> & ranges, double angle_min, double angle_inc, double v) const;
   PlanStart start_state(const Veh & veh, std::optional<double> w, double & ey) const;
   void maybe_replan(const Veh & veh, double t);
+  bool yellow_blocks_route(const Veh & veh,double t);
   void update_clear_ahead(const Veh & veh);
   bool maybe_start_reverse(double t, const std::optional<Veh> & veh);
   std::pair<double, double> reverse_clear(double s, double d, double psi, const std::vector<Box> & boxes) const;
@@ -148,6 +153,7 @@ private:
   PriorBoundary prior_;
   std::unique_ptr<LaneBoundary> lane_;
   IslandShape retained_island_;
+  std::unique_ptr<IslandRoadBoundary> road_boundary_;
   double section_end0_;
   bool obstacles_seen_=false, obstacle_gap_armed_=false;
   std::optional<double> obstacle_absent_since_;
@@ -175,6 +181,7 @@ private:
   int lane_frames_ = 0;
   long lane_lidar_dropped_ = 0;
   struct Rev {
+    bool fork_lane=false;
     double t0=0,x0=0,y0=0;
     std::vector<XY> trail;
     size_t cursor=0;
@@ -182,6 +189,9 @@ private:
   };
   std::deque<XY> driven_trail_;
   std::vector<XY> failed_routes_;
+  std::optional<XY> locked_fork_goal_odom_;
+  double locked_fork_yaw_odom_=0;
+  bool fork_path_committed_=false, yellow_route_blocked_=false, obstacle_route_blocked_=false;
   std::optional<XY> last_route_;
   std::vector<XY> last_route_points_;
   std::optional<Rev> rev_;

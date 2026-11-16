@@ -107,6 +107,7 @@ def test_dds_stop_cooldown_and_new_sign_and_floor_required_to_repeat():
         assert not commands
         assert not starts
         assert node.stop_delay_sec == 1.5
+        assert node.stop_hold_sec == 3.0
         fresh_white = image()
         detected_after = time.monotonic()
         floor(fresh_white)

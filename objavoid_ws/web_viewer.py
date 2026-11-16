@@ -58,7 +58,7 @@ header{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas
 const groups=[
  ['scan','LiDAR','#e8edf2'],['scan_detections','이번 검출','#33ff66'],
  ['obstacles','추적 장애물','#ff4b4b'],['gaps','통과 간격','#29e83a'],
- ['gap_nodes','간격 노드','#4774ff'],['candidates','후보 경로(통과 간선)','#66d9ff'],['path','선택 경로','#ff3399'],
+ ['gap_nodes','간격 노드','#4774ff'],['candidates','후보 경로(통과 간선)','#66d9ff'],['path','섬 확정 경로','#ff3399'],['approach_path','보라선 접근 경로','#a6b3bf'],
  ['verified_end','관측 확인 끝','#ffff00'],['ego','차량','#5799ff'],['target','목표점','#4166ff'],['fork_island','갈림길 섬','#9955ff'],['road_outline','도로 외곽 도면','#33ccff'],['road_match_points','도로 매칭점','#33ccff'],['island_match_points','섬 후보점','#9955ff'],['unmatched_points','미분류점','#888888'],['fork_sign','표지판 받침','#00ccff'],['fork_observation','관측 회전','#ffa600'],['fork_goal','통로 진입 목표','#4dff80'],
  ['lane_boundary_observed','관측 경계','#ffd900'],['lane_boundary_prior','사전 경계','#888888'],
  ['yellow_observed','노란 딥∩HSV 전체','#ffcc00'],['white_observed','흰 딥∩HSV 전체','#ffffff'],['lane_white_cells','누적 흰 차선','#edf1ff'],['lane_yellow_cells','노란 차선','#ff8500'],
@@ -109,7 +109,7 @@ async function refresh(){try{const r=await fetch('/data',{cache:'no-store'});if(
  document.getElementById('speed').textContent=laneSpeed==null?'—':laneSpeed.toFixed(1);
  const candidateSegments=(data.markers||[]).filter(m=>m.ns==='candidates'&&m.type===5).reduce((n,m)=>n+Math.floor(m.points.length/2),0);
  for(const button of document.querySelectorAll('[data-service]')){const process=data.processes?.[button.dataset.service],state=process?.state;button.classList.toggle('active',button.dataset.action==='start'?state==='실행 중':state==='종료됨'||state==='미실행');button.classList.toggle('pending',state==='종료 중')}
- const island=data.missions?.['/objavoid_v3/state']?.value?.island_mapping;document.getElementById('detail').textContent=`후보 표시 선분: ${candidateSegments}개\n`+`진입 후보: ${data.missions?.['/objavoid_v3/entrance_armed']?.value===true?'ON (5초)':'OFF'}\nobj 활성: ${data.missions?.['/objavoid_v3/active']?.value===true?'ON':'OFF'} · MUX 제어: ${data.missions?.['/objavoid_v3/has_control']?.value===true?'ON':'OFF'}\n`+(island?`섬: ${island.confirmed?'확정':island.valid?'추정 중':'미관측'} · ${island.searching?'표지판 관측 회전':'경로 추종'}\n관측 이동: ${(island.search_distance||0).toFixed(2)} m\n구간 끝→섬: ${island.section_offset_cm==null?"미확정":island.section_offset_cm.toFixed(1)+" cm"}\n섬 판정: ${island.rejection||"-"}\n도로/섬 후보점: ${data.missions?.["/objavoid_v3/state"]?.value?.road_mapping?.road_points||0} / ${data.missions?.["/objavoid_v3/state"]?.value?.road_mapping?.island_points||0}\n도로 정렬: ${island.road_aligned?"저장된 정렬 지도 사용":"사전 지도 사용 · 관측 매칭 대기"} · 잔차 ${data.missions?.["/objavoid_v3/state"]?.value?.road_mapping?.error==null?"—":(100*data.missions["/objavoid_v3/state"].value.road_mapping.error).toFixed(1)+" cm"}\nYOLO 방향: ${data.missions?.["/objavoid_v3/state"]?.value?.fork?.side||"none"} · lattice`: '');draw()}
+ const mission=data.missions?.['/objavoid_v3/state']?.value; const island=mission?.island_mapping;document.getElementById('detail').textContent=`지도 초기화 번호: ${mission?.mapping_epoch??'—'} · 단계: ${({approach:'보라선 접근',await_island:'섬 확정 대기',target_selected:'목표 선택',path_locked:'경로 유지',done:'완료'})[mission?.fork_stage]||'—'}\n후보 표시 선분: ${candidateSegments}개\n`+`진입 후보: ${data.missions?.['/objavoid_v3/entrance_armed']?.value===true?'ON (5초)':'OFF'}\nobj 활성: ${data.missions?.['/objavoid_v3/active']?.value===true?'ON':'OFF'} · MUX 제어: ${data.missions?.['/objavoid_v3/has_control']?.value===true?'ON':'OFF'}\n`+(island?`섬: ${island.confirmed?'확정':island.valid?'추정 중':'미관측'} · ${island.searching?'표지판 관측 회전':'경로 추종'}\n관측 이동: ${(island.search_distance||0).toFixed(2)} m\n구간 끝→섬: ${island.section_offset_cm==null?"미확정":island.section_offset_cm.toFixed(1)+" cm"}\n섬 판정: ${island.rejection||"-"}\n도로/섬 후보점: ${data.missions?.["/objavoid_v3/state"]?.value?.road_mapping?.road_points||0} / ${data.missions?.["/objavoid_v3/state"]?.value?.road_mapping?.island_points||0}\n도로 정렬: ${island.road_aligned?"저장된 정렬 지도 사용":"사전 지도 사용 · 관측 매칭 대기"} · 잔차 ${data.missions?.["/objavoid_v3/state"]?.value?.road_mapping?.error==null?"—":(100*data.missions["/objavoid_v3/state"].value.road_mapping.error).toFixed(1)+" cm"}\nYOLO 방향: ${data.missions?.["/objavoid_v3/state"]?.value?.fork?.side||"none"} · lattice`: '');draw()}
  catch(e){document.getElementById('status').textContent='연결 끊김';}setTimeout(refresh,200)}
 document.querySelectorAll('[data-service]').forEach(button=>button.onclick=async()=>{const peers=[...document.querySelectorAll('[data-service]')].filter(b=>b.dataset.service===button.dataset.service);peers.forEach(b=>{b.disabled=true;b.classList.remove('failed')});button.classList.add('pending');try{const r=await fetch('/control',{method:'POST',headers:{'Content-Type':'application/json','X-Viewer-Control':'1'},body:JSON.stringify({service:button.dataset.service,action:button.dataset.action})});const result=await r.json();if(!r.ok||result.error){button.classList.add('failed');button.title=result.message||'요청 실패'}}catch(e){button.classList.add('failed');button.title='연결 실패'}finally{peers.forEach(b=>b.disabled=false);button.classList.remove('pending')}});
 let laneSpeed=null;
@@ -243,6 +243,8 @@ class Viewer(Node):
         self.scan = []
         self.frame = ''
         self.marker_at = None
+        self.mapping_epoch = None
+        self.marker_floor_stamp_ns = 0
         self.scan_at = None
         self.camera_at = None
         self.camera_jpeg = None
@@ -356,13 +358,21 @@ class Viewer(Node):
 
     def on_status(self, topic, msg):
         value = msg.text if isinstance(msg, Marker) else msg.data
+        state = None
         if topic == '/objavoid_v3/state':
             try:
                 state = json.loads(value)
-                value = {k: state[k] for k in ('state', 'reason', 'start_gate', 'road_mapping', 'island_mapping', 'fork', 'clearance_policy') if k in state}
+                value = {k: state[k] for k in ('state', 'reason', 'start_gate', 'road_mapping', 'island_mapping', 'fork', 'clearance_policy', 'mapping_epoch', 'fork_stage') if k in state}
             except (ValueError, TypeError):
                 pass
         with self.lock:
+            if isinstance(state,dict) and 'mapping_epoch' in state:
+                epoch=state['mapping_epoch']
+                if epoch!=self.mapping_epoch:
+                    self.mapping_epoch=epoch
+                    self.markers=[];self.frame='';self.marker_at=None
+                    stamp=state.get('t',0) if state.get('state')=='IDLE' else state.get('mapping_started_at',0)
+                    self.marker_floor_stamp_ns=round(stamp*1e9)
             self.missions[topic] = {'value': value, 'at': time.monotonic()}
 
     def on_mux(self, msg):
@@ -400,7 +410,10 @@ class Viewer(Node):
                            'scale': [m.scale.x, m.scale.y],
                            'color': [m.color.r, m.color.g, m.color.b, m.color.a],
                            'text': m.text})
+        stamp=max((m.header.stamp.sec*1_000_000_000+m.header.stamp.nanosec for m in msg.markers),default=0)
         with self.lock:
+            if stamp<self.marker_floor_stamp_ns:
+                return
             self.markers = result
             self.frame = frame
             self.marker_at = time.monotonic()
