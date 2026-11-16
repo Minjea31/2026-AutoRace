@@ -177,7 +177,7 @@ class Params:
     fb_limit: float = 0.30
     steer_gain: float = 1.0          # 명령 곡률 배율(실차가 덜 돌면 >1). 상태의 turn_ratio로 판단
     # --- 후진 탈출: 앞으로 갈 경로가 없어 멈춰 있으면 지나온 쪽으로 조금 물러나며 앞머리를 빈 차로 쪽으로 돌린다 ---
-    reverse_enable: bool = True
+    reverse_enable: bool = False
     reverse_wait: float = 1.0        # 막혀서 정지한 뒤 이만큼 지나도 경로가 없으면 후진
     reverse_speed: float = 0.10
     reverse_dist: float = 0.20       # 한 번에 물러나는 최대 거리(LiDAR가 뒤를 못 봄: 지나온 길 안에서만)

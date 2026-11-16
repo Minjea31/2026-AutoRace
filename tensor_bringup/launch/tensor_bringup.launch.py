@@ -121,6 +121,7 @@ def _setup(context):
         objavoid = [TimerAction(period=4., actions=[IncludeLaunchDescription(
             PythonLaunchDescriptionSource(objavoid_launch),
             launch_arguments={'profile': 'real', 'car': C('objavoid_car'),
+                              'recovery_mode': C('objavoid_mode'),
                               'command_topic': '/mission/objavoid/command_05'}.items(),
         )])]
 
@@ -186,7 +187,7 @@ def _defaults():
         'startup_timeout': '60.0', 'output_topic': '/cmd_vel',
         'lane_speed': '0.5',
         'lane_mode': 'fusion',
-        'objavoid': 'true', 'objavoid_car': '04',
+        'objavoid': 'true', 'objavoid_car': '04', 'objavoid_mode': 'normal',
     }
 
 
@@ -195,7 +196,10 @@ def generate_launch_description():
         *[DeclareLaunchArgument(key, default_value=value,
                                 **({'choices': list(LANE_NODES),
                                     'description': 'fusion (deep+HSV) | opencv (lane_ws lane_lite + lane PID) | deep (deep mask + lane_ws logic + lane PID)'}
-                                   if key == 'lane_mode' else {}))
+                                   if key == 'lane_mode' else
+                                   {'choices': ['normal', 'reverse'],
+                                    'description': 'normal: forward/stop | reverse: optional 20cm reverse recovery'}
+                                   if key == 'objavoid_mode' else {}))
           for key, value in _defaults().items()],
         OpaqueFunction(function=_setup),
     ])

@@ -436,7 +436,21 @@ ros2 topic pub --once /objavoid_v3/remap std_msgs/msg/Bool '{data: true}'
 
 ### 경로 소실 후 20cm 되짚기
 
-실차 `real_car04.yaml`은 OBJ 후진을 활성화한다. 경로 소실/재계획 실패가
+기본 **normal 모드**는 전진과 정지만 수행하며 후진하지 않는다. 후진 복구는
+명시적으로 **reverse 모드**를 선택할 때만 활성화한다.
+
+```bash
+# 통합 실행: 기본은 normal
+ros2 launch tensor_bringup tensor_bringup.launch.py objavoid_mode:=normal
+# 기존 20cm 되짚기 후진 복구를 선택적으로 사용
+ros2 launch tensor_bringup tensor_bringup.launch.py objavoid_mode:=reverse
+# 장애물 노드 단독 실행
+ros2 launch autorace_objavoid_v3 objavoid_v3.launch.py profile:=real car:=04 recovery_mode:=reverse
+```
+
+실행 인자는 공통·실차 설정 파일보다 우선하며, `recovery.policy`에 `normal` 또는
+`reverse`로 표시한다. 모드 변경은 런치를 다시 시작해야 적용된다.
+reverse 모드에서는 경로 소실/재계획 실패가
 `reverse_wait`(기본 1초) 지속되고 정지하면, odom에 저장한 실제 전진 궤적을
 역순으로 따라 `reverse_dist`(0.20m)를 물러난다. 후방 LiDAR 관측은 요구하지 않는다.
 20cm의 연속 주행 기록이 없거나 odom이 오래되면 후진하지 않는다.

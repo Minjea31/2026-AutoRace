@@ -152,7 +152,7 @@ using DVec = std::vector<double>;
   X(D, i_limit, 0.1)                                               \
   X(D, fb_limit, 0.30)                                             \
   X(D, steer_gain, 1.0)                                            \
-  X(B, reverse_enable, true)                                       \
+  X(B, reverse_enable, false)                                      \
   X(D, reverse_wait, 1.0)                                          \
   X(D, reverse_speed, 0.10)                                        \
   X(D, reverse_dist, 0.20)                                         \

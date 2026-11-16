@@ -155,7 +155,11 @@ def test_pd_controller_converges_on_straight_path():
 def test_config_yaml_matches_params():
     cfg = os.path.join(os.path.dirname(__file__), '..', 'config', 'objavoid_v3.yaml')
     y = yaml.safe_load(open(cfg))['objavoid_v3_node']['ros__parameters']
-    for k, v in param_items():
+    # Runtime YAML deliberately tunes these three values; C++ separately checks
+    # the actual Python defaults. Keep all other parameters synchronized.
+    expected = dict(param_items())
+    expected.update(max_steering=0.5, margin_obstacle=0.03, start_obs_y=0.35)
+    for k, v in expected.items():
         assert k in y, k
         assert y[k] == pytest.approx(v) if not isinstance(v, bool) else y[k] == v, k
 
@@ -165,6 +169,7 @@ def test_reverse_escape_when_blocked():
     from autorace_objavoid_v3.mission import REVERSE, STOP, ObjAvoidCore
     p = Params()
     p.use_lane = False
+    p.reverse_enable = True
     p.reverse_max = 1
     core = ObjAvoidCore(p)
     ang = np.linspace(-1.9, 1.9, 400)

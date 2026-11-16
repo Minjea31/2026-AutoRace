@@ -103,10 +103,11 @@ TEST(Controller, ConvergesOnStraightPath)
 }
 
 // 앞이 도로 폭 전체로 막히면 경로 끝에서 서고, reverse_wait 뒤 후진해 reverse_dist 물러난다
-TEST(Mission, ReverseEscapeWhenBlocked)
+static void run_blocked_escape(bool reverse_enabled)
 {
   Params p;
   p.use_lane = false;
+  p.reverse_enable = reverse_enabled;
   p.reverse_max = 1;
   ObjAvoidCore core(p);
   const int N = 400;
@@ -140,12 +141,25 @@ TEST(Mission, ReverseEscapeWhenBlocked)
   }
   size_t i = 0;
   while (i < states.size() && states[i] != State::REVERSE) {++i;}
+  if(!reverse_enabled) {
+    EXPECT_EQ(i,states.size());
+    EXPECT_EQ(core.state,State::STOP);
+    for(size_t k=1;k<xs.size();++k) EXPECT_GE(xs[k],xs[k-1]);
+    EXPECT_EQ(YAML::Load(core.status_json())["recovery"]["policy"].as<std::string>(),"normal");
+    return;
+  }
   ASSERT_LT(i, states.size()) << "후진하지 않음";
   const double xmax = *std::max_element(xs.begin(), xs.begin() + i);
   const double xmin = *std::min_element(xs.begin() + i, xs.end());
   EXPECT_LT(xmax + p.body_front, wall_x + p.lidar_x);  // 벽에 닿기 전에 섬
   EXPECT_NEAR(xmax - xmin, p.reverse_dist, 0.03);
   EXPECT_EQ(core.state, State::STOP);
+}
+
+TEST(Mission, ReverseEscapeWhenBlocked) {run_blocked_escape(true);}
+TEST(Mission, NormalModeStopsWhenBlockedWithoutReversing) {
+  EXPECT_FALSE(Params().reverse_enable);
+  run_blocked_escape(false);
 }
 
 // 갈림길: 표지판 방향으로 섬 좌/우 갈래에 들어가 DONE.
@@ -1132,7 +1146,7 @@ TEST(Perception, LimoLongitudinalAndTransverseHaveExactDimensions) {
 
 TEST(Mission, LostPathRetracesTwentyCentimetersAndExcludesFailedCorridor) {
   for(double radius:{100000.,1.2}) {
-    Params p;p.use_lane=false;p.reverse_wait=0.2;p.reverse_dist=0.20;p.reverse_max=1;
+    Params p;p.use_lane=false;p.reverse_enable=true;p.reverse_wait=0.2;p.reverse_dist=0.20;p.reverse_max=1;
     ObjAvoidCore core(p);
     core.on_odom(0,0,0,0,0,0);ASSERT_TRUE(core.activate(0));
     double t=0,x=0,y=0,psi=0,v=0;
@@ -1195,7 +1209,7 @@ TEST(Mission, LostPathRetracesTwentyCentimetersAndExcludesFailedCorridor) {
   }
 }
 TEST(Mission, LostPathDoesNotBackWithoutDrivenHistory) {
-  Params p;p.use_lane=false;p.reverse_wait=0.1;ObjAvoidCore core(p);
+  Params p;p.use_lane=false;p.reverse_enable=true;p.reverse_wait=0.1;ObjAvoidCore core(p);
   core.on_odom(0,0,0,0,0,0);ASSERT_TRUE(core.activate(0));
   for(int i=1;i<=60;++i) {
     const double t=i*0.05;core.on_odom(t,0,0,0,0,0);
@@ -1206,7 +1220,7 @@ TEST(Mission, LostPathDoesNotBackWithoutDrivenHistory) {
 }
 
 TEST(Mission, RetraceStopsWhenOdometryIsStale) {
-  Params p;p.use_lane=false;p.reverse_wait=0.1;ObjAvoidCore core(p);
+  Params p;p.use_lane=false;p.reverse_enable=true;p.reverse_wait=0.1;ObjAvoidCore core(p);
   core.on_odom(0,0,0,0,0,0);ASSERT_TRUE(core.activate(0));
   for(int i=1;i<=30;++i) core.on_odom(i*0.05,i*0.015,0,0,0.3,0);
   double t=1.5;bool backing=false;

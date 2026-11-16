@@ -5,6 +5,7 @@
   ros2 launch autorace_objavoid_v3 objavoid_v3.launch.py profile:=real car:=04     # 04번: config/real_car04.yaml(바닥 투영·IMU 방향·v_max 0.2)
   ... observe:=true   # 관찰 모드: 수동 조종하며 경로만 확인(DONE·이탈 정지 없이 계속 계획)
   ... impl:=py        # Python 노드(기본은 C++ autorace_objavoid_v3_cpp, 같은 토픽·파라미터·설정 파일)
+  ... recovery_mode:=reverse  # 선택적 20cm 후진 복구. 기본 normal은 전진/정지만 수행
   ... command_topic:=/mission/objavoid/command_05   # MUX 연결(기존 objavoid_node를 끈 뒤). 기본은 V3 전용 /objavoid_v3/cmd
 """
 import os
@@ -14,6 +15,8 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch_ros.actions import Node
+
+RECOVERY_MODES = ('normal', 'reverse')
 
 
 def _lane_config(share, real):
@@ -30,6 +33,9 @@ def _lane_config(share, real):
 def _nodes(context):
     get = lambda k: context.launch_configurations[k]
     share = get_package_share_directory('autorace_objavoid_v3')
+    recovery_mode = get('recovery_mode')
+    if recovery_mode not in RECOVERY_MODES:
+        raise RuntimeError(f'Unknown recovery_mode: {recovery_mode}')
     real = get('profile') == 'real'
     sim_time = get('use_sim_time') if get('use_sim_time') else ('false' if real else 'true')
     lane_cfg = get('lane_config')
@@ -44,7 +50,8 @@ def _nodes(context):
         'scan_topic': get('scan_topic'), 'odom_topic': get('odom_topic'), 'lane_mask_topic': get('lane_mask_topic'),
         'auto_activate': get('auto_activate') == 'true',
         'lane_config': lane_cfg, 'use_lane': get('use_lane') == 'true',
-        'observe_mode': get('observe') == 'true'}]
+        'observe_mode': get('observe') == 'true',
+        'reverse_enable': recovery_mode == 'reverse'}]
     if get('v_max'):
         params.append({'v_max': float(get('v_max'))})
     for k in ('start_auto', 'start_after_crosswalk', 'start_legacy'):  # 자동 시작 켜기/끄기, 횡단보도 순서 조건(true|false, 빈 값 = 설정 파일)
@@ -73,6 +80,9 @@ def generate_launch_description():
     args = [('profile', 'sim'), ('output_prefix', ''), ('use_sim_time', ''), ('command_topic', '/objavoid_v3/cmd'), ('scan_topic', '/scan'),
             ('odom_topic', '/odom'), ('lane_mask_topic', '/lane_fusion/deep_mask'), ('auto_activate', 'false'), ('v_max', ''), ('use_lane', 'true'), ('car', ''), ('observe', 'false'),
             ('lane_config', ''), ('params_file', os.path.join(share, 'config', 'objavoid_v3.yaml')),
-            ('rviz', 'false'), ('impl', 'cpp'), ('start_auto', ''), ('start_after_crosswalk', ''), ('start_legacy', '')]
-    return LaunchDescription([DeclareLaunchArgument(k, default_value=v) for k, v in args] +
+            ('rviz', 'false'), ('impl', 'cpp'), ('recovery_mode', 'normal'),
+            ('start_auto', ''), ('start_after_crosswalk', ''), ('start_legacy', '')]
+    return LaunchDescription([DeclareLaunchArgument(k, default_value=v,
+        **({'choices': RECOVERY_MODES, 'description': 'normal: forward/stop | reverse: optional 20cm reverse recovery'}
+           if k == 'recovery_mode' else {})) for k, v in args] +
                              [OpaqueFunction(function=_nodes)])

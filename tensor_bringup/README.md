@@ -41,7 +41,7 @@ at least four available CPUs), nice 5, and one OpenMP/BLAS math thread. Sensor b
 uses matching CPU placement for EKF/IMU. This is process affinity, not exclusive
 CPU isolation; kernel threads and unrelated applications may still use that CPU.
 There is no global clock, power-mode or real-time scheduler change. EKF remains 30 Hz.
-There are no additional launch arguments.
+CPU placement needs no additional launch arguments.
 
 ```bash
 source /opt/ros/humble/setup.bash
@@ -58,6 +58,19 @@ source ~/2026-AutoRace/lane_ws/install/setup.bash                       # opencv
 ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=opencv   # lane_ws: lane_lite + lane PID
 ros2 launch tensor_bringup tensor_bringup.launch.py lane_mode:=deep     # deep mask -> lane_deep_lite (lane_ws logic) + lane PID
 ```
+Obstacle recovery has two explicit modes. `objavoid_mode:=normal` is the default
+and uses forward driving and stops only. `objavoid_mode:=reverse` enables the
+optional 20 cm reverse retrace when a route is blocked. It overrides the vehicle
+configuration and is forwarded as `recovery_mode` to the obstacle launch.
+
+```bash
+ros2 launch tensor_bringup tensor_bringup.launch.py lane_speed:=0.8 objavoid_mode:=normal
+ros2 launch tensor_bringup tensor_bringup.launch.py lane_speed:=0.8 objavoid_mode:=reverse
+```
+
+The C++ state topic reports the selection in `recovery.policy`. Restart the
+integrated launch to change modes.
+
 `lane_mode` picks the lane stack; readiness checks that mode's nodes
 (fusion: `lane_fusion_deep_mask`, `lane_fusion_node`, `lane_fusion_pid_controller` + `/lane_fusion/deep_mask`,
 deep: `lane_fusion_deep_mask`, `lane_deep_lite_node`, `lane_pid_controller` + `/lane_fusion/deep_mask`,

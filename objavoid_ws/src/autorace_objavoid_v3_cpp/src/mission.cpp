@@ -1434,7 +1434,8 @@ std::string ObjAvoidCore::status_json() const
   Lock g(mtx_);
   std::ostringstream o;
   o << "{\"state\":" << jstr(state_name(state)) << ",\"reason\":" << jstr(reason) << ",\"replans\":" << replans
-    << ",\"recovery\":{\"mode\":" << jstr(rev_?"retrace":"idle")
+    << ",\"recovery\":{\"policy\":" << jstr(p.reverse_enable?"reverse":"normal")
+    << ",\"mode\":" << jstr(rev_?"retrace":"idle")
     << ",\"distance\":" << jnum(rev_?rev_->travelled:0)
     << ",\"target\":" << jnum(p.reverse_dist)
     << ",\"excluded_regions\":" << failed_routes_.size() << "}"
