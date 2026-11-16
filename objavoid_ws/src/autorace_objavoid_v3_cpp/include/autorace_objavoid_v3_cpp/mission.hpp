@@ -81,6 +81,7 @@ public:
   std::optional<double> entry_stable;
   std::vector<XY> fresh_island_odom, fresh_view_odom;
   double island_fit_stamp=-1e9;
+  double island_sign_after=1e100;
   std::deque<std::pair<double,std::vector<XY>>> yellow_history;
   std::vector<XY> road_match_points, island_match_points, unmatched_points;
   OutlineFit outline_fit;

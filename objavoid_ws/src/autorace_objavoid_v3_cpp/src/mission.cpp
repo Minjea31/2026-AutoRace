@@ -158,7 +158,7 @@ void ObjAvoidCore::on_odom(double t, double x, double y, double yaw, double v, d
       retained_island_.pose={};island_mapper.reset();planner.island.pose.valid=false;searching=false;
       island_fit_stamp=-1e9;island_frame_at=-1e9;fresh_island_odom.clear();yellow_history.clear();
       pending_sign_.reset();
-      fork_side_=0;fork_votes_l=fork_votes_r=0;fork_locked=false;
+      island_sign_after=1e100;fork_side_=0;fork_votes_l=fork_votes_r=0;fork_locked=false;
       lane_command_at=-1e9;
     } else {
       return;
@@ -236,6 +236,7 @@ bool ObjAvoidCore::activate(double t, double s_shift, double yaw_offset, double 
   activated_t_ = t;
   occ_scan_.reset();
   // 갈림길: 매 시도 새로(표지판은 코드 실행 중 교체·설치됨)
+  island_sign_after=1e100;
   fork_side_ = 0;
   retained_island_.pose={};island_mapper.reset(); planner.island.pose.valid=false; planner.island_side=0;
   yellow_observed.clear();white_observed.clear();
@@ -268,7 +269,7 @@ bool ObjAvoidCore::activate(double t, double s_shift, double yaw_offset, double 
   reason = "first_plan";
   if(pending_sign_) {
     const auto cached=*pending_sign_;pending_sign_.reset();
-    if(t>=cached.first && t-cached.first<=p.fork_sign_cache_sec) on_sign(t,cached.second);
+    if(!p.fork_shape && t>=cached.first && t-cached.first<=p.fork_sign_cache_sec) on_sign(t,cached.second);
   }
   return true;
 }
@@ -505,12 +506,14 @@ std::optional<Veh> ObjAvoidCore::lane_update(Veh veh, double t)
       }
     }
   }
-  if(p.fork_shape && island_frame_at>island_fit_stamp) {
+  if(p.fork_shape && !fork_side_) island_mapper.rejection="waiting_lr_sign";
+  if(p.fork_shape && fork_side_ && island_frame_at>island_sign_after && island_frame_at>island_fit_stamp) {
     island_fit_stamp=island_frame_at;
     std::vector<XY> points;points.reserve(fresh_island_odom.size());
-    for(const auto & q:fresh_island_odom) {double s,d;frame->to_road(q.x,q.y,s,d);points.push_back({s,d});}
+    for(const auto & batch:yellow_history) if(batch.first>island_sign_after)
+      for(const auto & q:batch.second) {double s,d;frame->to_road(q.x,q.y,s,d);points.push_back({s,d});}
     const auto previous=planner.island.pose;
-    if(p.road_outline) points=island_match_points;
+    if(p.road_outline) {RoadOutline outline(p);points.erase(std::remove_if(points.begin(),points.end(),[&](const XY & q){return !outline.island_region(q);}),points.end());}
     int fresh_central=0;
     if(!yellow_history.empty()) for(const auto & q:yellow_history.back().second) {
       double rs,rd;frame->to_road(q.x,q.y,rs,rd);
@@ -619,7 +622,7 @@ bool ObjAvoidCore::reset_mapping(double t,double shift,double yaw_offset,double 
   const int side=fork_side_,left=fork_votes_l,right=fork_votes_r,restarts=mapping_restarts;
   const double speed=ctrl.v,steering=ctrl.delta;
   if(!activate(t,shift,yaw_offset,d_shift)) return false;
-  mapping_restarts=restarts+1;fork_side_=side;fork_votes_l=left;fork_votes_r=right;
+  mapping_restarts=restarts+1;island_sign_after=side?t:1e100;fork_side_=side;fork_votes_l=left;fork_votes_r=right;
   planner.island_side=side;fork_replan_=true;ctrl.v=speed;ctrl.delta=steering;proj.reset();
   return true;
 }
@@ -713,31 +716,9 @@ bool ObjAvoidCore::process_scan(double stamp, const std::vector<float> & ranges,
   if (rev_) {return true;}                   // 후진 중에는 인지만 갱신
   if(island_mapper.shape.pose.confirmed) retained_island_=island_mapper.shape;
   const auto mapped_island=navigation_island();
-  const double fork_reference=mapped_island.pose.valid?mapped_island.pose.s:section_end0_;
-  const bool near_fork=p.fork_shape && p.fork_enable && veh->s+p.body_front>=fork_reference-1.0;
-  searching=near_fork && (fork_side_==0 || !mapped_island.pose.confirmed);
   planner.island=mapped_island;planner.island_side=fork_side_;
-  if(searching) {
-    const auto pos=pose_at(t_now);
-    if(search_started<0) search_started=t_now;
-    if(pos) {
-      if(search_last) search_distance+=std::hypot(pos->x-search_last->x,pos->y-search_last->y);
-      search_last=XY{pos->x,pos->y};
-    }
-    const bool fresh=t_now-island_frame_at<0.5;
-    const bool exhausted=t_now-search_started>=p.fork_search_timeout || search_distance>=p.fork_search_distance;
-    if(exhausted || !fresh || !mapped_island.pose.valid) {
-      path_.reset();reason=exhausted?"search_limit":(!fresh?"island_image_stale":"island_unlocalized");
-    } else if(t_now-search_plan_at>=0.1) {
-      const auto & ip=mapped_island.pose;
-      path_=planner.observe(veh->s,veh->d,veh->psi,ctrl.delta,ip.s,ip.d,plan_boxes(),*grid,t_now);
-      search_plan_at=t_now;
-      if(!path_) reason="search_blocked";
-    }
-  } else {
-    search_started=-1;search_distance=0;search_last.reset();
-    maybe_replan(*veh,t_now);
-  }
+  searching=false;search_started=-1;search_distance=0;search_last.reset();
+  maybe_replan(*veh,t_now);
 
   if (path_) {
     verified_s = planner.verified_until(*path_, veh->s, *grid, ymap ? boundary() : nullptr);
@@ -986,7 +967,7 @@ bool ObjAvoidCore::control(double t, double dt, double & v_out, double & steer_o
   } else if (p.fork_shape && veh->s+p.body_front>=section_end0_-1.0 && t-island_frame_at>0.5) {
     why="island_image_stale";
   } else if (!path) {
-    why = searching ? reason : "no_path";
+    why = "no_path";
   }
   if (why.empty()) {
     const double ey = ctrl.errors(*path, veh->s, veh->d, veh->psi).ey;
@@ -1064,14 +1045,14 @@ bool ObjAvoidCore::control(double t, double dt, double & v_out, double & steer_o
   }
   double v_cmd, delta;
   CtrlInfo info;
-  ctrl.step(*path, veh->s, veh->d, veh->psi, dt, searching ? p.fork_search_speed : p.v_max, std::isfinite(verified_s) ? verified_s : -1e9, v_cmd,
+  ctrl.step(*path, veh->s, veh->d, veh->psi, dt, p.v_max, std::isfinite(verified_s) ? verified_s : -1e9, v_cmd,
     delta, info);
   turn_diag(t);
   ey_.add(std::abs(info.ey));
   epsi_.add(std::abs(info.epsi));
   last_info = info;
   if (v_cmd > 0) {
-    set_state(State::RUN, searching ? "search_sign" : "tracking", t);
+    set_state(State::RUN, "tracking", t);
     stuck_since_.reset();
   } else if (!path->complete) {
     set_state(State::STOP, "path_blocked_ahead", t);  // 안전 경로가 앞에서 끊김 -> 끝에서 정지
@@ -1092,7 +1073,7 @@ bool ObjAvoidCore::control(double t, double dt, double & v_out, double & steer_o
 // ------------------------------------------------------------ 후진 탈출
 static bool is_stuck(const std::string & r)
 {
-  return r == "no_path" || r == "path_blocked_ahead" || r == "search_blocked" || r == "search_limit";
+  return r == "no_path" || r == "path_blocked_ahead";
 }
 
 bool ObjAvoidCore::maybe_start_reverse(double t, const std::optional<Veh> & veh)
@@ -1348,7 +1329,7 @@ void ObjAvoidCore::on_sign(double t, bool right)
       // 섬 위치 추정: 표지판을 결정한 순간 차 앞끝 + fork_sign_to_island
       if (const auto veh = vehicle(t)) {island_est_ = veh->s + p.body_front + p.fork_sign_to_island;}
     }
-    if(p.fork_shape) {fork_side_=side; planner.island_side=side;path_.reset();fork_replan_=true;
+    if(p.fork_shape) {if(!fork_side_) island_sign_after=t;fork_side_=side; planner.island_side=side;path_.reset();fork_replan_=true;
       if(navigation_island().pose.confirmed) apply_fork(side);
     } else if (island_known()) {apply_fork(side);}
   }

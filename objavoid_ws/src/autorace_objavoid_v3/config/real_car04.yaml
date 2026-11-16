@@ -1,6 +1,7 @@
 # 04번 실차 덮어쓰기(launch car:=04). 근거: 메모 car-04 / objavoid_test real_car04.yaml(2026-11-13 bag 분석)
 objavoid_v3_node:
   ros__parameters:
+    w_dkappa: 0.002
     obstacle_fixed_size: true
     obstacle_min_length: 0.322
     obstacle_min_width: 0.22

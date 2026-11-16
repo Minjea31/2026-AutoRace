@@ -935,12 +935,16 @@ TEST(Island, WarmCandidateAvoidsRepeatingGlobalSearch) {
   ASSERT_TRUE(mapper.update(pts,0));EXPECT_LE(mapper.evaluations,27u);EXPECT_LT(mapper.evaluations,first);
   ASSERT_TRUE(mapper.update(pts,0));EXPECT_TRUE(mapper.shape.pose.confirmed);
 }
-TEST(Mission, ConfirmedYoloEventIsCachedAndSelectsRequestedLatticeSide) {
+TEST(Mission, FreshYoloEventAfterActivationSelectsRequestedLatticeSide) {
   for(bool right:{false,true}) {
     Params p;p.use_lane=false;p.fork_shape=true;p.fork_sign_min=1;
     p.boundary_s={-1,8};p.boundary_left={0.77,0.77};p.boundary_right={-0.77,-0.77};
     ObjAvoidCore core(p);core.on_sign(0.95,right);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));
+    EXPECT_EQ(core.fork_side(),0);
+    EXPECT_GT(core.island_sign_after,1e90);
+    core.on_sign(1.01,right);
     EXPECT_EQ(core.fork_side(),right?-1:1);
+    EXPECT_DOUBLE_EQ(core.island_sign_after,1.01);
     core.island_mapper.shape.pose={2,0.02,0.06,0,3,true,true};
     core.on_sign(1,right);core.island_frame_at=1;
     // Trigger the pending branch update by changing the command before entering.
@@ -1233,4 +1237,17 @@ TEST(Mission, RetraceStopsWhenOdometryIsStale) {
   ASSERT_TRUE(backing);
   double v=-1,steer=0;core.control(t+p.odom_timeout+0.1,0.05,v,steer);
   EXPECT_DOUBLE_EQ(v,0);EXPECT_EQ(core.state,State::STOP);EXPECT_EQ(core.reason,"odom_stale");
+}
+
+TEST(Mission, NearForkWithoutSignOrIslandDoesNotEnterSearchLimit) {
+  Params p;p.use_lane=false;p.fork_shape=true;p.section_end=0.5;
+  p.boundary_s={-1,8};p.boundary_left={0.77,0.77};p.boundary_right={-0.77,-0.77};
+  ObjAvoidCore core(p);core.on_odom(0,0,0,0,0,0);ASSERT_TRUE(core.activate(0));
+  for(double t:{0.0,7.0}) {
+    core.on_odom(t,0,0,0,0,0);
+    core.search_started=0;core.search_distance=2;
+    ASSERT_TRUE(core.process_scan(t,std::vector<float>(720,8),-M_PI,2*M_PI/720,t));
+    EXPECT_FALSE(core.searching);EXPECT_EQ(core.reason=="search_limit",false);
+    EXPECT_DOUBLE_EQ(core.search_distance,0);EXPECT_TRUE(core.path_);
+  }
 }

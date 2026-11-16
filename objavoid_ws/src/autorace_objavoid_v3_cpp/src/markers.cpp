@@ -274,11 +274,6 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
       sh.pose.confirmed?std::array<double,4>{0.6,0.3,1,1}:std::array<double,4>{0.8,0.8,0.8,1});
     for(const auto & q:sh.vertices()) polygon.points.push_back(pt(f,q.x,q.y));
     polygon.points.push_back(polygon.points.front());arr.markers.push_back(polygon);
-    if(core.searching && core.path_) {
-      auto search=mk("fork_observation",0,Marker::LINE_STRIP,stamp,{1,0.65,0,1},{0.045,0,0});
-      for(size_t i=0;i<core.path_->s.size();++i) search.points.push_back(pt(f,core.path_->s[i],core.path_->d[i]));
-      arr.markers.push_back(search);
-    }
     const int side=core.fork_side();
     if(side) {
       auto goal=mk("fork_goal",0,Marker::SPHERE,stamp,{0.3,1,0.5,1},{0.1,0.1,0.1});

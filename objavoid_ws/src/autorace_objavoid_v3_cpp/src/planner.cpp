@@ -316,8 +316,6 @@ PathPtr Planner::plan_impl(const PlanStart & start, const std::vector<Box> & box
     parent[j].resize(L[j].size());
     for (const Node & nd : L[j]) {seen_cost[j].push_back(unknown_cost(grid, nd.s, nd.d));}
   }
-  const auto [rl, rr] = plan_radius(p);
-  const double steer_rate_lim = p.plan_steer_rate / std::max(p.plan_steer_speed, 0.05);
   static const char * kChecks[] = {"curvature", "steer_rate", "heading", "obstacle", "boundary"};
   for (const char * c : kChecks) {last.rejected[c] = 0;}
 
@@ -354,7 +352,7 @@ PathPtr Planner::plan_impl(const PlanStart & start, const std::vector<Box> & box
             g.psi[q] = std::atan(g.d1[q]);
             g.k[q] = g.d2[q] / std::pow(1 + g.d1[q] * g.d1[q], 1.5);
           }
-          bool ok_c = true, ok_r = true, ok_h = true, ok_o = true, ok_b = true;
+          bool ok_o = true, ok_b = true;
           double cost = 0.0;
           for (int q = 0; q < n; ++q) {
             // np.gradient(edge_order=1): 끝은 한쪽 차분, 안쪽은 중앙 차분
@@ -370,13 +368,8 @@ PathPtr Planner::plan_impl(const PlanStart & start, const std::vector<Box> & box
             const double ramp = std::clamp(travel / 0.3, 0.2, 1.0);
             double need_o, need_b;
             recovery_need(travel, ramp, ego_.first, ego_.second, need_o, need_b);
-            const bool relax = travel < p.start_relax;
+            // Kinematics remain soft costs; only collision checks reject candidates.
             const double kq = g.k[q];
-            if (!((kq <= 1.0 / rl && kq >= -1.0 / rr) || (relax && std::abs(kq) <= 1.0 / p.relax_min_radius))) {
-              ok_c = false;
-            }
-            if (!(std::abs(ddelta) <= steer_rate_lim || relax)) {ok_r = false;}
-            if (!(std::abs(g.psi[q]) <= p.max_heading || relax)) {ok_h = false;}
             if (!(g.c[q] >= need_o)) {ok_o = false;}
             if (!(g.b[q] >= need_b)) {ok_b = false;}
             double cq = p.w_lane * std::pow(g.d[q] - desired_d(S[q]), 2) + p.w_kappa * kq * kq + p.w_dkappa * dk * dk +
@@ -384,13 +377,10 @@ PathPtr Planner::plan_impl(const PlanStart & start, const std::vector<Box> & box
             if (std::isfinite(dprev[q])) {cq += w_cons * std::pow(g.d[q] - dprev[q], 2);}
             cost += cq * w[q];
           }
-          last.rejected["curvature"] += !ok_c;
-          last.rejected["steer_rate"] += !ok_r;
-          last.rejected["heading"] += !ok_h;
           last.rejected["obstacle"] += !ok_o;
           last.rejected["boundary"] += !ok_b;
           ++last.edges;
-          const bool ok = ok_c && ok_r && ok_h && ok_o && ok_b;
+          const bool ok = ok_o && ok_b;
           if (!ok) {continue;}
           ++last.feasible;
           if (last.cand.size() < 40) {
