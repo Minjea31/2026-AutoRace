@@ -73,7 +73,7 @@ class SlowNode(Node):
         self.last_mode = None
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                          durability=DurabilityPolicy.VOLATILE)
-        self.command_pub = self.create_publisher(AckermannDriveStamped, '/mission/slow/command_08', qos)
+        self.command_pub = self.create_publisher(AckermannDriveStamped, '/mission/slow/command_04', qos)
         self.lane_sub = self.create_subscription(AckermannDriveStamped, '/mission/lane', self.on_lane, qos)
         self.sign_subs = [self.create_subscription(Bool, topic, partial(self.on_sign, kind), qos)
                           for kind, topic in (('slow', '/yolo/slow_sign'), ('bump', '/yolo/bump_sign'))]

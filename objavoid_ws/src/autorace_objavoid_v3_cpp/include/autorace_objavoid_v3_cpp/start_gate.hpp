@@ -25,6 +25,54 @@ struct GateResult
 // white: 흰색 바닥 점, boxes: LiDAR 검출 박스(차 기준, 실측 폭 start_obs_min_width 미만은 호출 전에 제외)
 GateResult eval_start_gate(const std::vector<XY> & white, const std::vector<Box> & boxes, const Params & p);
 
+struct EntranceResult {
+  bool ok=false, left=false, right=false;
+  double x=0, center=0, yaw=0;
+  int support=0;
+};
+// Narrow (~0.50m) -> diagonal widening -> wide (~1.54m) yellow boundary.
+EntranceResult eval_entrance_gate(const std::vector<XY> & yellow, bool dash_pair, const Params & p);
+
+// A sighting opens one fixed window; continuous visibility never extends its deadline.
+class EntranceWindow {
+public:
+  double deadline=-1e9, last_time=-1e9;
+  bool seen=false;
+  bool armed(double t) const {return t>=last_time && t<=deadline;}
+  void reset() {deadline=last_time=-1e9;seen=false;}
+  bool update(double t,bool detected,int obstacles,double seconds=5.0,int required=2) {
+    if(t<last_time) reset();
+    last_time=t;
+    if(detected && !seen && !armed(t)) deadline=t+seconds;
+    seen=detected;
+    return armed(t) && obstacles>=required;
+  }
+};
+
+// Detect a new entrance episode, not repeated frames of the same entrance.
+class EntranceReentry {
+public:
+  double last_reset=-1e9,absent_since=-1,last_time=-1e9;
+  bool latched=false;int hits=0;EntranceResult previous;
+  void note_start(double t) {last_reset=t;last_time=t;latched=true;hits=0;absent_since=-1;previous={};}
+  bool update(double t,const EntranceResult & result,bool white_line,int confirm=3) {
+    if(t<last_time) note_start(t);
+    last_time=t;
+    if(!result.ok) {
+      hits=0;previous={};if(absent_since<0) absent_since=t;
+      if(t-absent_since>=1.0) latched=false;
+      return false;
+    }
+    absent_since=-1;
+    const bool consistent=previous.ok && std::abs(previous.x-result.x)<0.2 &&
+      std::abs(previous.center-result.center)<0.15 && std::abs(previous.yaw-result.yaw)<0.15;
+    hits=consistent?hits+1:1;previous=result;
+    if(!white_line) {hits=0;previous={};return false;}
+    if(latched || t-last_reset<5.0 || hits<confirm) return false;
+    note_start(t);return true;
+  }
+};
+
 // cmd_emulate_calibration: 센서 드라이버 보정이 꺼져 있어도 보정 켰을 때와 같은 서보 값이 되도록 중심 조향각 변환
 double emulate_calibration(double delta, const Params & p);
 

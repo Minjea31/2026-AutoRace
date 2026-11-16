@@ -48,7 +48,7 @@ PyTorch와 Ultralytics는 실제 노드를 실행하는 Python 환경에 설치�
 | bump | 3800 |
 | parking | 2000 |
 | crosswalk | 3200 |
-| left / right | 1200 (A/B 글자 판독도 통과해야 함, 2026-11-10 3400→2000→1200) |
+| left / right | 500 (원본 영상 박스 면적, confidence 0.65 이상) |
 
 현재 기본 모델은 제공된 `best.pt`에서 변환한 TensorRT **`best.engine`**입니다. 입력은 고정 `(1,3,640,640)`, batch 1이며 내부 FP16 최적화와 FP32 입출력을 사용합니다. 목표 출력은 10Hz입니다. `best.pt`와 `best.onnx`도 함께 보관합니다. 엔진은 Jetson Orin / TensorRT 10.3에서 생성했으며 다른 GPU·TensorRT 환경에서는 대상 장치에서 다시 빌드해야 합니다.
 
@@ -135,9 +135,9 @@ Detection: class=parking; output_topic=/yolo/parking_sign; confidence=0.950; pub
 ## A/B로 좌·우 방향 결정
 
 A/B는 YOLO 클래스로만 정합니다(OCR 없음, 2026-11-10 제거). `left`=A → `/yolo/LR_sign=False`,
-`right`=B → `True`. 다른 클래스와 같이 confidence 0.65 이상, **면적 1000px² 이상**, 연속 2프레임
+`right`=B → `True`. 다른 클래스와 같이 confidence 0.65 이상, **면적 500px² 이상**, 연속 2프레임
 확인을 거칩니다. 같은 프레임에 좌·우가 모두 확정되면 방향 발행을 생략합니다.
-면적은 3400px²이면 섬 약 0.7 m 앞에서야 확정돼 차로 변경이 늦어 1000px²로 낮췄습니다.
+먼 거리에서 좌우 방향을 먼저 확보하도록 면적 기준을 500px²로 낮췄습니다.
 
 `/yolo/LR_sign`을 발행할 때마다 확정한 bbox를 `/yolo/LR_detail`(`Float32MultiArray`)로 함께 보냅니다:
 `[right(1)/left(0), 면적px², 가로, 세로, YOLO confidence, x0, y0, x1, y1, stamp_sec, stamp_nanosec]`

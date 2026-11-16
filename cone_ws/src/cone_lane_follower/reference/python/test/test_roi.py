@@ -145,7 +145,7 @@ def test_dds_tf_markers_empty_scan_failure_and_dynamic_outline(harness):
     until(lambda: len(points) > count)
     assert points[-1].action == Marker.DELETE
     topics = {name for name, _ in roi.get_publisher_names_and_types_by_node(roi.get_name(), '/')}
-    assert {name for name in topics if 'command' in name or 'cmd_vel' in name} == {'/mission/cone/command_05'}
+    assert {name for name in topics if 'command' in name or 'cmd_vel' in name} == {'/mission/cone/command_06'}
 
 
 def test_missing_tf_does_not_publish_untransformed_points(harness):
@@ -964,7 +964,7 @@ def test_ackermann_command_dds_delivery(harness):
     roi, probe, _, _, _, until = harness
     received = []
     subscription = probe.create_subscription(AckermannDriveStamped,
-        '/mission/cone/command_05', received.append, 1)
+        '/mission/cone/command_06', received.append, 1)
     until(lambda: roi.command_pub.get_subscription_count() == 1)
     roi.mission_cone = True
     roi.center_path = [(.1, -.1, 0.), (.8, -.1, 0.)]

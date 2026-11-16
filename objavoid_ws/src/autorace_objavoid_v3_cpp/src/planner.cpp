@@ -57,10 +57,10 @@ double boundary_clearance(double s, double d, double psi, const Boundary & b, co
 
 // d(s) 5차: 시작 (d0, d0', d0''), 끝 (d1, 0, 0). tau 표본마다 (d, d', d'')
 static void quintic(double d0, double v0, double a0, double d1, double T, const std::vector<double> & tau,
-  double * d, double * dd, double * ddd)
+  double * d, double * dd, double * ddd, double final_slope=0.0)
 {
   const double A = d1 - d0 - v0 * T - 0.5 * a0 * T * T;
-  const double B = -v0 * T - a0 * T * T;
+  const double B = (final_slope-v0) * T - a0 * T * T;
   const double C = -a0 * T * T;
   const double c3 = 10 * A - 4 * B + 0.5 * C;
   const double c4 = -15 * A + 7 * B - C;
@@ -99,7 +99,22 @@ void Planner::free_intervals(double sk, const std::vector<Obs> & obs, std::vecto
     rmax = std::max(rmax, r);
     lmin = std::min(lmin, l);
   }
-  const double lo = rmax + wh + p.margin_boundary, hi = lmin - wh - p.margin_boundary;
+  double lo = rmax + wh + p.margin_boundary, hi = lmin - wh - p.margin_boundary;
+  if (p.fork_shape && island.pose.valid) {
+    const auto poly=island.vertices(); double low=kInf,high=-kInf;
+    const double sa=sk-p.body_rear, sb=sk+p.body_front;
+    auto add=[&](double d) {low=std::min(low,d); high=std::max(high,d);};
+    for(size_t i=0;i<6;++i) {
+      const auto a=poly[i],b=poly[(i+1)%6];
+      if(a.x>=sa && a.x<=sb) add(a.y);
+      for(double edge:{sa,sb}) if(std::abs(b.x-a.x)>1e-9) {
+        const double t=(edge-a.x)/(b.x-a.x); if(t>=0 && t<=1) add(a.y+t*(b.y-a.y));
+      }
+    }
+    const double margin=p.margin_obstacle+p.fork_shape_margin;
+    if(low<=high && island_side>0) lo=std::max(lo,high+wh+margin);
+    if(low<=high && island_side<0) hi=std::min(hi,low-wh-margin);
+  }
   if (hi < lo) {return;}
   std::vector<std::pair<double, double>> blocked;
   const double m = p.margin_obstacle;
@@ -137,7 +152,8 @@ std::vector<double> Planner::nodes_for(double sk, const std::vector<std::pair<do
     for (double lc : p.lane_centers) {
       if (a <= lc && lc <= b) {pts.push_back({lc, 1});}
     }
-    if (a <= p.home_d && p.home_d <= b) {pts.push_back({p.home_d, 1});}
+    const double home=desired_d(sk);
+    if (a <= home && home <= b) {pts.push_back({home, 1});}
     if (prev != nullptr) {
       const double dp = prev->d_at(sk);
       if (std::isfinite(dp) && a <= dp && dp <= b) {pts.push_back({dp, -1});}
@@ -232,7 +248,28 @@ struct Node
 };
 }  // namespace
 
-PathPtr Planner::plan(const PlanStart & start, const std::vector<Box> & boxes, const VisibilityGrid * grid,
+PathPtr Planner::plan(const PlanStart & start,const std::vector<Box> & boxes,const VisibilityGrid * grid,
+  const Path * prev,double w_cons,double stamp)
+{
+  const double preferred=std::max(p_.margin_obstacle,p_.preferred_obstacle_clearance);
+  if(preferred<=p_.margin_obstacle+1e-9 || (boxes.empty()&&!island.pose.valid))
+    return plan_impl(start,boxes,grid,prev,w_cons,stamp);
+  Params comfort=p_;const double extra=preferred-comfort.margin_obstacle;
+  comfort.margin_obstacle=preferred;comfort.fork_shape_margin=std::max(0.0,comfort.fork_shape_margin-extra);
+  Planner trial(comfort,boundary_);trial.island=island;trial.island_side=island_side;
+  const auto roomy=trial.plan_impl(start,boxes,grid,prev,w_cons,stamp);
+  auto select_roomy=[&]() {
+    last=trial.last;last_ego_clear=trial.last_ego_clear;has_ego_clear=trial.has_ego_clear;
+    boxes_=trial.boxes_;ego_=trial.ego_;return roomy;
+  };
+  if(roomy && roomy->complete) return select_roomy();
+  const auto baseline=plan_impl(start,boxes,grid,prev,w_cons,stamp);
+  if(roomy && (!baseline || (!baseline->complete&&roomy->end_s()>=baseline->end_s()-0.01))) return select_roomy();
+  last.clearance_fallback=true;
+  return baseline;
+}
+
+PathPtr Planner::plan_impl(const PlanStart & start, const std::vector<Box> & boxes, const VisibilityGrid * grid,
   const Path * prev, double w_cons, double stamp)
 {
   const Params & p = p_;
@@ -245,12 +282,12 @@ PathPtr Planner::plan(const PlanStart & start, const std::vector<Box> & boxes, c
   }
   const std::vector<Obs> obs = obstacle_array(near);
   const double psi0 = std::atan(v0);
-  ego_ = {body_clearance(s0, d0, psi0, obs, p), boundary_clearance(s0, d0, psi0, *boundary_, p)};
+  ego_ = {clearance(s0, d0, psi0, obs, p), boundary_clearance(s0, d0, psi0, *boundary_, p)};
   last_ego_clear = ego_;
   has_ego_clear = true;
   double s_end;
   const std::vector<double> sts = stations(s0, obs, s_end);
-  last = PlanDiag();
+  last = PlanDiag();last.clearance_margin=p.margin_obstacle;
   last.stations = sts;
   std::vector<std::vector<double>> layer_nodes;
   for (double sk : sts) {
@@ -267,7 +304,7 @@ PathPtr Planner::plan(const PlanStart & start, const std::vector<Box> & boxes, c
   std::vector<std::vector<Node>> L(NL);
   L[0] = {{s0, d0, v0, a0}};
   for (size_t j = 1; j < NL; ++j) {
-    for (double d : layer_nodes[j - 1]) {L[j].push_back({sts[j - 1], d, 0.0, 0.0});}
+    for (double d : layer_nodes[j - 1]) {L[j].push_back({sts[j - 1], d, (p.fork_shape && island.pose.confirmed && island_side && sts[j-1]>=island.pose.s-1.2) ? (desired_d(sts[j-1]+0.025)-desired_d(sts[j-1]))/0.025 : 0.0, 0.0});}
   }
   std::vector<std::vector<double>> best(NL), seen_cost(NL);
   struct Parent {int i = -1, k = -1; Seg seg;};
@@ -311,7 +348,7 @@ PathPtr Planner::plan(const PlanStart & start, const std::vector<Box> & boxes, c
           Seg g;
           g.s = S;
           g.d.resize(n); g.d1.resize(n); g.d2.resize(n);
-          quintic(a.d, a.v, a.a, L[j][dst].d, T, tau, g.d.data(), g.d1.data(), g.d2.data());
+          quintic(a.d, a.v, a.a, L[j][dst].d, T, tau, g.d.data(), g.d1.data(), g.d2.data(), L[j][dst].v);
           g.psi.resize(n); g.k.resize(n); g.c.resize(n); g.dd.resize(n); g.b.resize(n);
           for (int q = 0; q < n; ++q) {
             g.psi[q] = std::atan(g.d1[q]);
@@ -327,7 +364,7 @@ PathPtr Planner::plan(const PlanStart & start, const std::vector<Box> & boxes, c
             }
             const double ddelta = p.wheelbase * dk / (1 + std::pow(p.wheelbase * g.k[q], 2));
             g.dd[q] = std::abs(ddelta);
-            g.c[q] = body_clearance(S[q], g.d[q], g.psi[q], obs, p);
+            g.c[q] = clearance(S[q], g.d[q], g.psi[q], obs, p);
             g.b[q] = boundary_clearance(S[q], g.d[q], g.psi[q], *boundary_, p);
             const double travel = S[q] - s0;
             const double ramp = std::clamp(travel / 0.3, 0.2, 1.0);
@@ -342,7 +379,7 @@ PathPtr Planner::plan(const PlanStart & start, const std::vector<Box> & boxes, c
             if (!(std::abs(g.psi[q]) <= p.max_heading || relax)) {ok_h = false;}
             if (!(g.c[q] >= need_o)) {ok_o = false;}
             if (!(g.b[q] >= need_b)) {ok_b = false;}
-            double cq = p.w_lane * std::pow(g.d[q] - p.home_d, 2) + p.w_kappa * kq * kq + p.w_dkappa * dk * dk +
+            double cq = p.w_lane * std::pow(g.d[q] - desired_d(S[q]), 2) + p.w_kappa * kq * kq + p.w_dkappa * dk * dk +
               p.w_clear * std::pow(std::max(0.0, p.clearance_soft - g.c[q]), 2);
             if (std::isfinite(dprev[q])) {cq += w_cons * std::pow(g.d[q] - dprev[q], 2);}
             cost += cq * w[q];
@@ -384,7 +421,7 @@ PathPtr Planner::plan(const PlanStart & start, const std::vector<Box> & boxes, c
   const bool complete = jl == static_cast<int>(NL) - 1;
   std::vector<double> term(L[jl].size());
   for (size_t k = 0; k < L[jl].size(); ++k) {
-    term[k] = best[jl][k] + p.w_terminal * std::pow(L[jl][k].d - p.home_d, 2);
+    term[k] = best[jl][k] + p.w_terminal * std::pow(L[jl][k].d - desired_d(L[jl][k].s), 2);
   }
   if (!complete && p.w_partial > 0) {
     for (size_t j = jl + 1; j < NL; ++j) {
@@ -451,7 +488,7 @@ PathPtr Planner::escape(double s0, double d0, double psi0, double delta0, const 
     if (b.s1 > s0 - p.body_rear - 0.3) {nb.push_back(b);}
   }
   const std::vector<Obs> obs = obstacle_array(nb);
-  const double eo = body_clearance(s0, d0, psi0, obs, p);
+  const double eo = clearance(s0, d0, psi0, obs, p);
   const double eb = boundary_clearance(s0, d0, psi0, *boundary_, p);
   const double psi_lim = std::max(1.35, p.max_heading + 0.1);
   struct Traj {std::vector<double> S, D, PSI, K, DD, C, B; int first; double free, score, cmin;};
@@ -483,7 +520,7 @@ PathPtr Planner::escape(double s0, double d0, double psi0, double delta0, const 
     t.C.resize(n); t.B.resize(n);
     t.first = n;
     for (int i = 0; i < n; ++i) {
-      t.C[i] = body_clearance(t.S[i], t.D[i], t.PSI[i], obs, p);
+      t.C[i] = clearance(t.S[i], t.D[i], t.PSI[i], obs, p);
       t.B[i] = boundary_clearance(t.S[i], t.D[i], t.PSI[i], *boundary_, p);
       const double travel = i * p.sample_ds;
       double need_o, need_b;
@@ -493,7 +530,7 @@ PathPtr Planner::escape(double s0, double d0, double psi0, double delta0, const 
       if (!ok) {t.first = i; break;}
     }
     for (int i = t.first; i < n; ++i) {  // 막힌 뒤 표본도 시각화·출력 일관성 위해 계산
-      t.C[i] = body_clearance(t.S[i], t.D[i], t.PSI[i], obs, p);
+      t.C[i] = clearance(t.S[i], t.D[i], t.PSI[i], obs, p);
       t.B[i] = boundary_clearance(t.S[i], t.D[i], t.PSI[i], *boundary_, p);
     }
     const int last_ok = std::max(t.first - 1, 0);
@@ -555,7 +592,7 @@ std::pair<double, double> Planner::path_clearance(const Path & path, double s_fr
   const std::vector<Obs> obs = obstacle_array(boxes);
   double wc = -kInf, wb = -kInf;
   for (size_t q = i; q < path.s.size(); ++q) {
-    const double c = body_clearance(path.s[q], path.d[q], path.psi[q], obs, p);
+    const double c = clearance(path.s[q], path.d[q], path.psi[q], obs, p);
     const double b = boundary_clearance(path.s[q], path.d[q], path.psi[q], *boundary_, p);
     const double ref_c = path.clear.empty() ? p.margin_obstacle : std::min(p.margin_obstacle, path.clear[q]);
     const double ref_b = path.bclear.empty() ? p.margin_boundary : std::min(p.margin_boundary, path.bclear[q]);
@@ -586,6 +623,72 @@ double Planner::verified_until(const Path & path, double s_from, const Visibilit
     if (!ok) {return s;}
   }
   return path.s.back();
+}
+
+double Planner::desired_d(double s) const {
+  if(p_.fork_shape && island.pose.confirmed && island_side) {
+    double right,left;boundary_->limits(s,right,left);
+    const double center=island.pose.d+std::tan(island.pose.yaw)*(s-island.pose.s);
+    const double half=island.width/(2*std::cos(island.pose.yaw));
+    const double target=island_side>0 ? (left+center+half)/2 : (right+center-half)/2;
+    // Begin the lattice's lateral transition before the island tip. Smoothstep
+    // has zero first/second derivatives at both ends of the transition.
+    const double u=std::clamp((s-(island.pose.s-1.2))/1.2,0.0,1.0);
+    const double blend=u*u*u*(10+u*(-15+6*u));
+    return p_.home_d+blend*(target-p_.home_d);
+  }
+  return p_.home_d;
+}
+
+double Planner::clearance(double s,double d,double psi,const std::vector<Obs> & obs,const Params & p) const {
+  double c=body_clearance(s,d,psi,obs,p);
+  if(p.fork_shape && island.pose.valid) {
+    c=std::min(c,island.clearance(s,d,psi,p)-p.fork_shape_margin);
+    const auto q=island.local(s,d);
+    if(island_side && q.x>=0 && q.x<=island.length && island_side*q.y<0) c=std::min(c,-0.01);
+  }
+  return c;
+}
+PathPtr Planner::observe(double s,double d,double psi,double delta,double ts,double td,
+  const std::vector<Box> & boxes,const VisibilityGrid & grid,double stamp) {
+  const auto obs=obstacle_array(boxes); const auto radii=plan_radius(p_);
+  double best=kInf; std::shared_ptr<Path> result;
+  const double initial=std::abs(wrap(std::atan2(td-d,ts-s)-psi));
+  for(int k=0;k<9;++k) {
+    const double want=-std::atan(p_.wheelbase/radii.second)+k/8.0*
+      (std::atan(p_.wheelbase/radii.first)+std::atan(p_.wheelbase/radii.second));
+    auto path=std::make_shared<Path>(); double x=s,y=d,a=psi,steer=delta; bool ok=true;
+    // Include stopping reserve beyond the commanded 0.4m segment.
+    const double reserve=p_.fork_search_speed*p_.fork_search_speed/(2*0.8)+p_.fork_search_speed*0.3+0.12;
+    for(double travel=0;travel<=p_.fork_search_step+reserve;travel+=0.02) {
+      if(std::abs(a)>1.3) {ok=false;break;}
+      const double c=clearance(x,y,a,obs,p_), b=boundary_clearance(x,y,a,*boundary_,p_);
+      if(c<p_.margin_obstacle || b<p_.margin_boundary) {ok=false;break;}
+      const double ca=std::cos(a),sn=std::sin(a);
+      for(double ex:{-p_.body_rear,0.0,p_.body_front}) for(double ey:{-p_.body_width/2,p_.body_width/2})
+        if(!grid.is_seen(x+ex*ca-ey*sn,y+ex*sn+ey*ca)) ok=false;
+      if(!ok) break;
+      if(travel<=p_.fork_search_step+1e-6) {
+        const double curv=std::tan(steer)/p_.wheelbase, v=std::tan(a);
+        path->s.push_back(x);path->d.push_back(y);path->psi.push_back(a);
+        path->d1.push_back(v);path->d2.push_back(curv*std::pow(1+v*v,1.5));
+        path->kappa.push_back(curv);path->clear.push_back(c);path->bclear.push_back(b);path->dsteer.push_back(0);
+      }
+      const double limit=p_.max_steering_rate*0.02/std::max(p_.fork_search_speed,0.05);
+      steer+=std::clamp(want-steer,-limit,limit);
+      const double next=a+0.02*std::tan(steer)/p_.wheelbase;
+      x+=0.02*std::cos((a+next)/2);y+=0.02*std::sin((a+next)/2);a=next;
+    }
+    if(!ok || path->s.size()<3) continue;
+    const size_t n=path->s.size()-1;
+    const double angle=std::abs(wrap(std::atan2(td-path->d[n],ts-path->s[n])-path->psi[n]));
+    // If a turn is needed, require actual improvement, not a straight approach phase.
+    if(initial>0.12 && angle>=initial-0.02) continue;
+    const double score=angle+0.08*std::abs(want-delta);
+    if(score<best) {best=score;result=path;}
+  }
+  if(result) {result->complete=false;result->stamp=stamp;result->cost=best;}
+  return result;
 }
 
 }  // namespace objavoid

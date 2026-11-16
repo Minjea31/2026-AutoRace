@@ -10,9 +10,9 @@ INPUTS = (
     ('crosswalk', '/mission/crosswalk/command_01'),
     ('signal', '/mission/signal/command_02'),
     ('parking', '/mission/parking/command_03'),
-    ('objavoid', '/mission/objavoid/command_04'),  # 04번 11-15: 장애물 V3를 콘보다 우선
-    ('cone', '/mission/cone/command_05'),
-    ('slow', '/mission/slow/command_08'),
+    ('slow', '/mission/slow/command_04'),
+    ('objavoid', '/mission/objavoid/command_05'),
+    ('cone', '/mission/cone/command_06'),
     ('lane', '/mission/lane'),
 )
 
@@ -94,8 +94,8 @@ class Arbitrator:
             reason = 'non-finite command'
         elif abs(steering_angle) >= math.pi / 2:
             reason = 'steering must be strictly between -pi/2 and pi/2'
-        elif speed < 0 and source != 'parking':
-            reason = 'reverse is allowed only for parking'
+        elif speed < 0 and source not in ('parking', 'objavoid'):
+            reason = 'reverse is allowed only for parking and objavoid'
         if reason:
             self.discard(source)
             return False, reason

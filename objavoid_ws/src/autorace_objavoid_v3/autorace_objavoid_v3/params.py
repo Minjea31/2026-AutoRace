@@ -6,6 +6,30 @@ from typing import List
 @dataclass
 class Params:
     # --- 차량 (simul/config/limo_pro.yaml) ---
+    start_entrance_window: float = 5.0
+    start_entrance_obstacles: int = 2
+    start_legacy: bool = True
+    start_entrance: bool = False
+    start_entrance_confirm: int = 3
+    fork_sign_cache_sec: float = 30.0
+    fork_goal_tolerance: float = 0.15
+    obstacle_reacquire_reset: bool = True
+    obstacle_reacquire_absence_sec: float = 1.0
+    obstacle_reacquire_confirm_scans: int = 2
+    preferred_obstacle_clearance: float = 0.10
+    road_outline: bool = False
+    road_outline_length: float = 6.665
+    road_outline_straight: float = 5.529
+    fork_shape: bool = False
+    fork_shape_length: float = 1.687
+    fork_shape_width: float = 0.5
+    fork_shape_margin: float = 0.05
+    fork_search_speed: float = 0.2
+    fork_search_distance: float = 1.2
+    fork_search_timeout: float = 6.0
+    fork_search_step: float = 0.4
+    fork_road_width: float = 1.54
+
     wheelbase: float = 0.200
     body_front: float = 0.161        # base_link -> 차체 앞끝
     body_rear: float = 0.161         # base_link -> 차체 뒤끝
@@ -156,7 +180,7 @@ class Params:
     reverse_enable: bool = True
     reverse_wait: float = 1.0        # 막혀서 정지한 뒤 이만큼 지나도 경로가 없으면 후진
     reverse_speed: float = 0.10
-    reverse_dist: float = 0.35       # 한 번에 물러나는 최대 거리(LiDAR가 뒤를 못 봄: 지나온 길 안에서만)
+    reverse_dist: float = 0.20       # 한 번에 물러나는 최대 거리(LiDAR가 뒤를 못 봄: 지나온 길 안에서만)
     reverse_psi: float = 0.5         # 앞머리를 빈 차로 쪽으로 이 각도까지 돌리고, 그 뒤는 조향을 펴고 물러남
     reverse_max: int = 3             # 같은 자리에서 최대 횟수(0.5 m 이상 전진하면 다시 셈)
     reverse_timeout: float = 6.0

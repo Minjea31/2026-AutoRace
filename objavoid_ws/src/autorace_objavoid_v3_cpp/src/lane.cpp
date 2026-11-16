@@ -20,7 +20,7 @@ static double ycfg(const YAML::Node & c, const char * k, double def)
 }
 
 GroundProjection::GroundProjection(const std::string & cfg_path, double mr, double ml,
-  const std::vector<double> & homography)
+  const std::vector<double> & homography, bool full_image)
 : max_range(mr), max_lateral(ml)
 {
   const YAML::Node root = YAML::LoadFile(cfg_path);
@@ -57,6 +57,7 @@ GroundProjection::GroundProjection(const std::string & cfg_path, double mr, doub
   hsv = {ycfg(c, "yellow_h_min", 15), ycfg(c, "yellow_h_max", 40), ycfg(c, "yellow_s_min", 80),
     ycfg(c, "yellow_v_min", 80)};
   white_hsv = {ycfg(c, "white_s_max", 70), ycfg(c, "white_v_min", 120)};
+  if(full_image) roi_={0,1,0,1};
   // 영상 ROI 전체(거리 max_range까지)를 관측 영역으로
   near = kInf;
   for (double x = 0.2; x < max_range; x += 0.03) {
@@ -133,7 +134,7 @@ std::vector<XY> GroundProjection::class_points(const cv::Mat & mask, const cv::M
       to_ground(u, v, x, y);
       x *= sx_;
       y *= sy_;
-      if (x >= near - 0.02 && x <= max_range && std::abs(y) <= max_lateral) {out.push_back({x, y});}
+      if (std::isfinite(x) && std::isfinite(y) && x >= std::max(0.05, near - 0.02) && x <= max_range && std::abs(y) <= max_lateral) {out.push_back({x, y});}
     }
   }
   return out;
@@ -160,7 +161,7 @@ std::vector<XY> GroundProjection::hsv_white_points(const cv::Mat & bgr, int step
       to_ground(u, v, x, y);
       x *= sx_;
       y *= sy_;
-      if (x >= near - 0.02 && x <= max_range && std::abs(y) <= max_lateral) {out.push_back({x, y});}
+      if (std::isfinite(x) && std::isfinite(y) && x >= std::max(0.05, near - 0.02) && x <= max_range && std::abs(y) <= max_lateral) {out.push_back({x, y});}
     }
   }
   return out;

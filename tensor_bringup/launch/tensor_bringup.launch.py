@@ -110,7 +110,7 @@ def _setup(context):
         return TimerAction(period=delay, actions=[group]) if delay else group
 
     # 장애물 회피 V3(objavoid_ws, C++): 비활성 동안 명령 없음. 흰 정지선+점선+장애물을 보면 스스로 켜져
-    # /mission/objavoid/command_04(MUX에서 lane보다 우선)로 주행, 갈림길 진입 후 DONE이면 명령을 멈춰 lane으로 넘어감.
+    # /mission/objavoid/command_05(MUX에서 lane보다 우선)로 주행, 갈림길 진입 후 DONE이면 명령을 멈춰 lane으로 넘어감.
     objavoid = []
     if C('objavoid').perform(context) == 'true':
         try:
@@ -121,7 +121,7 @@ def _setup(context):
         objavoid = [TimerAction(period=4., actions=[IncludeLaunchDescription(
             PythonLaunchDescriptionSource(objavoid_launch),
             launch_arguments={'profile': 'real', 'car': C('objavoid_car'),
-                              'command_topic': '/mission/objavoid/command_04'}.items(),
+                              'command_topic': '/mission/objavoid/command_05'}.items(),
         )])]
 
     mux = include('autorace_mux', 'mux.launch.py', {'output_topic': C('output_topic'), 'parking_guard_enabled':'true'})

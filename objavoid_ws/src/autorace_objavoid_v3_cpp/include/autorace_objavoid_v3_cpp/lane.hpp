@@ -21,17 +21,17 @@ class GroundProjection
 public:
   // cfg_path: lane.yaml. homography(9개, 모두 0이면 사용 안 함)
   GroundProjection(const std::string & cfg_path, double max_range, double max_lateral,
-    const std::vector<double> & homography);
+    const std::vector<double> & homography, bool full_image=false);
   void set_scale(double sx, double sy);
   // mask: 8UC1 (클래스), bgr: 마스크 표본 격자 크기로 맞춘 원본(비어 있으면 HSV 확인 안 함)
   std::vector<XY> class_points(const cv::Mat & mask, const cv::Mat & bgr, int cls, bool white, int step = 2) const;
   std::vector<XY> yellow_points(const cv::Mat & mask, const cv::Mat & bgr) const
   {
-    return class_points(mask, bgr, 1, false);
+    return class_points(mask, bgr, 1, false, 2);
   }
   std::vector<XY> white_points(const cv::Mat & mask, const cv::Mat & bgr) const
   {
-    return class_points(mask, bgr, 2, true);
+    return class_points(mask, bgr, 2, true, 2);
   }
 
   // 마스크 없이 원본 전체에서 HSV 흰색(white_hsv) 바닥 점(자동 시작 정지선·점선용)

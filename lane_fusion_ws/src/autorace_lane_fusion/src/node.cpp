@@ -281,9 +281,9 @@ private:
         ++captured, capture += capture_ms;
     }
     void log(const rclcpp::Logger &logger, double seconds, double network) const {
-      if (!frames)
+      if (!frames || seconds <= 0 || frames / seconds > 20.0)
         return;
-      RCLCPP_INFO(logger,
+      RCLCPP_WARN(logger,
                   "lane_fusion: %.1f Hz | valid %zu%% | deep used %zu%% (mean age %.0f ms, offered %zu%%) | "
                   "decode %.1f + CV %.1f ms | receive->publish %.1f ms (max %.1f) | capture->publish %s | "
                   "network latency %.0f ms",

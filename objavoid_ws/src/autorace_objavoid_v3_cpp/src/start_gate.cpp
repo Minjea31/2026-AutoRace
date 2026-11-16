@@ -133,6 +133,44 @@ GateResult eval_start_gate(const std::vector<XY> & white, const std::vector<Box>
   return g;
 }
 
+EntranceResult eval_entrance_gate(const std::vector<XY> & yellow,bool dash_pair,const Params & p) {
+  (void)dash_pair;  // A single yellow boundary corner now arms the separate obstacle window.
+  EntranceResult best;
+  std::vector<XY> pts;pts.reserve(128);
+  const size_t stride=std::max(size_t(1),yellow.size()/128);
+  for(size_t i=0;i<yellow.size() && pts.size()<128;i+=stride)
+    if(yellow[i].x>0.1 && yellow[i].x<2.0 && std::abs(yellow[i].y)<1.3) pts.push_back(yellow[i]);
+  if(pts.size()<12) return best;
+  const double narrow=p.start_lane_width/2, growth=(p.fork_road_width-p.start_lane_width)/2;
+  for(double yaw=-0.3;yaw<=0.301;yaw+=0.1) {
+    const double c=std::cos(yaw),sn=std::sin(yaw);
+    std::vector<XY> rotated;rotated.reserve(pts.size());
+    for(const auto & q:pts) rotated.push_back({c*q.x+sn*q.y,-sn*q.x+c*q.y});
+    for(double start=0.1;start<=1.201;start+=0.1) for(double length:{0.4,0.52,0.64})
+      for(double center=-0.3;center<=0.301;center+=0.1) {
+        int diagonal[2]={},straight[2]={};double dlo[2]={kInf,kInf},dhi[2]={-kInf,-kInf};
+        double slo[2]={kInf,kInf},shi[2]={-kInf,-kInf};int hits=0;
+        for(const auto & q:rotated) {
+          if(q.x<start-0.25 || q.x>start+length+0.45) continue;
+          const int side=q.y>=center?1:0;const double sign=side?1:-1;
+          const double prediction=center+sign*(narrow+growth*std::clamp((q.x-start)/length,0.0,1.0));
+          if(std::abs(q.y-prediction)>0.035) continue;
+          ++hits;
+          if(q.x>start+0.03 && q.x<start+length-0.03) {
+            ++diagonal[side];dlo[side]=std::min(dlo[side],q.x);dhi[side]=std::max(dhi[side],q.x);
+          } else if(q.x>=start+length) {
+            ++straight[side];slo[side]=std::min(slo[side],q.x);shi[side]=std::max(shi[side],q.x);
+          }
+        }
+        bool support[2];for(int k=0;k<2;++k) support[k]=diagonal[k]>=4 && straight[k]>=4 &&
+          dhi[k]-dlo[k]>0.12 && shi[k]-slo[k]>0.12;
+        const bool ok=support[0] || support[1];
+        if(ok && hits>best.support) best={true,support[1],support[0],start,center,yaw,hits};
+      }
+  }
+  return best;
+}
+
 double emulate_calibration(double delta, const Params & p)
 {
   if (!p.cmd_emulate_calibration || std::abs(delta) < 1e-6) {return delta;}

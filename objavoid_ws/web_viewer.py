@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
 from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy
 from sensor_msgs.msg import CompressedImage, LaserScan
 from visualization_msgs.msg import Marker, MarkerArray
@@ -58,9 +59,9 @@ const groups=[
  ['scan','LiDAR','#e8edf2'],['scan_detections','이번 검출','#33ff66'],
  ['obstacles','추적 장애물','#ff4b4b'],['gaps','통과 간격','#29e83a'],
  ['gap_nodes','간격 노드','#4774ff'],['candidates','후보 경로(통과 간선)','#66d9ff'],['path','선택 경로','#ff3399'],
- ['verified_end','관측 확인 끝','#ffff00'],['ego','차량','#5799ff'],['target','목표점','#4166ff'],['fork_island','갈림길 섬','#9955ff'],['fork_sign','표지판 받침','#00ccff'],
+ ['verified_end','관측 확인 끝','#ffff00'],['ego','차량','#5799ff'],['target','목표점','#4166ff'],['fork_island','갈림길 섬','#9955ff'],['road_outline','도로 외곽 도면','#33ccff'],['road_match_points','도로 매칭점','#33ccff'],['island_match_points','섬 후보점','#9955ff'],['unmatched_points','미분류점','#888888'],['fork_sign','표지판 받침','#00ccff'],['fork_observation','관측 회전','#ffa600'],['fork_goal','통로 진입 목표','#4dff80'],
  ['lane_boundary_observed','관측 경계','#ffd900'],['lane_boundary_prior','사전 경계','#888888'],
- ['lane_white_cells','흰 차선','#edf1ff'],['lane_yellow_cells','노란 차선','#ff8500'],
+ ['yellow_observed','노란 딥∩HSV 전체','#ffcc00'],['white_observed','흰 딥∩HSV 전체','#ffffff'],['lane_white_cells','누적 흰 차선','#edf1ff'],['lane_yellow_cells','노란 차선','#ff8500'],
  ['section_end','구간 끝','#ff4dff']];
 const enabled=Object.fromEntries(groups.map(([key])=>[key,true]));
 const canvas=document.getElementById('view'),ctx=canvas.getContext('2d');let data={},scale=120,cx=0,cy=0,rotation=Math.PI/2;
@@ -108,7 +109,7 @@ async function refresh(){try{const r=await fetch('/data',{cache:'no-store'});if(
  document.getElementById('speed').textContent=laneSpeed==null?'—':laneSpeed.toFixed(1);
  const candidateSegments=(data.markers||[]).filter(m=>m.ns==='candidates'&&m.type===5).reduce((n,m)=>n+Math.floor(m.points.length/2),0);
  for(const button of document.querySelectorAll('[data-service]')){const process=data.processes?.[button.dataset.service],state=process?.state;button.classList.toggle('active',button.dataset.action==='start'?state==='실행 중':state==='종료됨'||state==='미실행');button.classList.toggle('pending',state==='종료 중')}
- document.getElementById('detail').textContent=`후보 표시 선분: ${candidateSegments}개\n`;draw()}
+ const island=data.missions?.['/objavoid_v3/state']?.value?.island_mapping;document.getElementById('detail').textContent=`후보 표시 선분: ${candidateSegments}개\n`+`진입 후보: ${data.missions?.['/objavoid_v3/entrance_armed']?.value===true?'ON (5초)':'OFF'}\nobj 활성: ${data.missions?.['/objavoid_v3/active']?.value===true?'ON':'OFF'} · MUX 제어: ${data.missions?.['/objavoid_v3/has_control']?.value===true?'ON':'OFF'}\n`+(island?`섬: ${island.confirmed?'확정':island.valid?'추정 중':'미관측'} · ${island.searching?'표지판 관측 회전':'경로 추종'}\n관측 이동: ${(island.search_distance||0).toFixed(2)} m\n구간 끝→섬: ${island.section_offset_cm==null?"미확정":island.section_offset_cm.toFixed(1)+" cm"}\n섬 판정: ${island.rejection||"-"}\n도로/섬 후보점: ${data.missions?.["/objavoid_v3/state"]?.value?.road_mapping?.road_points||0} / ${data.missions?.["/objavoid_v3/state"]?.value?.road_mapping?.island_points||0}\n도로 정렬: ${island.road_aligned?"저장된 정렬 지도 사용":"사전 지도 사용 · 관측 매칭 대기"} · 잔차 ${data.missions?.["/objavoid_v3/state"]?.value?.road_mapping?.error==null?"—":(100*data.missions["/objavoid_v3/state"].value.road_mapping.error).toFixed(1)+" cm"}\nYOLO 방향: ${data.missions?.["/objavoid_v3/state"]?.value?.fork?.side||"none"} · lattice`: '');draw()}
  catch(e){document.getElementById('status').textContent='연결 끊김';}setTimeout(refresh,200)}
 document.querySelectorAll('[data-service]').forEach(button=>button.onclick=async()=>{const peers=[...document.querySelectorAll('[data-service]')].filter(b=>b.dataset.service===button.dataset.service);peers.forEach(b=>{b.disabled=true;b.classList.remove('failed')});button.classList.add('pending');try{const r=await fetch('/control',{method:'POST',headers:{'Content-Type':'application/json','X-Viewer-Control':'1'},body:JSON.stringify({service:button.dataset.service,action:button.dataset.action})});const result=await r.json();if(!r.ok||result.error){button.classList.add('failed');button.title=result.message||'요청 실패'}}catch(e){button.classList.add('failed');button.title='연결 실패'}finally{peers.forEach(b=>b.disabled=false);button.classList.remove('pending')}});
 let laneSpeed=null;
@@ -118,7 +119,7 @@ document.getElementById('speed-down').onclick=()=>speedStep(-0.1);document.getEl
 async function bagAction(kind,name){try{await action('bag',kind,{name,...(kind==='start'?{topics:[...selectedTopics]}:{})});document.getElementById('bag-status').textContent='';await loadBags()}catch(e){document.getElementById('bag-status').textContent=e.message}}
 document.getElementById('bag-start').onclick=()=>bagAction('start',document.getElementById('bag-name').value.trim());document.getElementById('bag-stop').onclick=()=>bagAction('stop','');
 const selectedTopics=new Set();let knownTopics=[],recording=false,topicsLoaded=false;
-const preferredTopics=new Set(['/camera/color/image_raw/compressed','/scan','/odom','/tf','/tf_static','/objavoid_v3/state','/objavoid_v3/markers','/objavoid_v3/done','/mission/objavoid/command_04','/mux/active_source','/cmd_vel','/rosout']);
+const preferredTopics=new Set(['/camera/color/image_raw/compressed','/scan','/odom','/tf','/tf_static','/objavoid_v3/state','/objavoid_v3/markers','/objavoid_v3/done','/mission/objavoid/command_05','/mux/active_source','/cmd_vel','/rosout']);
 function renderTopics(){const list=document.getElementById('topic-list');list.replaceChildren();for(const item of knownTopics){const label=document.createElement('label'),check=document.createElement('input'),text=document.createElement('span');check.type='checkbox';check.checked=selectedTopics.has(item.name);check.disabled=recording;check.onchange=()=>{check.checked?selectedTopics.add(item.name):selectedTopics.delete(item.name);updateTopicCount()};text.textContent=item.name;label.title=item.types.join(', ');label.append(check,text);list.append(label)}updateTopicCount();for(const id of ['topics-refresh','topics-all','topics-none'])document.getElementById(id).disabled=recording}
 function updateTopicCount(){document.getElementById('topic-count').textContent=selectedTopics.size+'개';document.getElementById('bag-start').disabled=recording||selectedTopics.size===0}
 async function loadTopics(){try{const r=await fetch('/topics',{cache:'no-store'});if(!r.ok)throw Error('토픽 목록 수신 실패');const result=await r.json();knownTopics=result.topics;const available=new Set(knownTopics.map(t=>t.name));for(const topic of selectedTopics)if(!available.has(topic))selectedTopics.delete(topic);if(!topicsLoaded&&knownTopics.length){for(const topic of preferredTopics)if(available.has(topic))selectedTopics.add(topic);topicsLoaded=true}renderTopics();document.getElementById('topic-error').textContent=knownTopics.length?'':'Sensor·Tensor 시작 후 목록을 갱신하세요.'}catch(e){document.getElementById('topic-error').textContent=e.message}}
@@ -231,6 +232,7 @@ class Viewer(Node):
         self.missions = {}
         self.status_subscriptions = []
         for topic, kind, latched in (("/objavoid_v3/state", String, False), ("/objavoid_v3/done", Bool, True),
+                                     ("/objavoid_v3/active", Bool, True), ("/objavoid_v3/entrance_armed", Bool, True), ("/objavoid_v3/has_control", Bool, True),
                                      ("/parking/status", String, False), ("/parking/control_state", String, False),
                                      ("/parking/active", Bool, False), ("/start_crosswalk", Bool, False),
                                      ("/start_signal", Bool, False), ("/slow/white_roi/detected", Bool, False)):
@@ -357,7 +359,7 @@ class Viewer(Node):
         if topic == '/objavoid_v3/state':
             try:
                 state = json.loads(value)
-                value = json.dumps({k: state[k] for k in ('state', 'reason', 'start_gate') if k in state}, ensure_ascii=False)
+                value = {k: state[k] for k in ('state', 'reason', 'start_gate', 'road_mapping', 'island_mapping', 'fork', 'clearance_policy') if k in state}
             except (ValueError, TypeError):
                 pass
         with self.lock:
@@ -434,15 +436,19 @@ class Viewer(Node):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--read-only', action='store_true', help='Disable all launch, bag and speed controls')
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8085)
     parser.add_argument('--camera-topic', default='/camera/color/image_raw/compressed')
-    args = parser.parse_args()
+    args = parser.parse_args(rclpy.utilities.remove_ros_args()[1:])
     rclpy.init()
     node = Viewer(args.camera_topic)
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
+            if args.read_only:
+                self.send_error(403, 'Replay viewer is read-only')
+                return
             if self.path != '/control' or self.headers.get('X-Viewer-Control') != '1':
                 self.send_error(403)
                 return
@@ -487,7 +493,10 @@ def main():
 
         def do_GET(self):
             if self.path.split('?')[0] == '/':
-                body, kind = PAGE.encode(), 'text/html; charset=utf-8'
+                page = PAGE
+                if args.read_only:
+                    page = page.replace('<body>', '<body><style>#controls,aside>section{display:none}</style>')
+                body, kind = page.encode(), 'text/html; charset=utf-8'
             elif self.path.split('?')[0] == '/camera.jpg':
                 with node.lock:
                     body = node.camera_jpeg
@@ -527,21 +536,21 @@ def main():
         server = ThreadingHTTPServer((args.host, args.port), Handler)
     except OSError:
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
         raise
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     node.get_logger().info(f'Web viewer: http://{args.host}:{args.port}/')
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.controls.shutdown()
         server.shutdown()
         server.server_close()
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':

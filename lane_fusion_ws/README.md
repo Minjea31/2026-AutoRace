@@ -104,3 +104,12 @@ PYTHONNOUSERSITE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 - **실시간 재생(이 PC, 234303 raw → JPEG 재발행, 딥 ONNX CPU 10 Hz)**: 개선 노드 29.9 Hz, 수신→발행 약 10 ms(max 15.5), 딥 사용 97~100%(평균 나이 90 ms). 기존 노드는 딥 10 Hz에서 9.7 Hz, 딥이 28 Hz로 돌 때 28.4 Hz(수신→발행 ≈ 딥 지연 38 ms + 처리).
 - **Jetson(06번 차) 처리 시간·지연과 0.8 m/s 실주행은 측정하지 않았습니다**(이번에 차 연결 불가). bag 결과만으로 실차 안정성이 검증된 것은 아닙니다.
 - 단위 테스트 30개(HSV 회귀, 출처별 단독 검출, 딥·HSV 상호 확인, odom 정합/미정합 마스크, odom 이상값) 통과.
+
+
+### 주기 성능 로그
+
+`lane_fusion_node`의 5초 구간 처리율이 **20Hz 이하**일 때만 성능 요약을 WARN으로 출력한다.
+20Hz를 넘는 구간은 출력하지 않으며 통계 구간은 계속 초기화한다.
+`lane_fusion_deep_mask`의 주기 `masks/s` 로그는 기본적으로 끈다.
+필요할 때 해당 노드에 `-p log_performance:=true`를 주면 다시 표시한다.
+모델 로딩 결과와 경고·오류 로그는 유지한다.

@@ -18,16 +18,19 @@ objavoid_v3_node:
     marker_frame: base_link
     # 04번 실제 노란 테이프: 딥 마스크 노란 픽셀의 HSV 중앙값 H 22, S 45, V 150(퓨전 기본 S>=80이면 99% 탈락)
     lane_hsv: [13.0, 35.0, 25.0, 60.0]
-    lane_max_range: 2.0         # 먼 곳은 투영 오차가 커서 제외
+    # Full-image deep ∩ HSV evidence, sampled every 2 pixels; retain only 2m ahead.
+    lane_full_image: true
+    lane_max_range: 2.0
+    lane_max_lateral: 1.5
     lane_align_max: 0.35        # 활성화는 도로와 거의 나란한 자세에서(뒤쪽 콘 줄 등 오인 방지)
     lane_align_min_len: 0.4      # 04번 시야에서 한 번에 보이는 외곽선이 짧음(약 0.45 m)
     # 실차 트랙에는 시뮬 입구 깔때기가 없음: 사전 경계를 처음부터 3차로 폭(±0.768)으로
-    boundary_s: [-1.0, 8.0]      # 갈림길: 표지판 받침(약 5.5 m) 너머 갈래 안까지 경로를 그리도록(5.8이면 받침 앞에서 끝남)
+    boundary_s: [-1.0, 4.25, 4.75, 8.0]      # 갈림길: 표지판 받침(약 5.5 m) 너머 갈래 안까지 경로를 그리도록(5.8이면 받침 앞에서 끝남)
     # 실차 트랙: 차로 폭 0.50 m(사용자 실측) -> 3차로 노란선 안쪽 ±0.75
     #   04번 카메라는 같은 점선 간격을 0.57 m, 외곽선을 0.86 m로 잼(좌우 약 14% 과대) -> 좌우 0.877 보정
     ground_scale: [1.0, 0.877]
-    boundary_left: [0.75, 0.75]
-    boundary_right: [-0.75, -0.75]
+    boundary_left: [0.75, 0.75, 0.77, 0.77]
+    boundary_right: [-0.75, -0.75, -0.77, -0.77]
     lane_centers: [-0.5, 0.0, 0.5]
     lane_dash_offset: 0.25
     lane_pair_widths: [0.5, 1.5]
@@ -44,7 +47,11 @@ objavoid_v3_node:
     start_need_line: false
     # 11-15: 갈림길 단순화(사용자) — A/B 결정 위치에서 fork_turn_after 더 간 뒤 그쪽으로 fork_turn_steer 로
     #   fork_turn_dist 꺾고 DONE(lane에 넘김). 표지판 받침·섬 추정 안 씀. 세 값은 실차에서 맞출 것.
-    fork_turn: true
+    fork_turn: false
+    fork_shape: true
+    fork_sign_min: 1  # YOLO has already confirmed this direction
+    road_outline: true
+    start_entrance: true
     # 11-15 10:05 시작 지점에서 오작동(점선 L0 R2 + 정면 물체): 점선 조각이 좌우 모두 있고 간격이 차로 폭(0.5 ± 0.12 m)일 때만
     lane_rate: 10.0          # 시작 판정 주기: 5 → 10Hz
     start_dash_both: true
@@ -94,9 +101,9 @@ objavoid_v3_node:
     # 11-15 차에서 조정한 값(공통 objavoid_v3.yaml에서 04번 설정으로 옮김)
     max_steering_rate: 1.3
     v_min: 0.1
-    # 후진 탈출: MUX(mux_ws core.py:97)가 parking 외 입력의 후진을 거부하고 그 입력을 버림 -> 낮은 우선순위(lane) 명령이
-    #   있으면 그쪽으로 넘어가 전진할 수 있음. MUX에서 objavoid 후진을 허용하기 전까지 끈다.
-    reverse_enable: false
+    # 경로 소실 시 저장된 주행 궤적을 따라 20cm 후진. MUX는 OBJ 후진을 허용한다.
+    reverse_enable: true
     k_psi: 1.4
     fb_limit: 0.30
     scan_timeout: 0.6           # 실차 LiDAR 6.5~10 Hz, 가끔 0.4 s 넘는 간격
+    reverse_dist: 0.20

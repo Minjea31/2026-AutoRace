@@ -89,7 +89,7 @@ class RoiNode(Node):
         self.projection_status = 'not_attempted'
         self.left_boundary, self.right_boundary = [], []
         self.command_pub = self.create_publisher(
-            AckermannDriveStamped, '/mission/cone/command_05', 1)
+            AckermannDriveStamped, '/mission/cone/command_06', 1)
         self.control_engaged = False
         self.control_fault = False
         self.control_scan_stamp = None

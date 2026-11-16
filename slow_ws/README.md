@@ -1,6 +1,6 @@
 # slow_ws — 방지턱·서행 미션
 
-ROS 2 Humble의 `autorace_slow` 패키지입니다. YOLO Bool 두 개와 lane 명령, 카메라의 흰색 바닥 표시를 받아 `/mission/slow/command_08`을 발행합니다. 이번 사용자 지정 동작은 `docs`의 속도 절반 제한 대신 **고정 0.2 m/s**를 사용합니다.
+ROS 2 Humble의 `autorace_slow` 패키지입니다. YOLO Bool 두 개와 lane 명령, 카메라의 흰색 바닥 표시를 받아 `/mission/slow/command_04`을 발행합니다. 이번 사용자 지정 동작은 `docs`의 속도 절반 제한 대신 **고정 0.2 m/s**를 사용합니다.
 
 ## 동작
 
@@ -59,7 +59,7 @@ ros2 run autorace_slow slow_node --ros-args   -p use_sim_time:=true -p hold_sec:
 | 구독 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` |
 | 구독 | `/start_crosswalk` | `std_msgs/msg/Bool` |
 | 구독 | `/start_signal` | `std_msgs/msg/Bool` |
-| 발행 | `/mission/slow/command_08` | `ackermann_msgs/msg/AckermannDriveStamped` |
+| 발행 | `/mission/slow/command_04` | `ackermann_msgs/msg/AckermannDriveStamped` |
 
 QoS는 Reliable / Volatile / KeepLast(1)이며 토픽은 ROS remapping으로 변경할 수 있습니다. `/mission/lane`이나 `/cmd_vel`에는 발행하지 않습니다.
 

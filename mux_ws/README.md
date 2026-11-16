@@ -25,13 +25,13 @@ ros2 launch autorace_mux mux.launch.py
 ## 입력 우선순위
 
 | 우선순위 | 입력 토픽 |
-| --- | --- |
+|---|---|
 | 01 | `/mission/crosswalk/command_01` |
 | 02 | `/mission/signal/command_02` |
 | 03 | `/mission/parking/command_03` |
-| 04 | `/mission/cone/command_05` |
-| 05 | `/mission/objavoid/command_04` |
-| 08 | `/mission/slow/command_08` |
+| 04 | `/mission/slow/command_04` |
+| 05 | `/mission/objavoid/command_05` |
+| 06 | `/mission/cone/command_06` |
 | 기본 | `/mission/lane` |
 
 번호가 작은 유효 미션을 선택합니다. 미션 입력이 없거나 만료되면 lane으로 돌아가고, lane도 유효하지 않으면 정지합니다.

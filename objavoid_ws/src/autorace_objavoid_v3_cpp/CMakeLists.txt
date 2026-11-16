@@ -28,6 +28,8 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 add_library(objavoid_core STATIC
   src/perception.cpp
   src/planner.cpp
+  src/outline.cpp
+  src/island.cpp
   src/lane.cpp
   src/controller.cpp
   src/mission.cpp
@@ -48,10 +50,18 @@ install(TARGETS objavoid_v3_node DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  add_executable(entrance_probe ../../tools/entrance_probe.cpp)
+  target_link_libraries(entrance_probe objavoid_core)
   ament_add_gtest(test_core test/test_core.cpp)
   target_link_libraries(test_core objavoid_core)
+  # Runtime YAML includes deliberate tuning overrides. Compare actual Python defaults instead.
+  set(PARAM_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../autorace_objavoid_v3/autorace_objavoid_v3/params.py")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PARAM_SOURCE}")
+  execute_process(COMMAND /usr/bin/python3 -c
+    "import runpy,dataclasses,json; m=runpy.run_path('${PARAM_SOURCE}'); print(json.dumps({'objavoid_v3_node':{'ros__parameters':dataclasses.asdict(m['Params']())}}))"
+    OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/python_defaults.json" COMMAND_ERROR_IS_FATAL ANY)
   target_compile_definitions(test_core PRIVATE
-    PY_PARAMS_FILE="${CMAKE_CURRENT_SOURCE_DIR}/../autorace_objavoid_v3/config/objavoid_v3.yaml")
+    PY_PARAMS_FILE="${CMAKE_CURRENT_BINARY_DIR}/python_defaults.json")
 endif()
 
 ament_package()

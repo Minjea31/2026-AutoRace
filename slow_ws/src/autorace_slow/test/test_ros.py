@@ -41,7 +41,7 @@ class Harness:
             Parameter('hold_sec', value=hold),
             Parameter('white_roi_enabled', value=white_gate)], cli_args=clock_args+[
                 '-r', '/mission/lane:='+self.topics['lane'],
-                '-r', '/mission/slow/command_08:='+self.topics['slow'],
+                '-r', '/mission/slow/command_04:='+self.topics['slow'],
                 '-r', '/yolo/slow_sign:='+prefix+'/sign',
                 '-r', '/yolo/bump_sign:='+prefix+'/bump',
                 '-r', '/camera/color/image_raw/compressed:='+prefix+'/image'])

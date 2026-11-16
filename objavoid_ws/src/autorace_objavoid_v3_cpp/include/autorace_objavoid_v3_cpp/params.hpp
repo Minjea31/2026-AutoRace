@@ -155,7 +155,7 @@ using DVec = std::vector<double>;
   X(B, reverse_enable, true)                                       \
   X(D, reverse_wait, 1.0)                                          \
   X(D, reverse_speed, 0.10)                                        \
-  X(D, reverse_dist, 0.35)                                         \
+  X(D, reverse_dist, 0.20)                                         \
   X(D, reverse_psi, 0.5)                                           \
   X(I, reverse_max, 3)                                             \
   X(D, reverse_timeout, 6.0)                                       \
@@ -195,7 +195,30 @@ using DVec = std::vector<double>;
   X(D, fork_bearing_tol, 0.10)                                     \
   X(D, fork_post_max_dist, 3.5)                                    \
   X(D, fork_post_center_d, 0.4)                                    \
+  X(D, fork_sign_cache_sec, 30.0) \
+  X(D, fork_goal_tolerance, 0.15) \
+  X(B, obstacle_reacquire_reset, true) \
+  X(D, obstacle_reacquire_absence_sec, 1.0) \
+  X(I, obstacle_reacquire_confirm_scans, 2) \
+  X(D, preferred_obstacle_clearance, 0.10) \
+  X(B, road_outline, false) \
+  X(D, road_outline_length, 6.665) \
+  X(D, road_outline_straight, 5.529) \
+  X(B, fork_shape, false) \
+  X(D, fork_shape_length, 1.687) \
+  X(D, fork_shape_width, 0.5) \
+  X(D, fork_shape_margin, 0.05) \
+  X(D, fork_search_speed, 0.2) \
+  X(D, fork_search_distance, 1.2) \
+  X(D, fork_search_timeout, 6.0) \
+  X(D, fork_search_step, 0.4) \
+  X(D, fork_road_width, 1.54) \
+  X(B, start_entrance, false) \
+  X(I, start_entrance_confirm, 3) \
+  X(D, start_entrance_window, 5.0) \
+  X(I, start_entrance_obstacles, 2) \
   /* 자동 시작 */                                                    \
+  X(B, start_legacy, true)                                       \
   X(B, start_auto, true)                                           \
   X(B, start_need_line, false)                                     \
   X(D, start_line_x_min, 0.15)                                     \

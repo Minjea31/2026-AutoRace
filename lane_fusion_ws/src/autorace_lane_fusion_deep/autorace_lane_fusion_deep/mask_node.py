@@ -37,6 +37,7 @@ class LaneDeepMaskNode(Node):
         self.height = p('input_height', 480).value
         self.threshold = p('confidence_threshold', 0.5).value
         self.retry = p('retry_seconds', 5.0).value
+        self.log_performance = p('log_performance', False).value
         # int or float on the command line (max_rate:=10 or 10.0)
         rate = p('max_rate', 10.0, ParameterDescriptor(dynamic_typing=True)).value
         self.period = 1.0 / max(0.1, float(rate))
@@ -114,8 +115,9 @@ class LaneDeepMaskNode(Node):
         now = time.monotonic()
         if now - self.report >= 5.0:
             n = max(1, self.count)
-            self.get_logger().info(f'{self.count / (now - self.report):.1f} masks/s, '
-                                   f'{self.ms / n:.1f} ms/frame (jpeg {self.jpeg_ms / n:.1f} ms)')
+            if self.log_performance:
+                self.get_logger().info(f'{self.count / (now - self.report):.1f} masks/s, '
+                                       f'{self.ms / n:.1f} ms/frame (jpeg {self.jpeg_ms / n:.1f} ms)')
             self.count, self.ms, self.jpeg_ms, self.report = 0, 0.0, 0.0, now
 
     def destroy_node(self):

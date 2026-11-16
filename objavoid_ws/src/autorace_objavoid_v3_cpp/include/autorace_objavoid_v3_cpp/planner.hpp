@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "autorace_objavoid_v3_cpp/params.hpp"
+#include "autorace_objavoid_v3_cpp/island.hpp"
 #include "autorace_objavoid_v3_cpp/perception.hpp"
 #include "autorace_objavoid_v3_cpp/road.hpp"
 
@@ -52,6 +53,8 @@ struct PlanDiag
   std::vector<std::vector<Pt2>> cand;
   std::map<std::string, int> rejected;
   long edges = 0, feasible = 0;
+  double clearance_margin=0;
+  bool clearance_fallback=false;
   bool has_escape = false;
   double esc_free = 0, esc_steer = 0, esc_hold = 0;
   int esc_n = 0;
@@ -76,11 +79,19 @@ public:
   std::pair<double, double> path_clearance(const Path & path, double s_from, const std::vector<Box> & boxes) const;
   double verified_until(const Path & path, double s_from, const VisibilityGrid & grid, const Boundary * lane) const;
 
+  IslandShape island;
+  int island_side = 0;
+  double desired_d(double s) const;
+  double clearance(double s, double d, double psi, const std::vector<Obs> & obs, const Params & p) const;
+  PathPtr observe(double s, double d, double psi, double delta, double target_s, double target_d,
+    const std::vector<Box> & boxes, const VisibilityGrid & grid, double stamp);
   PlanDiag last;
   std::pair<double, double> last_ego_clear{0, 0};
   bool has_ego_clear = false;
 
 private:
+  PathPtr plan_impl(const PlanStart & start,const std::vector<Box> & boxes,const VisibilityGrid * grid,
+    const Path * prev,double w_cons,double stamp);
   void recovery_need(double travel, double ramp, double eo, double eb, double & need_o, double & need_b) const;
   double unknown_cost(const VisibilityGrid * grid, double sk, double node) const;
   const Params & p_;

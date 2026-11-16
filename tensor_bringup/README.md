@@ -102,7 +102,7 @@ Cone starts automatically at 2 s through `cone_lane_follower/roi.launch.py`, wit
 Override its tuning with `cone_params:=/absolute/path/to/clustering.yaml`.
 Readiness requires `/cone_lane_roi` and fresh `/cone_lane/control_status` messages,
 alongside the existing `/scan` and `/odometry/filtered` checks. It never waits for
-`/mission/cone/command_05`: commands begin only after LiDAR cone entry detection.
+`/mission/cone/command_06`: commands begin only after LiDAR cone entry detection.
 The existing mux already handles that topic at cone priority 4.
 
 Build and source the cone overlay before rebuilding bringup:

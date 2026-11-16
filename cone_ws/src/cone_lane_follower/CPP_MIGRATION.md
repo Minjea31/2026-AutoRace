@@ -51,7 +51,7 @@ for the existing 1.5 second timeout; > 4 resets the exit timer.
 
 Post-migration change (2026-11-13): while the no-path exit timer runs (no live or
 saved path, <= 4 ROI candidates) and when the mission ends, the node publishes no
-`/mission/cone/command_05` instead of a zero stop. The mux treats zero speed as an
+`/mission/cone/command_06` instead of a zero stop. The mux treats zero speed as an
 active stop that outranks lane, which held the car still for the whole 1.5 s wait
 plus the mux input timeout. Now the mux drops the cone input after 0.25 s and lane
 drives on; if cones reappear and a path is found the node publishes again and, being

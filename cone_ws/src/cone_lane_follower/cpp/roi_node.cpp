@@ -7,6 +7,7 @@
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <ackermann_msgs/msg/ackermann_drive_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -85,6 +86,9 @@ std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
 std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_;
 rclcpp::Subscription<Scan>::SharedPtr scan_sub_;
+rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mux_source_sub_;
+bool mux_cone_selected_ = false;
+double mux_source_received_ = -INFINITY;
 rclcpp::Publisher<Marker>::SharedPtr roi_pub_, status_pub_, points_pub_;
 rclcpp::Publisher<MarkerArray>::SharedPtr clusters_pub_, centers_pub_, boundaries_pub_, control_points_pub_,
                                           center_pub_, center_spot_pub_, backup_pub_;
@@ -256,7 +260,7 @@ explicit RoiNode(const rclcpp::NodeOptions&options = rclcpp::NodeOptions()) : No
   center_pub_ = create_publisher<MarkerArray>("/cone_lane/center_path", 1);
   center_spot_pub_ = create_publisher<MarkerArray>("/cone_lane/center_spot", 1);
   backup_pub_ = create_publisher<MarkerArray>("/cone_lane/backup_path", 1);
-  command_pub_ = create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/mission/cone/command_05", 1);
+  command_pub_ = create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/mission/cone/command_06", 1);
   exit_active_pub_ = create_publisher<std_msgs::msg::Bool>("/cone_lane/exit_lane_active", 1);
   scan_sub_ = create_subscription<Scan>("/scan", rclcpp::QoS(1).best_effort().durability_volatile(), [this](
                                           Scan::ConstSharedPtr msg){
@@ -268,6 +272,15 @@ explicit RoiNode(const rclcpp::NodeOptions&options = rclcpp::NodeOptions()) : No
         exit_lane_cmd_ = *msg;
         exit_lane_received_ = steady();
       });
+  mux_source_sub_ = create_subscription<std_msgs::msg::String>(
+    "/mux/active_source", 10,
+    [this](std_msgs::msg::String::ConstSharedPtr msg) {
+      const bool was_selected=mux_cone_selected_;
+      mux_cone_selected_=msg->data=="cone";
+      mux_source_received_=steady();
+      if(mux_cone_selected_ && !was_selected) publish_control_log();
+      if(!mux_cone_selected_) last_logged_state_.clear();
+    });
   // ROS-clock timers preserve rclpy create_timer behavior under /clock.
   timers_.push_back(rclcpp::create_timer(this, get_clock(), std::chrono::milliseconds(200), [this] {
         publish_roi_marker();
@@ -1099,7 +1112,7 @@ std::string control_log_summary()const
 
 void publish_control_log()
 {
-  if (!mission_cone_) return;
+  if (!mux_cone_selected_ || steady()-mux_source_received_>0.5) return;
   auto summary = control_log_summary();
   if (control_mode_ == "Stopped")
     RCLCPP_WARN(get_logger(), "%s", summary.c_str());
@@ -1109,7 +1122,7 @@ void publish_control_log()
 
 void publish_control_status()
 {
-  if (!mission_cone_) {
+  if (!mux_cone_selected_ || steady()-mux_source_received_>0.5) {
     last_logged_state_.clear();
   }else{
     std::string state = control_mode_ + "|" + control_stop_reason_ + "|" + calculation_failure_summary();

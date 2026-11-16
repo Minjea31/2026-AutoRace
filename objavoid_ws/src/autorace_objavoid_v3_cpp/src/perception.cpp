@@ -75,14 +75,42 @@ void detect(const std::vector<float> & ranges, double angle_min, double angle_in
     const bool occ_lo = first_low ? occ0 : occ1;
     const bool occ_hi = first_low ? occ1 : occ0;
     if (p.obstacle_fixed_size) {
-      // Keep the observed near face when viewing from the front/rear.
-      if (ls <= s0) {s1 = s0 + p.obstacle_min_length;}
-      else if (ls >= s1) {s0 = s1 - p.obstacle_min_length;}
-      else {const double c = (s0 + s1) / 2; s0 = c - p.obstacle_min_length / 2; s1 = c + p.obstacle_min_length / 2;}
-      correct_extent(d0, d1, ld, p.obstacle_min_width, occ_lo, occ_hi);
-      const double center = (d0 + d1) / 2;
-      d0 = center - p.obstacle_min_width / 2;
-      d1 = center + p.obstacle_min_width / 2;
+      // LIMO-Pro has only two allowed orientations in the road frame.
+      // Compare exact L x W and W x L models against the visible LiDAR faces.
+      const double long_size=std::max(p.obstacle_min_length,p.obstacle_min_width);
+      const double short_size=std::min(p.obstacle_min_length,p.obstacle_min_width);
+      auto fit_axis=[](double lo,double hi,double sensor,double size) {
+        if(sensor<=lo) return std::pair<double,double>{lo,lo+size};
+        if(sensor>=hi) return std::pair<double,double>{hi-size,hi};
+        const double center=0.5*(lo+hi);
+        return std::pair<double,double>{center-size/2,center+size/2};
+      };
+      Box best;double best_score=kInf;
+      for(bool transverse:{false,true}) {
+        const double length=transverse?short_size:long_size;
+        const double width=transverse?long_size:short_size;
+        const auto sb=fit_axis(s0,s1,ls,length),db=fit_axis(d0,d1,ld,width);
+        const Box candidate{sb.first,sb.second,db.first,db.second};
+        double score=0;
+        for(size_t k=a;k<b;++k) {
+          const auto & pt=pts[k];
+          const double ds=std::max({candidate.s0-pt.s,0.0,pt.s-candidate.s1});
+          const double dd=std::max({candidate.d0-pt.d,0.0,pt.d-candidate.d1});
+          double face=kInf;
+          if(ls<=candidate.s0) face=std::min(face,std::abs(pt.s-candidate.s0));
+          if(ls>=candidate.s1) face=std::min(face,std::abs(pt.s-candidate.s1));
+          if(ld<=candidate.d0) face=std::min(face,std::abs(pt.d-candidate.d0));
+          if(ld>=candidate.d1) face=std::min(face,std::abs(pt.d-candidate.d1));
+          if(!std::isfinite(face)) face=0;
+          score+=4*(ds*ds+dd*dd)+face*face;
+        }
+        score/=(b-a);
+        // Resolve a face-only observation by its measured visible width.
+        // Occluded ends do not penalize unobserved width.
+        if(!occ_lo && !occ_hi) score+=0.25*std::pow((d1-d0)-width,2);
+        if(score<best_score) {best_score=score;best=candidate;}
+      }
+      s0=best.s0;s1=best.s1;d0=best.d0;d1=best.d1;
     } else if (ls < s0) {
       // 앞에서 볼 때만 최소 크기 보정(앞면이 실제로 보일 때만 뒤로 확장)
       int nf = 0;
