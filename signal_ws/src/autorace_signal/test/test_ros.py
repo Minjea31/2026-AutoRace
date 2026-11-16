@@ -207,10 +207,10 @@ def test_repeated_red_does_not_extend_timeout_and_mux_returns_to_lane():
         h.close()
 
 
-def test_default_signal_stops_immediately_after_white_and_releases_ten_seconds_from_red():
+def test_default_signal_stops_after_two_seconds_and_releases_ten_seconds_from_red():
     h=Harness(white_gate=True,stop_delay=None)
     try:
-        assert h.signal.stop_delay_sec==0.
+        assert h.signal.stop_delay_sec==2.
         assert h.signal.max_red_wait_sec==10.
         h.lane_enabled=True
         h.pump(.3)
@@ -225,13 +225,16 @@ def test_default_signal_stops_immediately_after_white_and_releases_ten_seconds_f
         assert h.signal.state.armed and not h.commands
         first=time.monotonic()
         h.floor(True)
-        assert h.signal.state.stopping and h.signal.state.stop_at is None
-        started=h.signal.state.started_at
-        assert started>=first
+        deadline=h.signal.state.stop_at
+        assert deadline>=first+2.
+        assert not h.commands and not h.starts
+        h.floor(True)
+        assert h.signal.state.stop_at==deadline
+        h.pump(max(0.,deadline-time.monotonic()-.06))
+        assert not h.commands and not h.starts
+        h.pump(.20)
         assert h.commands and all(m.drive.speed==0. for m in h.commands)
         assert len(h.starts)==1 and h.starts[0].data
-        h.floor(True)
-        assert h.signal.state.started_at==started and len(h.starts)==1
         assert h.outputs[-1].linear.x==0.
         red_deadline=h.signal.state.red_started_at+10.
         while time.monotonic()<red_deadline-.15:

@@ -1,6 +1,6 @@
 """Stop after a white floor mark; release on green or a fixed red deadline."""
 # 시간 설정 (초) — 이 값을 수정한 뒤 빌드하고 노드를 다시 실행하세요.
-STOP_DELAY_SEC = 0.0        # 빨간불 확인·흰선 감지 후 정지 시작까지 주행
+STOP_DELAY_SEC = 2.0        # 빨간불 확인·흰선 감지 후 정지 시작까지 주행
 MAX_RED_WAIT_SEC = 10.0     # 빨간불 2회 확인부터 정지 해제까지, 재수신으로 연장하지 않음
 SIGNAL_GAP_TIMEOUT_SEC = 0.5  # 같은 신호 확인 횟수를 초기화하는 수신 간격
 LANE_TIMEOUT_SEC = 0.25
