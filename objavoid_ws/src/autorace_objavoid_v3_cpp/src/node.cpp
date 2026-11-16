@@ -513,7 +513,17 @@ private:
     }
     if (!im) {set_gate_status("no_image"); return;}
     const double ist = stamp_sec(im->header.stamp);
+    const double image_age=now_s()-ist;
+    if(image_age>objavoid::kEntranceFreshness || image_age< -0.05) {
+      entrance_window_.reset();entrance_anchor_.reset();entrance_deadline_=-1e9;
+      entrance_hits_=0;entrance_previous_={};gate_hits_=0;
+      set_gate_status("stale_image");return;
+    }
     const bool fresh_image=ist!=last_gate_img_;
+    if(fresh_image && last_gate_img_>0 && ist-last_gate_img_>objavoid::kEntranceFreshness) {
+      entrance_window_.reset();entrance_anchor_.reset();entrance_deadline_=-1e9;
+      entrance_hits_=0;entrance_previous_={};gate_hits_=0;
+    }
     if(!fresh_image && !entrance_window_.armed(now_s())) return;
     last_gate_img_ = ist;
     last_gate_wall_ = w;
@@ -556,14 +566,31 @@ private:
     if(fresh_image) {entrance_hits_=coherent?entrance_hits_+1:0;entrance_previous_=entrance;}
     const double gate_time=now_s();
     const auto image_pose=core_->pose_at(ist);
-    const bool confirmed=entrance_hits_>=p.start_entrance_confirm && image_pose.has_value();
+    const auto current_pose=core_->pose_at(gate_time);
+    std::optional<objavoid::RoadFrame> observed_anchor;
+    if(image_pose && entrance.ok) {
+      const double heading=image_pose->yaw+entrance.yaw,c=std::cos(heading),sn=std::sin(heading);
+      observed_anchor=objavoid::RoadFrame(image_pose->x+c*entrance.x-sn*entrance.center,
+        image_pose->y+sn*entrance.x+c*entrance.center,heading);
+    }
+    const auto ahead=[&](const objavoid::RoadFrame & anchor) {
+      return current_pose && objavoid::entrance_ahead(anchor.x0,anchor.y0,
+        current_pose->x,current_pose->y,current_pose->yaw);
+    };
+    bool confirmed=entrance_hits_>=p.start_entrance_confirm && observed_anchor && ahead(*observed_anchor);
+    const bool passed=entrance_anchor_ && !ahead(*entrance_anchor_);
+    const bool different=confirmed && entrance_anchor_ && entrance_window_.armed(gate_time) &&
+      (std::hypot(observed_anchor->x0-entrance_anchor_->x0,observed_anchor->y0-entrance_anchor_->y0)>0.30 ||
+       std::abs(objavoid::wrap(observed_anchor->yaw0-entrance_anchor_->yaw0))>0.15);
+    if(passed || different) {
+      entrance_window_.reset();entrance_anchor_.reset();entrance_hits_=0;entrance_previous_={};confirmed=false;
+    }
+    const bool in_front=entrance_anchor_?ahead(*entrance_anchor_):(observed_anchor && ahead(*observed_anchor));
     const double previous_deadline=entrance_window_.deadline;
     const bool entrance_ready=entrance_window_.update(gate_time,confirmed,g.obstacles,
-      p.start_entrance_window,p.start_entrance_obstacles);
+      p.start_entrance_window,p.start_entrance_obstacles,in_front);
     if(entrance_window_.deadline!=previous_deadline && confirmed) {
-      const double heading=image_pose->yaw+entrance.yaw, c=std::cos(heading),sn=std::sin(heading);
-      entrance_anchor_=objavoid::RoadFrame(image_pose->x+c*entrance.x-sn*entrance.center,
-        image_pose->y+sn*entrance.x+c*entrance.center,heading);
+      entrance_anchor_=observed_anchor;
     }
     entrance_deadline_=entrance_window_.deadline;
     gate_hits_ = p.start_legacy && g.ok ? gate_hits_ + 1 : 0;
@@ -574,6 +601,8 @@ private:
         (g.line ? objavoid::jnum(g.line_x) : "null") << ",\"span\":" << objavoid::jnum(g.line_span) <<
         ",\"entrance\":" << (entrance.ok?"true":"false") << ",\"entrance_hits\":" << entrance_hits_ <<
         ",\"entrance_armed\":" << (entrance_window_.armed(gate_time)?"true":"false") <<
+        ",\"entrance_current\":" << (confirmed?"true":"false") <<
+        ",\"entrance_ahead\":" << (in_front?"true":"false") <<
         ",\"entrance_remaining\":" << objavoid::jnum(std::max(0.0,entrance_window_.deadline-gate_time)) <<
         ",\"entrance_x\":" << objavoid::jnum(entrance.x) << ",\"entrance_support\":" << entrance.support <<
         ",\"line_pts\":" << g.line_pts << ",\"dash_l\":" << g.dashes_l << ",\"dash_r\":" << g.dashes_r <<

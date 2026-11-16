@@ -133,6 +133,62 @@ GateResult eval_start_gate(const std::vector<XY> & white, const std::vector<Box>
   return g;
 }
 
+namespace {
+struct EntranceLine {
+  double slope=0, error=0;
+  bool valid=false;
+};
+
+EntranceLine entrance_line(const std::vector<XY> & points) {
+  if(points.size()<4) return {};
+  double x=0,y=0,xx=0,xy=0,lo=kInf,hi=-kInf;
+  for(const auto & q:points) {x+=q.x;y+=q.y;xx+=q.x*q.x;xy+=q.x*q.y;lo=std::min(lo,q.x);hi=std::max(hi,q.x);}
+  const double n=points.size(),den=xx-x*x/n;
+  if(hi-lo<0.15 || den<1e-8) return {};
+  const double a=(xy-x*y/n)/den,b=(y-a*x)/n;
+  double error=0;
+  for(const auto & q:points) error+=std::pow(q.y-a*q.x-b,2);
+  return {a,error,true};
+}
+
+// Both legs must belong to one connected boundary and actually change direction.
+// Pooling unrelated paint fragments or fitting a straight line to two short
+// portions of a widening template must never count as an entrance corner.
+bool entrance_corner(const std::vector<XY> & points,double start,double length,double center,
+  double narrow,double growth,int side) {
+  const double sign=side?1:-1,corner=start+length;
+  std::vector<XY> matched;
+  for(const auto & q:points) {
+    if(q.x<start+0.03 || q.x>corner+0.45 || (q.y>=center?1:0)!=side) continue;
+    const double prediction=center+sign*(narrow+growth*std::clamp((q.x-start)/length,0.0,1.0));
+    if(std::abs(q.y-prediction)<=0.035) matched.push_back(q);
+  }
+  std::vector<char> visited(matched.size(),0);
+  for(size_t seed=0;seed<matched.size();++seed) {
+    if(visited[seed]) continue;
+    std::vector<size_t> queue{seed};visited[seed]=1;
+    std::vector<XY> diagonal,straight;
+    for(size_t j=0;j<queue.size();++j) {
+      const auto & q=matched[queue[j]];
+      if(q.x<corner-0.03) diagonal.push_back(q);
+      else if(q.x>=corner) straight.push_back(q);
+      for(size_t k=0;k<matched.size();++k)
+        if(!visited[k] && std::hypot(q.x-matched[k].x,q.y-matched[k].y)<=0.10) {
+          visited[k]=1;queue.push_back(k);
+        }
+    }
+    const auto a=entrance_line(diagonal),b=entrance_line(straight);
+    if(!a.valid || !b.valid || sign*a.slope<0.45 || std::abs(b.slope)>0.25 ||
+      sign*(a.slope-b.slope)<0.45) continue;
+    std::vector<XY> combined=diagonal;combined.insert(combined.end(),straight.begin(),straight.end());
+    const auto single=entrance_line(combined);
+    const double error=a.error+b.error;
+    if(single.valid && error<=0.025*0.025*combined.size() && error<0.49*single.error) return true;
+  }
+  return false;
+}
+}  // namespace
+
 EntranceResult eval_entrance_gate(const std::vector<XY> & yellow,bool dash_pair,const Params & p) {
   (void)dash_pair;  // A single yellow boundary corner now arms the separate obstacle window.
   EntranceResult best;
@@ -164,6 +220,8 @@ EntranceResult eval_entrance_gate(const std::vector<XY> & yellow,bool dash_pair,
         }
         bool support[2];for(int k=0;k<2;++k) support[k]=diagonal[k]>=4 && straight[k]>=4 &&
           dhi[k]-dlo[k]>0.12 && shi[k]-slo[k]>0.12;
+        for(int k=0;k<2;++k) if(support[k])
+          support[k]=entrance_corner(rotated,start,length,center,narrow,growth,k);
         const bool ok=support[0] || support[1];
         if(ok && hits>best.support) best={true,support[1],support[0],start,center,yaw,hits};
       }

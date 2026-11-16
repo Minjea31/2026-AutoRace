@@ -691,13 +691,64 @@ TEST(Mission, EntranceAnchorIncludesHeadingAndLateralOffset) {
 TEST(StartGate, EntranceWindowIsAlternativeAndWaitsForTwoObstacles) {
   EntranceWindow w;
   EXPECT_FALSE(w.update(10,true,0));EXPECT_TRUE(w.armed(10));
-  EXPECT_FALSE(w.update(11,false,1));EXPECT_TRUE(w.armed(11));
-  EXPECT_TRUE(w.update(14.9,false,2));
-  EXPECT_FALSE(w.update(15.01,false,2));EXPECT_FALSE(w.armed(15.01));
+  EXPECT_FALSE(w.update(10.1,false,2));EXPECT_TRUE(w.armed(10.1));
+  EXPECT_FALSE(w.update(10.31,false,2));EXPECT_FALSE(w.armed(10.31));
+  EXPECT_LT(w.deadline,10.31);
+  EXPECT_TRUE(w.update(11,true,2));
   // It is an alternative path: no yellow sighting means old gate remains independently usable.
   w.reset();EXPECT_FALSE(w.update(20,false,2));
   Params p;p.start_need_line=false;p.start_dash_both=false;p.start_dash_min=0;
   EXPECT_TRUE(eval_start_gate({},{{0.7,1,-0.1,0.1},{1.2,1.5,-0.1,0.1}},p).ok);
+}
+
+TEST(StartGate, PassedEntranceAndStaleConfirmationCannotStart) {
+  EntranceWindow w;
+  EXPECT_FALSE(w.update(1,true,0));
+  EXPECT_FALSE(w.update(1.1,true,2,5,2,false));
+  EXPECT_FALSE(w.armed(1.1));
+  EXPECT_FALSE(w.update(1.2,false,2));
+  EXPECT_TRUE(entrance_ahead(0.5,0,0,0,0));
+  EXPECT_FALSE(entrance_ahead(0.5,0,0.6,0,0));
+  EXPECT_FALSE(entrance_ahead(1,0,0,0,3.141592653589793));
+  EXPECT_TRUE(entrance_ahead(0,0.5,0,0,1.570796326794897));
+}
+
+TEST(StartGate, DisconnectedCornerFragmentsAndStraightLinesAreRejected) {
+  Params p;std::vector<XY> yellow;
+  for(int i=0;i<35;++i) {
+    const double x=0.41+i*0.01;yellow.push_back({x,0.25+x-0.4});
+  }
+  for(int i=0;i<35;++i) yellow.push_back({1.08+i*0.01,0.77});
+  EXPECT_FALSE(eval_entrance_gate(yellow,false,p).ok);
+  yellow.clear();
+  for(int i=0;i<100;++i) {
+    const double x=0.2+i*0.015;
+    yellow.push_back({x,-0.20-0.20*x});yellow.push_back({x,-0.60-0.20*x});
+  }
+  EXPECT_FALSE(eval_entrance_gate(yellow,false,p).ok);
+}
+
+TEST(StartGate, ConnectedNoisyEntranceIsRecognizedFromEitherSide) {
+  Params p;
+  for(int sign:{-1,1}) for(double yaw:{-0.2,0.0,0.2}) {
+    std::vector<XY> yellow;const double c=std::cos(yaw),s=std::sin(yaw);
+    for(int i=0;i<95;++i) {
+      const double x=0.2+i*0.015;
+      const double y=sign*(0.25+std::clamp(x-0.4,0.0,0.52))+0.004*std::sin(i*1.7);
+      yellow.push_back({c*x-s*y,s*x+c*y});
+    }
+    EXPECT_TRUE(eval_entrance_gate(yellow,false,p).ok) << "side=" << sign << " yaw=" << yaw;
+  }
+}
+
+TEST(StartGate, RecordedStraightParkingPaintDoesNotCountAsEntrance) {
+  const auto data=YAML::LoadFile(std::string(TEST_DATA_DIR)+"/straight_parking_215435.yaml");
+  Params p;
+  for(const auto & frame:data["frames"]) {
+    std::vector<XY> yellow;
+    for(const auto & q:frame["yellow"]) yellow.push_back({q[0].as<double>(),q[1].as<double>()});
+    EXPECT_FALSE(eval_entrance_gate(yellow,false,p).ok) << "bag time=" << frame["bag_time"];
+  }
 }
 TEST(StartGate, ContinuousYellowDoesNotExtendFiveSecondDeadlineAndClockResetClears) {
   EntranceWindow w;EXPECT_FALSE(w.update(1,true,0));

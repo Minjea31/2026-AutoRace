@@ -61,7 +61,8 @@ if(BUILD_TESTING)
     "import runpy,dataclasses,json; m=runpy.run_path('${PARAM_SOURCE}'); print(json.dumps({'objavoid_v3_node':{'ros__parameters':dataclasses.asdict(m['Params']())}}))"
     OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/python_defaults.json" COMMAND_ERROR_IS_FATAL ANY)
   target_compile_definitions(test_core PRIVATE
-    PY_PARAMS_FILE="${CMAKE_CURRENT_BINARY_DIR}/python_defaults.json")
+    PY_PARAMS_FILE="${CMAKE_CURRENT_BINARY_DIR}/python_defaults.json"
+    TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data")
 endif()
 
 ament_package()

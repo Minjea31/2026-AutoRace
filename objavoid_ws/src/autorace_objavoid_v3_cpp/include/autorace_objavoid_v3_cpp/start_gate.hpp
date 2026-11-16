@@ -33,21 +33,31 @@ struct EntranceResult {
 // Narrow (~0.50m) -> diagonal widening -> wide (~1.54m) yellow boundary.
 EntranceResult eval_entrance_gate(const std::vector<XY> & yellow, bool dash_pair, const Params & p);
 
-// A sighting opens one fixed window; continuous visibility never extends its deadline.
+constexpr double kEntranceFreshness = 0.30;
+
+// A fixed observation window also requires current confirmation. A lost/stale
+// sighting cannot lend its remaining deadline to unrelated later obstacles.
 class EntranceWindow {
 public:
-  double deadline=-1e9, last_time=-1e9;
+  double deadline=-1e9, last_time=-1e9, last_confirmed=-1e9;
   bool seen=false;
-  bool armed(double t) const {return t>=last_time && t<=deadline;}
-  void reset() {deadline=last_time=-1e9;seen=false;}
-  bool update(double t,bool detected,int obstacles,double seconds=5.0,int required=2) {
+  bool armed(double t) const {return t>=last_time && t<=deadline && t-last_confirmed<=kEntranceFreshness;}
+  void reset() {deadline=last_time=last_confirmed=-1e9;seen=false;}
+  bool update(double t,bool detected,int obstacles,double seconds=5.0,int required=2,bool in_front=true) {
     if(t<last_time) reset();
     last_time=t;
+    if(!in_front) {reset();last_time=t;return false;}
+    if(!detected && t-last_confirmed>kEntranceFreshness) {reset();last_time=t;return false;}
     if(detected && !seen && !armed(t)) deadline=t+seconds;
+    if(detected) last_confirmed=t;
     seen=detected;
-    return armed(t) && obstacles>=required;
+    return detected && armed(t) && obstacles>=required;
   }
 };
+
+inline bool entrance_ahead(double x,double y,double vehicle_x,double vehicle_y,double yaw) {
+  return (x-vehicle_x)*std::cos(yaw)+(y-vehicle_y)*std::sin(yaw)>0.10;
+}
 
 // Detect a new entrance episode, not repeated frames of the same entrance.
 class EntranceReentry {
