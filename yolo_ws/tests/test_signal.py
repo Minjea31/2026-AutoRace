@@ -40,22 +40,22 @@ def detector():
 
 
 @pytest.mark.parametrize('ident,name', [(6,'red'), (7,'green')])
-@pytest.mark.parametrize('area', [1499, 1500, 1501])
+@pytest.mark.parametrize('area', [2999, 3000, 3001])
 def test_signal_ids_and_exact_original_pixel_area_boundary(ident, name, area):
     row = [0., 0., 50., area/50., .9, float(ident)]
     for width,height in [(640,480),(1280,720)]:
         detected = ns['filter_detections']([row], NAMES, width, height)
-        assert (name in detected) == (area >= 1500)
+        assert (name in detected) == (area >= 3000)
     d = detector()
     result = d.classify_detections([row], np.zeros((480,640,3),np.uint8))
-    assert (name in result[0]) == (area >= 1500)
+    assert (name in result[0]) == (area >= 3000)
     assert d.box_details[0]['class'] == name
 
 
 def test_low_confidence_offscreen_and_invalid_ids_do_not_trigger_signal():
     filter_boxes = ns['filter_detections']
     assert not filter_boxes([[0,0,100,100,.59,6]],NAMES,640,480)
-    assert filter_boxes([[0,0,50,40,.60,6]],NAMES,640,480) == {'red':.60}
+    assert filter_boxes([[0,0,60,50,.60,6]],NAMES,640,480) == {'red':.60}
     assert not filter_boxes([[-100,0,20,50,.9,7]],NAMES,640,480)
     assert not filter_boxes([[0,0,100,100,.9,6.5]],NAMES,640,480)
     assert not filter_boxes([[0,0,100,100,.9,0]],{0:'red'},640,480)

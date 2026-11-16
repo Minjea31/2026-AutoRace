@@ -56,8 +56,8 @@ CLASS_THRESHOLDS = {
     'parking': {'confidence': 0.60, 'min_area_pixels': 2000},
     'right': {'confidence': 0.65, 'min_area_pixels': 500},
     'slow': {'confidence': 0.55, 'min_area_pixels': 1800},
-    'red': {'confidence': 0.60, 'min_area_pixels': 1500},
-    'green': {'confidence': 0.60, 'min_area_pixels': 1500},
+    'red': {'confidence': 0.60, 'min_area_pixels': 3000},
+    'green': {'confidence': 0.60, 'min_area_pixels': 3000},
 }
 
 PRESENCE_TOPICS = {
