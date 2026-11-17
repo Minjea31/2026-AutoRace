@@ -57,7 +57,6 @@
 #include "limo_base/limo_protocol.h"
 
 #include "limo_base/steering_command_model.hpp"
-#include "limo_base/latest_worker.hpp"
 
 namespace AgileX {
 
@@ -104,7 +103,7 @@ private:
 
     bool pub_odom_tf_ = false;
     bool use_mcnamu_ = false;
-    double present_theta_=0,last_theta_=0,delta_theta_=0,real_theta_=0,rad=0;
+    double present_theta_,last_theta_,delta_theta_,real_theta_,rad;
     double encoder_present_theta_=0, encoder_last_theta_=0;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
     rclcpp::Publisher<limo_msgs::msg::LimoStatus>::SharedPtr status_publisher_;
@@ -114,23 +113,6 @@ private:
     //   light_cmd_sub_;
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher_;
     std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
-    struct OdometryOutput {
-        nav_msgs::msg::Odometry odometry;
-        geometry_msgs::msg::TransformStamped transform;
-        bool publish_transform = false;
-    };
-    struct DiagnosticNotice {
-        enum Kind { Checksum, WaitingForMode, InvalidMode, ErrorCode } kind;
-        int motion_mode = -1;
-    };
-    // ROS transport is confined to these workers, never the serial reader.
-    // Each stream has its own single latest slot; a blocked IMU write cannot
-    // block odometry integration or status parsing.
-    autorace_async::LatestWorker<OdometryOutput> odom_sender_;
-    autorace_async::LatestWorker<sensor_msgs::msg::Imu> imu_sender_;
-    autorace_async::LatestWorker<limo_msgs::msg::LimoStatus> status_sender_;
-    autorace_async::LatestWorker<DiagnosticNotice> diagnostic_sender_;
-    std::atomic<uint16_t> pending_error_codes_{0}; // retain transient alarms across coalesced output
     
     // ros::Publisher odom_publisher_;
     // ros::Publisher status_publisher_;
@@ -142,7 +124,7 @@ private:
     double position_y_ = 0.0;
     double theta_ = 0.0;
 
-    ImuData imu_data_{};
+    ImuData imu_data_;
     double imu_period_ = 0.0;      // 0: publish every IMU frame from the base
     double next_imu_stamp_ = 0.0;  // next scheduled /imu publication (s)
     std::atomic<int> motion_mode_{-1}; // -1 until the first system-state frame  // current motion type
