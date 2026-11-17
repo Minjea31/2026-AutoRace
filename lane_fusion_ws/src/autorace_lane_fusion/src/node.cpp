@@ -3,6 +3,7 @@
 #include "autorace_lane_fusion/lane.hpp"
 #include "autorace_lane_fusion/odometry.hpp"
 #include "autorace_lane_fusion/cone_exit_prior.hpp"
+#include "autorace_lane_fusion/latest_worker.hpp"
 #include <condition_variable>
 #include <limits>
 #include <cv_bridge/cv_bridge.h>
@@ -76,20 +77,52 @@ public:
     // recent turn this supplies a role prior for an ambiguous single boundary.
     cone_exit_sub_ = create_subscription<std_msgs::msg::Bool>(
         "/cone_lane/exit_lane_active", rclcpp::QoS(1), [this](std_msgs::msg::Bool::ConstSharedPtr m) {
-          std::lock_guard<std::mutex> lock(mutex_);
-          const double t = steady();
-          const int before = cone_exit_prior_.side(t);
-          cone_exit_prior_.signal(m->data, t);
-          const int after = cone_exit_prior_.side(t);
+          int before, after;
+          {
+            std::lock_guard<std::mutex> lock(mutex_);
+            const double t = steady();
+            before = cone_exit_prior_.side(t);
+            cone_exit_prior_.signal(m->data, t);
+            after = cone_exit_prior_.side(t);
+          }
           if (before != after)
-            RCLCPP_INFO(get_logger(), "Cone exit boundary prior: %s",
-                        after == 0 ? "left (recent right turn)" : after == 1 ? "right (recent left turn)" : "off");
+            log_sender_.submit(std::make_shared<std::function<void()>>([logger = get_logger(), after] {
+              RCLCPP_INFO(logger, "Cone exit boundary prior: %s",
+                          after == 0 ? "left (recent right turn)" : after == 1 ? "right (recent left turn)" : "off");
+            }));
         });
     yellow_ = create_publisher<nav_msgs::msg::Path>("/lane_fusion/yellow_boundary", rclcpp::QoS(1));
     target_ = create_publisher<std_msgs::msg::Float32MultiArray>("/lane_fusion/target", rclcpp::QoS(1));
     // Debug picture only on request: off, nothing is advertised or drawn.
     if (declare_parameter<bool>("debug", false))
       debug_ = create_publisher<sensor_msgs::msg::Image>("/lane_fusion/debug", rclcpp::SensorDataQoS().keep_last(1));
+    auto report = [this](std::exception_ptr error) {
+      if (!rclcpp::ok()) return;
+      try { std::rethrow_exception(error); }
+      catch (const std::exception &e) {
+        RCLCPP_WARN(get_logger(), "lane_fusion output: %s", e.what());
+      }
+    };
+    // DDS writes never own mutex_ and never run on the receive executor.
+    // Keep independent slots so a slow debug/boundary write cannot queue up
+    // steering targets behind it. QoS and the public messages stay unchanged.
+    target_sender_.start([this](const TargetOutput &output) {
+      if (!rclcpp::ok()) return;
+      auto message = output.message;
+      if (message.data[0] > .5f && steady() - output.received > timeout_)
+        message = targetMessage(nullptr);
+      target_->publish(message);
+    }, report);
+    yellow_sender_.start([this](const nav_msgs::msg::Path &message) {
+      if (rclcpp::ok()) yellow_->publish(message);
+    }, report);
+    if (debug_)
+      debug_sender_.start([this](const sensor_msgs::msg::Image &message) {
+        if (rclcpp::ok()) debug_->publish(message);
+      }, report);
+    log_sender_.start([](const std::function<void()> &job) {
+      if (rclcpp::ok()) job();
+    }, report);
     compressed_ = create_subscription<sensor_msgs::msg::CompressedImage>(
         topic, rclcpp::SensorDataQoS().keep_last(1), [this](sensor_msgs::msg::CompressedImage::ConstSharedPtr m) {
           const double t = steady();
@@ -126,9 +159,15 @@ public:
       return result;
     });
     watchdog_ = create_wall_timer(std::chrono::milliseconds(50), [this] {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (steady() - processed_ > timeout_)
-        publish(nullptr);
+      uint64_t version;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (steady() - processed_ <= timeout_) return;
+        version = ++target_version_;
+      }
+      auto output = std::make_shared<TargetOutput>();
+      output->message = targetMessage(nullptr);
+      target_sender_.submit(std::move(output), version);
     });
     worker_ = std::thread([this] { work(); });
   }
@@ -139,13 +178,21 @@ public:
     }
     cv_.notify_one();
     worker_.join();
+    target_sender_.stop();
+    yellow_sender_.stop();
+    debug_sender_.stop();
+    log_sender_.stop();
   }
 
 private:
   static double steady() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
   }
-  void publish(const lane_lite::Result *r) {
+  struct TargetOutput {
+    std_msgs::msg::Float32MultiArray message;
+    double received = 0;
+  };
+  static std_msgs::msg::Float32MultiArray targetMessage(const lane_lite::Result *r) {
     std_msgs::msg::Float32MultiArray msg;
     if (r && r->valid)
       msg.data = {1.f, float(r->lateral_m), float(r->heading), float(r->lookahead_m), float(r->curvature),
@@ -153,7 +200,7 @@ private:
                   float(r->near_lateral_m), float(r->near_heading), float(r->near_m)};
     else
       msg.data = {0, 0, 0, 0, 0, 0, r ? float(int(r->left.state)) : 0.f, r ? float(int(r->right.state)) : 0.f, 0, 0, 0};
-    target_->publish(msg);
+    return msg;
   }
   void work() {
     lane_lite::Pipeline pipeline;
@@ -243,28 +290,51 @@ private:
             boundary.poses.push_back(pose);
           }
         }
-        yellow_->publish(boundary);
-        std::lock_guard<std::mutex> lock(mutex_);
-        publish(&r);
-        processed_ = steady();
-        // Capture -> publish, when the camera stamps the system clock.
-        const double capture = now().seconds() - stamp;
-        stats_.add(r, mask != nullptr, (decoded - begin) * 1e3, (processed_ - rx) * 1e3,
-                   capture >= 0 && capture < 1 ? capture * 1e3 : -1);
-        if (processed_ - reported_ >= 5) {
-          if (reported_ > 0)
-            stats_.log(get_logger(), processed_ - reported_, deep_.latency());
-          reported_ = processed_;
-          stats_ = {};
-        }
+        auto output = std::make_shared<TargetOutput>();
+        output->message = targetMessage(&r);
+        output->received = rx;
+        sensor_msgs::msg::Image::SharedPtr debug_message;
         if (debug_wanted) {
           auto h = frame->header;
           h.frame_id = "lane_fusion_bev";
-          debug_->publish(*cv_bridge::CvImage(h, "bgr8", r.path_view).toImageMsg());
+          debug_message = cv_bridge::CvImage(h, "bgr8", r.path_view).toImageMsg();
+        }
+        const double completed = steady();
+        double mask_latency;
+        uint64_t version;
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          processed_ = completed;
+          version = ++target_version_;
+          mask_latency = deep_.latency();
+        }
+        // Revisions prevent a delayed watchdog submission from replacing a
+        // newer frame. The target sender rejects results that expire in its slot.
+        target_sender_.submit(std::move(output), version);
+        yellow_sender_.submit(std::make_shared<nav_msgs::msg::Path>(std::move(boundary)));
+        if (debug_message) debug_sender_.submit(std::move(debug_message));
+        // These timings measure computation completion, not DDS transmission.
+        const double capture = now().seconds() - stamp;
+        stats_.add(r, mask != nullptr, (decoded - begin) * 1e3, (completed - rx) * 1e3,
+                   capture >= 0 && capture < 1 ? capture * 1e3 : -1);
+        if (completed - reported_ >= 5) {
+          if (reported_ > 0) {
+            const auto stats = stats_;
+            const double seconds = completed - reported_;
+            log_sender_.submit(std::make_shared<std::function<void()>>(
+                [stats, seconds, mask_latency, logger = get_logger()] {
+                  stats.log(logger, seconds, mask_latency);
+                }));
+          }
+          reported_ = completed;
+          stats_ = {};
         }
       } catch (const std::exception &e) {
         pipeline.reset();
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "lane_fusion: %s", e.what());
+        log_sender_.submit(std::make_shared<std::function<void()>>(
+            [logger = get_logger(), clock = get_clock(), text = std::string(e.what())] {
+              RCLCPP_WARN_THROTTLE(logger, *clock, 2000, "lane_fusion: %s", text.c_str());
+            }));
       }
     }
   }
@@ -285,8 +355,8 @@ private:
         return;
       RCLCPP_WARN(logger,
                   "lane_fusion: %.1f Hz | valid %zu%% | deep used %zu%% (mean age %.0f ms, offered %zu%%) | "
-                  "decode %.1f + CV %.1f ms | receive->publish %.1f ms (max %.1f) | capture->publish %s | "
-                  "network latency %.0f ms",
+                  "decode %.1f + CV %.1f ms | receive->compute %.1f ms (max %.1f) | capture->compute %s | "
+                  "deep result latency %.0f ms",
                   frames / seconds, 100 * valid / frames, 100 * used / frames, used ? 1000 * age / used : 0.,
                   100 * offered / frames, decode / frames, cv / frames, latency / frames, worst,
                   captured ? (std::to_string(int(capture / captured)) + " ms").c_str() : "n/a", network * 1000);
@@ -316,6 +386,11 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_;
   rclcpp::TimerBase::SharedPtr watchdog_;
   OnSetParametersCallbackHandle::SharedPtr parameters_;
+  uint64_t target_version_ = 0; // protected by mutex_
+  autorace_async::LatestWorker<TargetOutput> target_sender_;
+  autorace_async::LatestWorker<nav_msgs::msg::Path> yellow_sender_;
+  autorace_async::LatestWorker<sensor_msgs::msg::Image> debug_sender_;
+  autorace_async::LatestWorker<std::function<void()>> log_sender_;
 };
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);

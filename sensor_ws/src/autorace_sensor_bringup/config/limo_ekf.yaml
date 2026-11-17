@@ -499,3 +499,8 @@ ekf_filter_node_odom:
     - 0.0
     - 0.0
     - 0.001
+    # Avoid reliable DDS retransmission waits on filtered odometry.
+    qos_overrides:
+      /odometry/filtered:
+        publisher:
+          reliability: best_effort

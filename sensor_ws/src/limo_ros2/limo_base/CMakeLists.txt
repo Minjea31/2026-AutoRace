@@ -25,6 +25,7 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(limo_msgs REQUIRED)
 find_package(ackermann_msgs REQUIRED)
+find_package(Threads REQUIRED)
 
 include_directories(
   include
@@ -49,6 +50,7 @@ add_executable(limo_base
     src/serial_port.cpp)
 
 ament_target_dependencies(limo_base rclcpp std_msgs tf2 tf2_ros nav_msgs sensor_msgs limo_msgs tf2_geometry_msgs)
+target_link_libraries(limo_base Threads::Threads)
 
 add_executable(limo_ackerman_base
   src/limo_ackerman_base_node.cpp
@@ -77,6 +79,9 @@ ament_export_include_directories(
 
 if(BUILD_TESTING)
   enable_testing()
+  add_executable(latest_worker_test test/latest_worker_test.cpp)
+  target_link_libraries(latest_worker_test Threads::Threads)
+  add_test(NAME latest_worker COMMAND latest_worker_test)
   add_executable(steering_command_model_test test/steering_command_model_test.cpp)
   add_test(NAME steering_command_model COMMAND steering_command_model_test)
 endif()

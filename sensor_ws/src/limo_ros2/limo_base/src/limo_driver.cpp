@@ -89,6 +89,46 @@ LimoDriver::LimoDriver(std::string node_name):rclcpp::Node(node_name),keep_runni
     status_publisher_ = this->create_publisher<limo_msgs::msg::LimoStatus>("/limo_status",50);
     imu_publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("/imu",10);
 
+    auto report = [this](std::exception_ptr error) {
+        if (!rclcpp::ok()) return;
+        try { std::rethrow_exception(error); }
+        catch (const std::exception& e) {
+            RCLCPP_WARN(get_logger(), "LIMO output: %s", e.what());
+        }
+    };
+    odom_sender_.start([this](const OdometryOutput& output) {
+        if (!rclcpp::ok()) return;
+        if (output.publish_transform) tf_broadcaster_->sendTransform(output.transform);
+        odom_publisher_->publish(output.odometry);
+    }, report);
+    imu_sender_.start([this](const sensor_msgs::msg::Imu& message) {
+        if (rclcpp::ok()) imu_publisher_->publish(message);
+    }, report);
+    status_sender_.start([this](const limo_msgs::msg::LimoStatus& message) {
+        if (!rclcpp::ok()) return;
+        status_publisher_->publish(message);
+    }, report);
+    diagnostic_sender_.start([this](const DiagnosticNotice& notice) {
+        if (!rclcpp::ok()) return;
+        processErrorCode(pending_error_codes_.exchange(0));
+        switch (notice.kind) {
+        case DiagnosticNotice::Checksum:
+            RCLCPP_WARN(get_logger(), "Invalid frame! Check sum failed! ");
+            break;
+        case DiagnosticNotice::WaitingForMode:
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                "limo_driver.cpp:publishOdometry waiting for first system-state frame");
+            break;
+        case DiagnosticNotice::InvalidMode:
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                "limo_driver.cpp:publishOdometry Invalid motion mode! current=%d, supported={0,1,2}, use_mcnamu=%d",
+                notice.motion_mode, static_cast<int>(use_mcnamu_));
+            break;
+        case DiagnosticNotice::ErrorCode:
+            break; // accumulated error bits were handled above, even if this notice was superseded
+        }
+    }, report);
+
     motion_cmd_sub_= this->create_subscription<geometry_msgs::msg::Twist>(
         "/cmd_vel",10,std::bind(&LimoDriver::twistCmdCallback,this,std::placeholders::_1));
 
@@ -112,9 +152,14 @@ LimoDriver::LimoDriver(std::string node_name):rclcpp::Node(node_name),keep_runni
 LimoDriver::~LimoDriver() {
     // 수신 스레드를 join하지 않으면 std::thread 소멸 시 std::terminate() -> SIGABRT.
     // readData()는 rclcpp::ok()가 false가 되면 빠져나오고, read는 100 ms 타임아웃이라 곧 끝난다.
+    keep_running_.store(false);
     if (read_data_thread_ && read_data_thread_->joinable()) {
         read_data_thread_->join();
     }
+    odom_sender_.stop();
+    imu_sender_.stop();
+    status_sender_.stop();
+    diagnostic_sender_.stop();
 }
 
 void LimoDriver::run(){
@@ -166,7 +211,7 @@ void LimoDriver::connect(std::string dev_name, uint32_t bouadrate) {
 void LimoDriver::readData() {
     uint8_t rx_data = 0;
     // RCLCPP_INFO(this->get_logger(),"connet the serial port:2");
-    while (rclcpp::ok()) {
+    while (keep_running_.load() && rclcpp::ok()) {
         // RCLCPP_INFO(this->get_logger(),"connet the serial port:3");
         auto len = port_->readByte(&rx_data);
         if (len < 1)
@@ -244,7 +289,9 @@ void LimoDriver::processRxData(uint8_t data) {
             }
             else {
                 // std::cout << "Invalid frame! Check sum failed!" << std::endl;
-                RCLCPP_WARN(this->get_logger(),"Invalid frame! Check sum failed! ");
+                auto notice = std::make_shared<DiagnosticNotice>();
+                notice->kind = DiagnosticNotice::Checksum;
+                diagnostic_sender_.submit(std::move(notice));
                 // ROS_ERROR("Invalid frame! Check sum failed!");  waring
             }
 
@@ -285,7 +332,12 @@ void LimoDriver::parseFrame(const LimoFrame& frame) {
 
             motion_mode_.store(use_mcnamu_ ? static_cast<int>(MODE_MCNAMU) : frame.data[6]);
 
-            processErrorCode(error_code);
+            if (error_code) {
+                pending_error_codes_.fetch_or(error_code);
+                auto notice = std::make_shared<DiagnosticNotice>();
+                notice->kind = DiagnosticNotice::ErrorCode;
+                diagnostic_sender_.submit(std::move(notice));
+            }
             publishLimoState(frame.stamp, vehicle_state, control_mode,
                              battervyoltage, error_code, motion_mode_);
             // RCLCPP_INFO(this->get_logger(),"MSG_SYSTEM_STATE_ID :");
@@ -558,7 +610,7 @@ void LimoDriver::publishIMUData(double stamp) {
             next_imu_stamp_ = stamp + imu_period_;
         }
     }
-    imu_publisher_->publish(imu_msg);
+    imu_sender_.submit(std::make_shared<sensor_msgs::msg::Imu>(std::move(imu_msg)));
 }
 
 void LimoDriver::publishOdometry(double stamp, double linear_velocity,
@@ -574,8 +626,9 @@ void LimoDriver::publishOdometry(double stamp, double linear_velocity,
     
     const int motion_mode = motion_mode_.load();
     if (motion_mode < 0) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-            "limo_driver.cpp:%s waiting for first system-state frame", __func__);
+        auto notice = std::make_shared<DiagnosticNotice>();
+        notice->kind = DiagnosticNotice::WaitingForMode;
+        diagnostic_sender_.submit(std::move(notice));
         return;
     }
     switch (motion_mode) {
@@ -620,9 +673,10 @@ void LimoDriver::publishOdometry(double stamp, double linear_velocity,
             break;
         }
         default:{
-            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-                "limo_driver.cpp:%s Invalid motion mode! current=%d, supported={0,1,2}, use_mcnamu=%d",
-                __func__, motion_mode, static_cast<int>(use_mcnamu_));
+            auto notice = std::make_shared<DiagnosticNotice>();
+            notice->kind = DiagnosticNotice::InvalidMode;
+            notice->motion_mode = motion_mode;
+            diagnostic_sender_.submit(std::move(notice));
             return;
             break;
         }
@@ -638,6 +692,8 @@ void LimoDriver::publishOdometry(double stamp, double linear_velocity,
     
   
     //std::cout<< "odom_quat:" << odom_quat<<std::endl;
+    auto output = std::make_shared<OdometryOutput>();
+    output->publish_transform = pub_odom_tf_;
     if (pub_odom_tf_) {
         rclcpp::Time now = this->get_clock()->now();
         geometry_msgs::msg::TransformStamped tf_msg;
@@ -651,7 +707,7 @@ void LimoDriver::publishOdometry(double stamp, double linear_velocity,
         tf_msg.transform.translation.y = position_y_;
         tf_msg.transform.translation.z = 0.0;
         tf_msg.transform.rotation = odom_quat;
-        tf_broadcaster_->sendTransform(tf_msg);
+        output->transform = std::move(tf_msg);
     }
 
     // odom message
@@ -679,7 +735,8 @@ void LimoDriver::publishOdometry(double stamp, double linear_velocity,
     odom_msg.pose.covariance[28] = 1.0;
     odom_msg.pose.covariance[35] = 1.0;
 
-    odom_publisher_->publish(odom_msg);
+    output->odometry = std::move(odom_msg);
+    odom_sender_.submit(std::move(output));
 }
 
 void LimoDriver::publishLimoState(double stamp, uint8_t vehicle_state, uint8_t control_mode,
@@ -693,7 +750,7 @@ void LimoDriver::publishLimoState(double stamp, uint8_t vehicle_state, uint8_t c
     status_msg.error_code = error_code;
     status_msg.motion_mode = motion_mode;
 
-    status_publisher_->publish(status_msg);
+    status_sender_.submit(std::make_shared<limo_msgs::msg::LimoStatus>(std::move(status_msg)));
 }
 
 double LimoDriver::convertInnerAngleToCentral(double inner_angle) {
