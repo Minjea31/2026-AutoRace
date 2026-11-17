@@ -130,22 +130,12 @@ public:
           const double st = m->data[9] + m->data[10] * 1e-9;
           core_->on_sign_detail(st > 0 ? st : now_s(), m->data[0] > 0.5, 0.5 * (m->data[5] + m->data[7]));
         }, so);
-    // 자동 시작 순서 조건: 보행자 횡단보도 미션(crosswalk_ws) 정지 -> 재출발 뒤에만 감시
-    if (p.start_after_crosswalk) {
-      const auto cw_qos = rclcpp::QoS(1).reliable();
-      cw_start_sub_ = create_subscription<std_msgs::msg::Bool>(
-        declare_parameter<std::string>("crosswalk_start_topic", "/start_crosswalk"), cw_qos,
-        [this](std_msgs::msg::Bool::SharedPtr m) {
-          if (m->data) {cw_seen_ = true; cw_last_cmd_ = steady(); cw_reset_ = true;}
-        }, so);
-      cw_cmd_sub_ = create_subscription<ackermann_msgs::msg::AckermannDriveStamped>(
-        declare_parameter<std::string>("crosswalk_command_topic", "/mission/crosswalk/command_01"), cw_qos,
-        [this](ackermann_msgs::msg::AckermannDriveStamped::SharedPtr) {
-          cw_seen_ = true;
-          cw_last_cmd_ = steady();
-          cw_reset_ = true;
-        }, so);
-    }
+    slow_active_sub_=create_subscription<std_msgs::msg::Bool>(
+      declare_parameter<std::string>("slow_active_topic","/slow/mission_active"),rclcpp::QoS(1).transient_local(),
+      [this](std_msgs::msg::Bool::SharedPtr m){slow_bump_active_=m->data;},so);
+    slow_command_sub_=create_subscription<ackermann_msgs::msg::AckermannDriveStamped>(
+      declare_parameter<std::string>("slow_command_topic","/mission/slow/command_04"),rclcpp::QoS(1),
+      [this](ackermann_msgs::msg::AckermannDriveStamped::SharedPtr){slow_command_at_=steady();},so);
     act_sub_ = create_subscription<std_msgs::msg::Bool>("/objavoid_v3/activate", 10,
         [this](std_msgs::msg::Bool::SharedPtr m) {on_activate(m->data);}, so);
     remap_sub_=create_subscription<std_msgs::msg::Bool>("/objavoid_v3/remap",10,
@@ -177,7 +167,7 @@ public:
     entrance_armed_pub_=create_publisher<std_msgs::msg::Bool>("/objavoid_v3/entrance_armed",rclcpp::QoS(1).transient_local());
     owner_pub_=create_publisher<std_msgs::msg::Bool>("/objavoid_v3/has_control",rclcpp::QoS(1).transient_local());
     mux_sub_=create_subscription<std_msgs::msg::String>("/mux/active_source",rclcpp::QoS(1).transient_local(),
-      [this](std_msgs::msg::String::SharedPtr m) {mux_objavoid_=m->data=="objavoid";mux_seen_=steady();},so);
+      [this](std_msgs::msg::String::SharedPtr m) {mux_objavoid_=m->data=="objavoid";mux_slow_=m->data=="slow" || m->data=="bump";mux_seen_=steady();},so);
     state_pub_ = create_publisher<std_msgs::msg::String>("/objavoid_v3/state", 10);
     done_pub_ = create_publisher<std_msgs::msg::Bool>("/objavoid_v3/done", rclcpp::QoS(1).transient_local());
     marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/objavoid_v3/markers", 2);
@@ -244,6 +234,28 @@ private:
 
   // ---------------------------------------------------------------- 입력
   double now_s() {return now().nanoseconds() * 1e-9;}
+
+  bool automatic_trigger_blocked() const {
+    const double t=steady();
+    return slow_bump_active_.load() || t-slow_command_at_.load()<0.30 ||
+      (mux_slow_.load() && t-mux_seen_.load()<0.50);
+  }
+  void clear_trigger_observations() {
+    gate_hits_=0;entrance_hits_=0;entrance_previous_={};entrance_window_.reset();
+    entrance_anchor_.reset();entrance_deadline_=-1e9;last_gate_img_=-1e9;
+    gate_yellow_.clear();gate_white_.clear();gate_yellow_stamp_=-1e9;
+    std::lock_guard<std::mutex> lk(stat_mtx_);gate_json_.clear();
+  }
+  bool hold_automatic_trigger() {
+    if(automatic_trigger_blocked()) {
+      if(!automatic_inhibited_) clear_trigger_observations();
+      automatic_inhibited_=true;set_gate_status("wait_slow_bump");return true;
+    }
+    if(automatic_inhibited_) {
+      clear_trigger_observations();trigger_not_before_=now_s();automatic_inhibited_=false;
+    }
+    return false;
+  }
 
   void replay_restart() {
     core_->deactivate();
@@ -341,7 +353,7 @@ private:
 
   void try_activate()
   {
-    if (core_->activate(now_s())) {
+    if (core_->activate(now_s(),0,0,0,true)) {
       pending_activate_ = false;
       done_sent_ = false;
       {
@@ -358,6 +370,7 @@ private:
 
   void process_lane()
   {
+    if(!core_->active() && hold_automatic_trigger()) return;
     // 최신 마스크 1장(+ 같은 촬영 시각 원본) -> 차 기준 노란·흰 점 -> 코어. lane_rate 이하로.
     if (!gp_ || steady() - last_lane_wall_ < 1.0 / std::max(lane_rate_, 0.1)) {return;}
     sensor_msgs::msg::Image::SharedPtr m;
@@ -370,6 +383,7 @@ private:
     if (!m || m->encoding != "mono8" || m->height == 0) {return;}
     last_lane_wall_ = steady();
     const double st = stamp_sec(m->header.stamp);
+    if(!core_->active() && st<=trigger_not_before_) return;
     cv::Mat bgr;
     if (lane_hsv_check_) {
       sensor_msgs::msg::CompressedImage::SharedPtr near;
@@ -391,7 +405,7 @@ private:
         last_reentry_epoch_=core_->mapping_restarts;note_reentry_start(now_s());
       }
     }
-    if(core_->active() && core_->get_state()!=State::DONE && core_->p.start_entrance &&
+    if(core_->active() && core_->get_state()!=State::DONE && core_->p.start_entrance && !automatic_trigger_blocked() &&
         steady()-last_reentry_check_>=0.2) {
       last_reentry_check_=steady();
       const auto entrance=objavoid::eval_entrance_gate(pts,false,core_->p);
@@ -425,7 +439,7 @@ private:
       if(replay_restart_pending_.exchange(false)) {
         gate_hits_=0;entrance_hits_=0;entrance_previous_={};entrance_window_.reset();entrance_anchor_.reset();
         gate_yellow_.clear();gate_white_.clear();gate_yellow_stamp_=-1e9;
-        last_gate_img_=-1e9;last_gate_wall_=-1e9;
+        last_gate_img_=-1e9;last_gate_wall_=-1e9;trigger_not_before_=-1e9;automatic_inhibited_=false;
         std::lock_guard<std::mutex> lk(stat_mtx_);gate_json_.clear();gate_status_="watching";
       }
       sensor_msgs::msg::LaserScan::SharedPtr msg;
@@ -490,19 +504,7 @@ private:
     if (!p.start_auto || !gp_ || pending_activate_) {return;}
     const double w = steady();
     if (w - last_active_wall_ < p.start_rearm) {set_gate_status("rearm"); return;}
-    if (p.start_after_crosswalk) {
-      // 횡단보도 정지가 끝나고(명령 끊김) start_arm_dist 이상 간 뒤에만
-      if (!cw_seen_) {set_gate_status("wait_crosswalk"); return;}
-      if (w - cw_last_cmd_ < p.start_cw_quiet) {set_gate_status("crosswalk_active"); return;}
-      if (cw_reset_.exchange(false)) {cw_armed_at_.reset();}
-      const auto pose = core_->pose_at(now_s(), 0.3);
-      if (!pose) {return;}
-      if (!cw_armed_at_) {cw_armed_at_ = std::make_pair(pose->x, pose->y);}
-      if (std::hypot(pose->x - cw_armed_at_->first, pose->y - cw_armed_at_->second) < p.start_arm_dist) {
-        set_gate_status("after_crosswalk");
-        return;
-      }
-    }
+    if(hold_automatic_trigger()) return;
     if (now_s()-stamp_sec(msg.header.stamp)>p.scan_timeout) {return;}
     if (w - last_gate_wall_ < 1.0 / std::max(lane_rate_, 0.1)) {return;}
     sensor_msgs::msg::CompressedImage::SharedPtr im;
@@ -514,6 +516,7 @@ private:
     }
     if (!im) {set_gate_status("no_image"); return;}
     const double ist = stamp_sec(im->header.stamp);
+    if(ist<=trigger_not_before_) {set_gate_status("wait_post_slow_image");return;}
     const double image_age=now_s()-ist;
     if(image_age>objavoid::kEntranceFreshness || image_age< -0.05) {
       entrance_window_.reset();entrance_anchor_.reset();entrance_deadline_=-1e9;
@@ -613,6 +616,7 @@ private:
       gate_status_ = "watching";
     }
     if (!legacy_ready && !entrance_ready) {return;}
+    if(hold_automatic_trigger()) return;
     gate_hits_ = 0;
     double shift=p.start_origin_at_line && g.line?g.line_x:0.0,yaw_offset=0,d_shift=0;
     if(entrance_ready && entrance_anchor_) {
@@ -623,9 +627,7 @@ private:
       shift=anchor.c*dx+anchor.s*dy;d_shift=-anchor.s*dx+anchor.c*dy;
       yaw_offset=objavoid::wrap(anchor.yaw0-pose->yaw);
     }
-    if (core_->activate(gate_time,shift,yaw_offset,d_shift)) {
-      cw_seen_ = false;  // 다음 자동 시작은 다시 횡단보도 뒤에
-      cw_armed_at_.reset();
+    if (core_->activate(gate_time,shift,yaw_offset,d_shift,true)) {
       done_sent_ = false;
       {
         std::lock_guard<std::mutex> lk(stat_mtx_);
@@ -888,13 +890,11 @@ private:
   // 자동 시작(작업 스레드에서만 갱신, gate_json_/gate_status_는 stat_mtx_)
   double last_active_wall_ = -1e9, last_gate_wall_ = 0, last_gate_img_ = -1;
   int gate_hits_ = 0;
-  // 횡단보도 순서 조건(센서 콜백 그룹·작업 스레드에서 사용)
-  std::atomic<bool> cw_seen_{false};
-  std::atomic<double> cw_last_cmd_{-1e9};
-  std::atomic<bool> cw_reset_{false};
-  std::optional<std::pair<double, double>> cw_armed_at_;  // 작업 스레드만
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr cw_start_sub_;
-  rclcpp::Subscription<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr cw_cmd_sub_;
+  std::atomic<bool> slow_bump_active_{false},mux_slow_{false};
+  std::atomic<double> slow_command_at_{-1e9};
+  bool automatic_inhibited_=false;double trigger_not_before_=-1e9;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr slow_active_sub_;
+  rclcpp::Subscription<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr slow_command_sub_;
   std::string gate_json_, gate_status_ = "idle", start_trigger_="none";
   std::atomic<bool> pending_activation_manual_{false};
   std::atomic<bool> done_sent_{false}, pending_activate_{false};

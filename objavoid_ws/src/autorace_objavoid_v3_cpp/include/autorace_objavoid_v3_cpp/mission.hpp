@@ -43,7 +43,7 @@ public:
   void on_odom(double t, double x, double y, double yaw, double v, double w);
   std::optional<Pose> pose_at(double t, double extrapolate = -1.0) const;
   // s_shift: 도로 원점을 현재 자세에서 전방으로 옮김(자동 시작 시 정지선 위치)
-  bool activate(double t, double s_shift = 0.0, double yaw_offset = 0.0, double d_shift = 0.0);
+  bool activate(double t, double s_shift = 0.0, double yaw_offset = 0.0, double d_shift = 0.0, bool start_hold = false);
   double start_shift = 0.0;
   void deactivate();
   bool on_lane(double stamp, const std::vector<XY> & yellow, const std::vector<XY> & view,
@@ -140,6 +140,7 @@ private:
   void maybe_replan(const Veh & veh, double t);
   bool yellow_blocks_route(const Veh & veh,double t);
   void update_clear_ahead(const Veh & veh);
+  bool startup_path_ready(const Veh & veh) const;
   bool maybe_start_reverse(double t, const std::optional<Veh> & veh);
   std::pair<double, double> reverse_clear(double s, double d, double psi, const std::vector<Box> & boxes) const;
   void reverse_step(double t, double dt, const Veh & veh, double & v_cmd, double & steer_cmd);
@@ -209,6 +210,8 @@ private:
   std::optional<std::pair<double, double>> align_prev_;
   std::optional<double> island_;
   double activated_t_ = 0;
+  bool startup_wait_=false;
+  std::optional<double> startup_stopped_at_;
   struct OccScan {std::vector<double> r; double amin, ainc; LidarPose lp;};
   std::optional<OccScan> occ_scan_;
   int fork_side_ = 0;

@@ -42,9 +42,9 @@ objavoid_v3_node:
     #   센서는 보정 없이(기본) 띄우고, V3 명령만 노드 안에서 드라이버 보정식과 같은 서보 값이 되도록 변환.
     #   아래 조향 설명의 '보정 켬'은 이 변환으로 그대로 재현됨. 센서 보정을 다시 켜면 이 값을 false로.
     cmd_emulate_calibration: true
-    # 11-15: 자동 시작 조건 단순화(사용자) — 정지선·횡단보도 순서 조건 없이 '흰 점선 조각 2개 이상 + 차 헤딩 방향
+    # 자동 시작: slow/bump 미션이 아닐 때 '흰 점선 조각 2개 이상 + 차 헤딩 방향
     #   통로(±0.25 m, 3 m 안) 장애물' 2회 연속(방지턱 표지판 오작동 뒤 정면 장애물로 좁힘).
-    #   도로 원점 = 시작 순간 차 위치. 정지선을 다시 쓰려면 start_need_line: true, 순서 조건은 start_after_crosswalk: true.
+    #   도로 원점 = 시작 순간 차 위치. 자동 시작 트리거는 slow/bump 미션 중에는 감지하지 않음.
     start_need_line: false
     # 11-15: 갈림길 단순화(사용자) — A/B 결정 위치에서 fork_turn_after 더 간 뒤 그쪽으로 fork_turn_steer 로
     #   fork_turn_dist 꺾고 DONE(lane에 넘김). 표지판 받침·섬 추정 안 씀. 세 값은 실차에서 맞출 것.
@@ -53,12 +53,13 @@ objavoid_v3_node:
     fork_sign_min: 1  # YOLO has already confirmed this direction
     road_outline: true
     start_entrance: true
+    start_entrance_confirm: 2  # 노란 입구 꺾임을 새 영상 2장 연속 확인하면 시작 허용
     # 11-15 10:05 시작 지점에서 오작동(점선 L0 R2 + 정면 물체): 점선 조각이 좌우 모두 있고 간격이 차로 폭(0.5 ± 0.12 m)일 때만
     lane_rate: 10.0          # 시작 판정 주기: 5 → 10Hz
     start_dash_both: true
     start_obs_min: 2           # 시작 통로 안의 장애물 2개 이상
     start_confirm: 1           # 점선·장애물 조건을 만족한 첫 판정에 시작
-    start_after_crosswalk: false
+    start_after_crosswalk: false  # 횡단보도 선행 조건 없음
     # 04번 조향(2026-11-14 bag 3개): 센서 런치 기본(steering_command_calibration=false + offset 0.04 -> 서보 0.35 제한)
     #   에서는 실제 곡률이 명령의 0.35배(반경 약 1.2 m). 센서를 steering_command_calibration:=true로 띄우는 것을 전제로
     #   서보 모델 한계(안쪽 바퀴 0.44 -> 중심 약 0.37 rad, 반경 약 0.52 m)에 여유를 둔 값.
@@ -102,7 +103,7 @@ objavoid_v3_node:
     # 11-15 차에서 조정한 값(공통 objavoid_v3.yaml에서 04번 설정으로 옮김)
     max_steering_rate: 1.3
     v_min: 0.1
-    # 기본 normal 모드는 후진하지 않음. recovery_mode:=reverse에서만 20cm 후진 복구를 켠다.
+    # 일반 장애물 후진은 끔. fork_shape의 노란 경계 전용 20cm 후진은 별도 조건으로 동작.
     reverse_enable: false
     k_psi: 1.4
     fb_limit: 0.30

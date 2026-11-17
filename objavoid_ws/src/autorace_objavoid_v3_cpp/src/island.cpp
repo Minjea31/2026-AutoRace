@@ -42,7 +42,6 @@ bool IslandMapper::update(const std::vector<XY> & input,double reference,const P
   for(const auto & q:input) {
     // External road boundaries are near +/-0.77m; island evidence belongs to the centre corridor.
     if(std::isfinite(q.x) && std::isfinite(q.y) && std::abs(q.y)<0.5 &&
-        (!vehicle || (q.x>car_s-0.3 && q.x<car_s+3.0)) &&
         occupied.emplace(std::lround(q.x/0.02),std::lround(q.y/0.02)).second) pts.push_back(q);
   }
   std::sort(pts.begin(),pts.end(),[](const XY & a,const XY & b) {

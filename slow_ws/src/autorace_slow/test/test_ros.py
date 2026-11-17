@@ -304,3 +304,23 @@ def test_signal_stop_event_cancels_scheduled_slow_before_it_starts():
         assert not h.commands and h.node.state.selected(time.monotonic()) is None
     finally:
         h.close()
+
+@pytest.mark.parametrize('kind',['slow','bump'])
+def test_mission_activity_covers_floor_wait_active_hold_and_completion(kind):
+    from rclpy.qos import QoSProfile,DurabilityPolicy
+    h=Harness(white_gate=True)
+    try:
+        values=[]
+        h.subs.append(h.probe.create_subscription(Bool,'/slow/mission_active',lambda m:values.append(m.data),QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)))
+        h.pump(.1);assert values and values[-1] is False
+        h.node.on_sign(kind,Bool(data=True));h.node.on_sign(kind,Bool(data=True));h.pump(.1)
+        assert h.node.state.missions[kind].armed and values[-1] is True
+        assert not h.commands
+        late=[]
+        h.subs.append(h.probe.create_subscription(Bool,'/slow/mission_active',lambda m:late.append(m.data),QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)))
+        h.pump(.1);assert late and late[-1] is True
+        h.node.state.receive_white(True,time.monotonic(),[kind]);h.node.publish();h.pump(.05)
+        assert values[-1] is True
+        h.node.state.missions[kind].deadline=time.monotonic()-1
+        h.node.publish();h.pump(.1);assert values[-1] is False
+    finally:h.close()

@@ -1292,7 +1292,8 @@ TEST(Mission, IslandFitWaitsForPurpleLineAndReusesEarlierObservations) {
     EXPECT_DOUBLE_EQ(*core.island_section_reached_at,2.3);
     EXPECT_DOUBLE_EQ(core.island_fit_stamp,2.2);
     ASSERT_TRUE(core.island_mapper.shape.pose.valid);
-    EXPECT_FALSE(core.fork_goal());EXPECT_FALSE(core.planner.fork_target);EXPECT_FALSE(core.path_);
+    ASSERT_TRUE(core.island_mapper.shape.pose.confirmed);
+    ASSERT_TRUE(core.fork_goal());ASSERT_TRUE(core.planner.fork_target);
     EXPECT_GE(core.island_mapper.input_count,full.size());
     // Earlier corners remain usable with fresh side-only observations.
     for(double t:{2.4,2.5}) image(t,crossing,side);
@@ -1532,4 +1533,125 @@ TEST(Mission, ResetEpochClearsObservedPointsAndRejectsPacketsFromPreviousMap) {
   core.on_odom(2.1,0,0,0,0,0);EXPECT_TRUE(core.on_lane(2.1,points,points,&points));
   EXPECT_FALSE(core.yellow_observed.empty());
   EXPECT_EQ(YAML::Load(core.status_json())["mapping_epoch"].as<unsigned long>(),core.mapping_epoch);
+}
+
+namespace {
+Params startup_params() {
+  Params p;p.use_lane=false;p.fork_enable=false;p.section_end=3.;
+  p.boundary_s={-1,6};p.boundary_left={.8,.8};p.boundary_right={-.8,-.8};return p;
+}
+void startup_scan(ObjAvoidCore & core,double t,double speed=0) {
+  core.on_odom(t,0,0,0,speed,0);core.grid->mark_free(-1,6,-.8,.8);
+  ASSERT_TRUE(core.process_scan(t,std::vector<float>(720,8),-M_PI,2*M_PI/720,t));
+}
+}
+TEST(Mission, StartupHoldsThreeSecondsWhileMappingThenTracksReadyPath) {
+  ObjAvoidCore core(startup_params());core.on_odom(0,0,0,0,0,0);ASSERT_TRUE(core.activate(0,0,0,0,true));
+  double v=1,steer=0;
+  for(double t:{0.,1.,2.999}) {
+    startup_scan(core,t);ASSERT_TRUE(core.path_);EXPECT_TRUE(core.path_->complete);
+    ASSERT_TRUE(core.control(t,.04,v,steer));EXPECT_DOUBLE_EQ(v,0);EXPECT_EQ(core.reason,"startup_hold");
+  }
+  startup_scan(core,3.);ASSERT_TRUE(core.control(3.,.04,v,steer));EXPECT_GT(v,0);
+  EXPECT_FALSE(YAML::Load(core.status_json())["startup"]["waiting"].as<bool>());
+}
+TEST(Mission, StartupMeasuresThreeSecondsFromMeasuredStop) {
+  ObjAvoidCore core(startup_params());core.on_odom(0,0,0,0,.15,0);ASSERT_TRUE(core.activate(0,0,0,0,true));
+  double v=1,steer=0;startup_scan(core,0,.15);core.control(0,.04,v,steer);
+  EXPECT_DOUBLE_EQ(v,0);EXPECT_EQ(core.reason,"startup_stopping");
+  for(double t:{1.,3.999}) {startup_scan(core,t);core.control(t,.04,v,steer);EXPECT_DOUBLE_EQ(v,0);}
+  startup_scan(core,4.);core.control(4.,.04,v,steer);EXPECT_GT(v,0);
+}
+TEST(Mission, StartupWaitsPastThreeSecondsForCompleteVerifiedUnblockedPath) {
+  for(int defect=0;defect<4;++defect) {
+    SCOPED_TRACE(defect);
+    ObjAvoidCore core(startup_params());core.on_odom(0,0,0,0,0,0);ASSERT_TRUE(core.activate(0,0,0,0,true));
+    double v=1,steer=0;startup_scan(core,0);core.control(0,.04,v,steer);
+    startup_scan(core,3.);ASSERT_TRUE(core.path_);const auto good=core.path_;
+    if(defect==0) core.clear_path();
+    if(defect==1) {auto partial=std::make_shared<Path>(*good);partial->complete=false;core.path_=partial;}
+    if(defect==2) core.verified_s=.1;
+    if(defect==3) {Track object;object.confirmed=true;object.box={.8,1.1,-.5,.5};core.tracker->tracks.push_back(object);}
+    core.control(3.,.04,v,steer);EXPECT_DOUBLE_EQ(v,0);EXPECT_EQ(core.reason,"startup_path_wait");
+    core.path_=good;core.tracker->tracks.clear();startup_scan(core,3.1);
+    core.control(3.1,.04,v,steer);EXPECT_GT(v,0);
+  }
+}
+TEST(Mission, StartupRestartsStopConfirmationWhenOdometryIsStale) {
+  ObjAvoidCore core(startup_params());core.on_odom(0,0,0,0,0,0);ASSERT_TRUE(core.activate(0,0,0,0,true));
+  double v=1,steer=0;startup_scan(core,0);core.control(0,.04,v,steer);
+  core.control(3.,.04,v,steer);EXPECT_DOUBLE_EQ(v,0);EXPECT_EQ(core.reason,"odom_stale");
+  for(double t:{4.,6.999}) {startup_scan(core,t);core.control(t,.04,v,steer);EXPECT_DOUBLE_EQ(v,0);}
+  startup_scan(core,7.);core.control(7.,.04,v,steer);EXPECT_GT(v,0);
+}
+TEST(Mission, StartupHoldSurvivesMapResetWithoutEarlyReleaseOrRestart) {
+  ObjAvoidCore core(startup_params());core.on_odom(0,0,0,0,0,0);ASSERT_TRUE(core.activate(0,0,0,0,true));
+  double v=1,steer=0;startup_scan(core,0);core.control(0,.04,v,steer);
+  startup_scan(core,1.);ASSERT_TRUE(core.reset_mapping(1.));
+  startup_scan(core,2.999);core.control(2.999,.04,v,steer);EXPECT_DOUBLE_EQ(v,0);
+  startup_scan(core,3.);core.control(3.,.04,v,steer);EXPECT_GT(v,0);
+}
+
+TEST(Mission, CrossingYellowPaintKeepsInsidePathAndSteersBackInsteadOfStopping) {
+  for(double side:{-1.,1.}) for(bool have_path:{false,true}) {
+    Params p=startup_params();p.boundary_left={.5,.5};p.boundary_right={-.5,-.5};p.deviation_stop=.05;
+    ObjAvoidCore core(p);core.on_odom(0,0,0,0,0,0);ASSERT_TRUE(core.activate(0));
+    if(have_path) startup_scan(core,0);
+    const auto old=core.path_;
+    core.on_odom(1,0,side*.7,0,0,0);core.grid->mark_free(-1,6,-1,1);
+    ASSERT_TRUE(core.process_scan(1,std::vector<float>(720,8),-M_PI,2*M_PI/720,1));
+    ASSERT_TRUE(core.path_);if(have_path) {EXPECT_EQ(core.path_,old);}
+    double v=0,steer=0;ASSERT_TRUE(core.control(1,.1,v,steer));EXPECT_GT(v,0);
+    EXPECT_LT(side*(steer+p.steer_trim),0);EXPECT_EQ(core.reason,"tracking");
+    for(size_t i=0;i<core.path_->s.size();++i)
+      EXPECT_GE(boundary_clearance(core.path_->s[i],core.path_->d[i],core.path_->psi[i],*core.boundary(),p),-1e-6);
+    Track object;object.confirmed=true;object.box={-.1,.1,side*.7-.1,side*.7+.1};core.tracker->tracks.push_back(object);
+    core.control(1,.1,v,steer);EXPECT_DOUBLE_EQ(v,0);EXPECT_EQ(core.reason,"recovery_obstacle");
+  }
+}
+TEST(Outline, VehicleOutsidePaintDoesNotDragTheMatchedRoadAroundIt) {
+  Params p;RoadOutline road(p);std::vector<XY> points;
+  for(const auto & edge:road.edges) for(int i=0;i<50;++i) {
+    const double u=i/49.;points.push_back({edge.first.x+u*(edge.second.x-edge.first.x),edge.first.y+u*(edge.second.y-edge.first.y)});
+  }
+  const auto fit=road.fit(points,true,XY{1,1.2});ASSERT_TRUE(fit.valid);
+  EXPECT_NEAR(fit.s,0,.03);EXPECT_NEAR(fit.d,0,.03);EXPECT_NEAR(fit.yaw,0,.02);
+}
+TEST(Mission, IslandUsesAccumulatedCornersOlderThanRecentImageWindow) {
+  Params p;p.fork_shape=true;p.road_outline=true;p.lane_lidar_filter=false;p.fork_sign_min=1;
+  p.boundary_s={-1,8};p.boundary_left={.77,.77};p.boundary_right={-.77,-.77};
+  ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));core.aligned=true;core.on_sign(1.01,false);
+  IslandShape island;island.pose={4.6,.04,.05,0,0,true,true};const auto v=island.vertices();
+  std::vector<XY> full,side;
+  for(int edge:{0,1,5}) for(int i=0;i<30;++i) {
+    const auto a=v[edge],b=v[(edge+1)%6];const double u=i/29.;XY q{a.x+u*(b.x-a.x),a.y+u*(b.y-a.y)};
+    full.push_back(q);if(edge==1)side.push_back(q);
+  }
+  const double crossing=p.section_end-p.body_front;
+  auto image=[&](double t,double x,const std::vector<XY> & world) {
+    core.on_odom(t,x,0,0,0,0);std::vector<XY> base;for(const auto & q:world)base.push_back({q.x-x,q.y});
+    ASSERT_TRUE(core.on_lane(t,base,{},nullptr));core.grid->mark_free(-1,8,-.8,.8);
+    ASSERT_TRUE(core.process_scan(t,std::vector<float>(720,8),-M_PI,2*M_PI/720,t));
+  };
+  for(double t:{2.,2.1,2.2}) image(t,crossing-.1,full);
+  image(5.,crossing,side);
+  ASSERT_EQ(core.yellow_history.size(),1u); // The old corners are no longer in the recent frame cache.
+  ASSERT_TRUE(core.island_mapper.shape.pose.valid);EXPECT_NEAR(core.island_s(),4.6,.08);
+  EXPECT_GT(core.island_mapper.input_count,side.size());EXPECT_FALSE(core.island_mapper.shape.pose.confirmed);
+  for(double t:{5.1,5.2}) image(t,crossing,side);
+  EXPECT_TRUE(core.navigation_island().pose.confirmed);EXPECT_TRUE(core.fork_goal());
+  EXPECT_EQ(YAML::Load(core.status_json())["island_mapping"]["observation_source"].as<std::string>(),"accumulated_map");
+}
+TEST(Mission, OneCachedIslandFrameCannotBeCountedAsThreeIndependentObservations) {
+  Params p;p.fork_shape=true;p.road_outline=true;p.lane_lidar_filter=false;p.fork_sign_min=1;
+  p.boundary_s={-1,8};p.boundary_left={.77,.77};p.boundary_right={-.77,-.77};
+  ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));core.aligned=true;core.on_sign(1.01,false);
+  IslandShape island;island.pose={4.6,.04,.05,0,0,true,true};const auto v=island.vertices();
+  std::vector<XY> full;for(int edge:{0,1,5})for(int i=0;i<30;++i){const auto a=v[edge],b=v[(edge+1)%6];const double u=i/29.;full.push_back({a.x+u*(b.x-a.x),a.y+u*(b.y-a.y)});}
+  const double crossing=p.section_end-p.body_front;
+  core.on_odom(2,crossing-.1,0,0,0,0);std::vector<XY> base;for(const auto & q:full)base.push_back({q.x-(crossing-.1),q.y});
+  ASSERT_TRUE(core.on_lane(2,base,{},nullptr));
+  for(double t:{2.1,2.2,2.3}) {core.on_odom(t,crossing,0,0,0,0);core.process_scan(t,std::vector<float>(720,8),-M_PI,2*M_PI/720,t);}
+  ASSERT_TRUE(core.island_mapper.shape.pose.valid);EXPECT_EQ(core.island_mapper.shape.pose.stable,1);
+  EXPECT_FALSE(core.navigation_island().pose.confirmed);EXPECT_FALSE(core.fork_goal());
 }

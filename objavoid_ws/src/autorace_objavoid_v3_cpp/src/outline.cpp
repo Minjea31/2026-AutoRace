@@ -136,13 +136,13 @@ OutlineFit RoadOutline::fit(const std::vector<XY> & input,bool acquire,std::opti
       cv::Vec3d delta;if(!cv::solve(h,rhs,delta,cv::DECOMP_SVD)) return;
       // Evaluate the actual current pose, not the unevaluated final iteration step.
       if(iteration==9 || cv::norm(delta)<1e-5) {
-        bool car_inside=true;
+        double car_tiebreak=0;
         if(ego) {
           const double gs=c*(ego->x-out.s)+sn*(ego->y-out.d),gd=-sn*(ego->x-out.s)+c*(ego->y-out.d);
-          double r,l;limits(gs,r,l);car_inside=gd>=r+.06 && gd<=l-.06;
+          double r,l;limits(gs,r,l);car_tiebreak=1e-8*std::pow(std::max({r-gd,gd-l,0.0}),2);
         }
-        out.valid=out.error<0.04 && out.inlier_ratio>=0.50 && car_inside;
-        const double objective=cost/std::max(1,exterior_count)+1e-6*(out.s*out.s+out.d*out.d+out.yaw*out.yaw);
+        out.valid=out.error<0.04 && out.inlier_ratio>=0.50;
+        const double objective=cost/std::max(1,exterior_count)+1e-6*(out.s*out.s+out.d*out.d+out.yaw*out.yaw)+car_tiebreak;
         if(out.valid && objective<best_cost) {best_cost=objective;best=out;}
         return;
       }

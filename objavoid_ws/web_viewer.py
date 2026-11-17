@@ -362,7 +362,7 @@ class Viewer(Node):
         if topic == '/objavoid_v3/state':
             try:
                 state = json.loads(value)
-                value = {k: state[k] for k in ('state', 'reason', 'start_gate', 'road_mapping', 'island_mapping', 'fork', 'clearance_policy', 'mapping_epoch', 'fork_stage') if k in state}
+                value = {k: state[k] for k in ('state', 'reason', 'start_gate', 'road_mapping', 'island_mapping', 'fork', 'clearance_policy', 'mapping_epoch', 'fork_stage', 'startup') if k in state}
             except (ValueError, TypeError):
                 pass
         with self.lock:

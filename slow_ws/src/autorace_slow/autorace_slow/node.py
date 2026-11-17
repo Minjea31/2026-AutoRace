@@ -74,6 +74,9 @@ class SlowNode(Node):
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                          durability=DurabilityPolicy.VOLATILE)
         self.command_pub = self.create_publisher(AckermannDriveStamped, '/mission/slow/command_04', qos)
+        activity_qos=QoSProfile(depth=1,reliability=ReliabilityPolicy.RELIABLE,durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.mission_active_pub=self.create_publisher(Bool,'/slow/mission_active',activity_qos)
+        self.publish_activity()
         self.lane_sub = self.create_subscription(AckermannDriveStamped, '/mission/lane', self.on_lane, qos)
         self.sign_subs = [self.create_subscription(Bool, topic, partial(self.on_sign, kind), qos)
                           for kind, topic in (('slow', '/yolo/slow_sign'), ('bump', '/yolo/bump_sign'))]
@@ -144,10 +147,15 @@ class SlowNode(Node):
             return
         self.lane, self.lane_received = copy.deepcopy(message), now
 
+    def publish_activity(self):
+        active=any(m.armed or m.deadline is not None for m in self.state.missions.values())
+        self.mission_active_pub.publish(Bool(data=active))
+
     def stop_slow(self, reason):
         mission = self.state.missions['slow']
         was_pending = mission.deadline is not None or mission.armed or mission.count > 0
         self.state.stop_slow()
+        self.publish_activity()
         self.white_arm_stamps.pop('slow', None)
         if was_pending:
             self.get_logger().info(f'서행 종료: {reason}')
@@ -164,6 +172,7 @@ class SlowNode(Node):
         self.state.tick(time.monotonic())
         was_armed = self.state.missions[kind].armed
         self.state.receive(kind, message.data, time.monotonic())
+        self.publish_activity()
         if not was_armed and self.state.missions[kind].armed:
             self.white_arm_stamps[kind] = self.get_clock().now().nanoseconds
             self.get_logger().info(f'{kind.upper()}: YOLO {self.confirm_frames}회 확인, 바닥 흰색 ROI 대기')
@@ -211,6 +220,7 @@ class SlowNode(Node):
             for kind in self.state.receive_white(hit, time.monotonic(), eligible):
                 self.white_arm_stamps.pop(kind, None)
                 self.get_logger().info(f'{kind.upper()}: 흰선 확인, {self.start_delay_sec:.1f}초 뒤 서행 시작')
+            self.publish_activity()
             self.white_ratio_pub.publish(Float32(data=ratio))
             self.white_detected_pub.publish(Bool(data=hit))
             if self.white_debug_pub.get_subscription_count():
@@ -225,6 +235,7 @@ class SlowNode(Node):
     def publish(self):
         now, ros_now = time.monotonic(), self.ros_now()
         mode = self.state.selected(now)
+        self.publish_activity()
         if mode != self.last_mode:
             self.get_logger().info(f'Slow: {mode.upper() if mode else "PASS"}')
             self.last_mode = mode
