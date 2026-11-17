@@ -12,16 +12,17 @@ usage() {
 모드 (여러 개 지정 가능):
   all                 아래 모든 모드의 토픽 합집합 (코드에 쓰이는 토픽만)
   lane, 차선          HSV / deep / fusion 차선 입력, target, PID, debug
-  obstacle, 장애물    objavoid_v3 입력, 상태, 경로, 제어, 갈림길 인지
-  cone, 라바콘        LiDAR, 클러스터, 경계, 제어 경로
-  parking, 주차       주차 입력, 상태, 위치추정, 경로, 인계
-  crosswalk, 횡단보도 YOLO 표지판, 흰색 ROI, 정지 명령
-  signal, 신호등      신호 인지, 흰색 ROI, 정지 명령
-  slow, 서행          방지턱/서행 표지판, 흰색 ROI, 미션 상태
+  obstacle, 장애물    차선 전체 + objavoid_v3 상태, 경로, 제어, 갈림길 인지
+  cone, 라바콘        차선 전체 + LiDAR, 클러스터, 경계, 제어 경로
+  parking, 주차       차선 전체 + 주차 상태, 위치추정, 경로, 인계
+  crosswalk, 횡단보도 차선 전체 + YOLO 표지판, 흰색 ROI, 정지 명령
+  signal, 신호등      차선 전체 + 신호 인지, 흰색 ROI, 정지 명령
+  slow, 서행          차선 전체 + 방지턱/서행 표지판, 흰색 ROI, 미션 상태
   yolo                영상 및 모든 YOLO 인지 결과
   sensor, 센서        영상, LiDAR, odom, IMU, 위치추정, 차량 상태
 
 공통: /mission/lane, /cmd_vel, /mux/active_source, TF, /clock, /rosout
+미션 모드는 lane의 카메라·target·mask·PID·debug·인계 신호를 자동 포함합니다.
 옵션:
   -o, --output DIR  저장 경로 (기본: 저장소/bags/MODE_날짜_시간)
   --list           선택한 토픽만 출력하고 종료 (ROS 환경 불필요)
@@ -32,7 +33,7 @@ usage() {
   ./tools/record_bag.sh all
   ./tools/record_bag.sh lane
   ./tools/record_bag.sh 장애물
-  ./tools/record_bag.sh lane obstacle -o ~/bags/lane_obstacle_test
+  ./tools/record_bag.sh obstacle -o ~/bags/lane_obstacle_test
   ./tools/record_bag.sh obstacle --list
   ./tools/record_bag.sh all -- --max-bag-duration 60
 
@@ -92,6 +93,12 @@ parking_handoff() {
 
 profile() {
   local name
+  # Record the upstream lane stack as well as the selected mission. Speed-only
+  # missions consume its steering; other missions hand control to/from lane.
+  # lane has no profile dependency, so this cannot recurse back into a mission.
+  case "$1" in
+    obstacle|cone|parking|crosswalk|signal|slow) profile lane ;;
+  esac
   case "$1" in
     all)
       for name in lane obstacle cone parking crosswalk signal slow yolo sensor; do profile "$name"; done ;;

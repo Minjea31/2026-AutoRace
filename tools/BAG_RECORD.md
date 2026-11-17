@@ -4,12 +4,12 @@
 cd ~/2026-AutoRace
 ./tools/record_bag.sh all         # 코드에 쓰이는 전체 토픽
 ./tools/record_bag.sh lane        # 차선 (opencv / deep / fusion 모두 대응)
-./tools/record_bag.sh obstacle    # 장애물 (objavoid, obj, 장애물도 가능)
-./tools/record_bag.sh cone        # 라바콘
-./tools/record_bag.sh parking     # 주차
-./tools/record_bag.sh crosswalk   # 횡단보도
-./tools/record_bag.sh signal      # 신호등
-./tools/record_bag.sh slow        # 방지턱·서행
+./tools/record_bag.sh obstacle    # 차선 전체 + 장애물 (objavoid, obj, 장애물도 가능)
+./tools/record_bag.sh cone        # 차선 전체 + 라바콘
+./tools/record_bag.sh parking     # 차선 전체 + 주차
+./tools/record_bag.sh crosswalk   # 차선 전체 + 횡단보도
+./tools/record_bag.sh signal      # 차선 전체 + 신호등
+./tools/record_bag.sh slow        # 차선 전체 + 방지턱·서행
 ./tools/record_bag.sh yolo        # 영상·YOLO 인지
 ./tools/record_bag.sh sensor      # 센서·위치추정
 ```
@@ -19,13 +19,16 @@ cd ~/2026-AutoRace
 기본 저장 위치는 `~/2026-AutoRace/bags/<모드>_<날짜>_<시간>/`입니다. 안에 `.db3`와 `metadata.yaml`이 저장됩니다. 다른 위치를 지정할 수 있고, 이미 존재하는 경로는 덮어쓰지 않습니다.
 
 ```bash
-./tools/record_bag.sh lane obstacle -o ~/bags/lane_obstacle_test
+./tools/record_bag.sh obstacle -o ~/bags/lane_obstacle_test # lane 자동 포함
+./tools/record_bag.sh crosswalk signal # 차선 + 횡단보도 + 신호등
 ./tools/record_bag.sh 장애물 --list      # 녹화 없이 토픽 목록 확인
 ./tools/record_bag.sh all --dry-run      # 폴더 생성 없이 명령 확인
 ./tools/record_bag.sh all -- --max-bag-duration 60  # 60초마다 파일 분할 (종료 시간이 아님)
 ```
 
 `all`은 스크립트에 명시된 토픽의 합집합입니다. 각 모드는 관련 센서 입력, 판단 결과, 상태, 경로, 제어 출력을 포함합니다. 공통으로 `/mission/lane`, `/cmd_vel`, `/mux/active_source`, `/tf`, `/tf_static`, `/clock`, `/rosout`을 선택합니다. 미션 간 의존성도 포함하므로, 예를 들어 차선에는 주차 인계 신호와 라바콘 출구 상태가 들어가고 장애물에는 서행 제어 상태가 들어갑니다. 중복 토픽은 한 번만 기록합니다.
+
+**미션 인자 하나만 지정해도 `lane`의 전체 토픽을 자동 포함합니다.** 횡단보도·신호등·서행은 `/mission/lane`의 조향을 유지하고 속도만 바꾸므로, 상위 카메라 → 차선 인식 → target → PID → lane 명령까지 함께 녹화합니다. 장애물·라바콘·주차도 차선 주행과의 진입·복귀를 확인할 수 있도록 같은 차선 토픽을 포함합니다. opencv/deep/fusion 세 방식의 목록을 모두 선택하고 실제 실행 중인 방식에서 발행되는 토픽을 저장합니다. 따라서 `crosswalk`만으로 횡단보도와 차선의 원인을 함께 분석할 수 있고, `lane crosswalk`를 따로 적을 필요가 없습니다. `yolo`와 `sensor`는 각각 인지와 센서만 확인하는 용도여서 차선 전체를 자동으로 포함하지 않습니다.
 
 모든 선택 토픽이 항상 발행되는 것은 아닙니다. 실행한 차선 모드나 미션 상태에 따라 발행되는 토픽만 bag에 저장되며, 녹화 중 나중에 생기는 토픽도 탐색합니다. 목록은 2026-11-18의 소스와 실차 launch/config 기준입니다. 기본 설정에서 쓰는 압축 카메라와 deep mask, 디버그 영상도 포함하므로 영상이 켜져 있으면 파일이 커질 수 있습니다. 입력을 별도 토픽으로 remap한 경우에는 `record_bag.sh`의 해당 프로필도 함께 수정하세요.
 
@@ -37,4 +40,4 @@ cd ~/2026-AutoRace
 
 2026-11-18 재검사에서 EKF의 위치 초기화 토픽 `/set_pose`를 `sensor`와 `all`에 추가했습니다. 같은 이름의 `/set_pose` 서비스와는 별개이며, 서비스 호출 자체는 이 bag에 기록되지 않습니다. 전체 토픽과 소스 위치의 대응표는 [BAG_TOPIC_AUDIT.md](BAG_TOPIC_AUDIT.md)에 있습니다.
 
-현재 소스에서 갈림길 `/yolo/LR_sign`, `/yolo/LR_detail`은 장애물 V3 노드가 구독하므로 `obstacle`과 `yolo`에 포함합니다. `lane`은 실제 차선 노드가 사용하는 입력과 출력만 선택하며, 갈림길 인지도 함께 확인하려면 `lane obstacle`로 실행하세요.
+현재 소스에서 갈림길 `/yolo/LR_sign`, `/yolo/LR_detail`은 장애물 V3 노드가 구독하므로 `obstacle`과 `yolo`에 포함합니다. 갈림길 인지와 차선 주행을 함께 확인하려면 `obstacle`로 실행하세요. 차선 토픽은 자동으로 함께 저장됩니다.

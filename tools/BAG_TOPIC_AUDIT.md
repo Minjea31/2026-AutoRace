@@ -6,17 +6,17 @@
 
 주행 노드가 실행되지 않은 상태여서 현재 그래프의 실제 발행 주기·데이터 유효성은 이번 정적 검사 범위에 포함되지 않습니다. 표의 근거는 토픽 사용 코드 또는 해당 표준 ROS 인터페이스를 시작하는 launch 위치입니다. 임의 remap, 다른 namespace/camera_name, 기본 비활성 depth/IR/point cloud/accel 옵션은 별도 목록 수정이 필요합니다.
 
-공통 제어·TF·clock·로그와 관련 미션 의존성, 디버그 출력, 단독 실행용 출력도 의도적으로 포함합니다. all은 ROS 전체 그래프가 아니라 이 목록의 합집합입니다.
+미션 모드 obstacle/cone/parking/crosswalk/signal/slow는 lane 전체 토픽을 자동 포함합니다. 속도 조정 미션의 조향 원인과 다른 미션의 차선 진입·복귀를 함께 분석하기 위한 구성입니다. yolo/sensor에는 lane 전체를 자동 포함하지 않습니다. 공통 제어·TF·clock·로그와 관련 미션 의존성, 디버그 출력, 단독 실행용 출력도 포함합니다. all은 ROS 전체 그래프가 아니라 이 목록의 합집합입니다.
 
 | 모드 | 공통 포함 토픽 수 | 주요 코드 |
 |---|---:|---|
 | `lane` | 32 | `lane_ws/src/autorace_lane_pid/src/node.cpp` |
-| `obstacle` | 28 | `objavoid_ws/src/autorace_objavoid_v3_cpp/src/node.cpp` |
-| `cone` | 23 | `cone_ws/src/cone_lane_follower/cpp/roi_node.cpp` |
-| `parking` | 39 | `parking_ws/src/autorace_parking/autorace_parking/node.py` |
-| `crosswalk` | 14 | `crosswalk_ws/src/autorace_crosswalk/autorace_crosswalk/node.py` |
-| `signal` | 14 | `signal_ws/src/autorace_signal/autorace_signal/node.py` |
-| `slow` | 17 | `slow_ws/src/autorace_slow/autorace_slow/node.py` |
+| `obstacle` | 48 | `objavoid_ws/src/autorace_objavoid_v3_cpp/src/node.cpp` |
+| `cone` | 44 | `cone_ws/src/cone_lane_follower/cpp/roi_node.cpp` |
+| `parking` | 50 | `parking_ws/src/autorace_parking/autorace_parking/node.py` |
+| `crosswalk` | 38 | `crosswalk_ws/src/autorace_crosswalk/autorace_crosswalk/node.py` |
+| `signal` | 38 | `signal_ws/src/autorace_signal/autorace_signal/node.py` |
+| `slow` | 41 | `slow_ws/src/autorace_slow/autorace_slow/node.py` |
 | `yolo` | 16 | `yolo_ws/src/yolo_detect.py` |
 | `sensor` | 20 | `sensor_ws/src/autorace_sensor_bringup/scripts/sensor_fusion.py` |
 
@@ -31,31 +31,31 @@
 | `/tf_static` | lane, obstacle, cone, parking, crosswalk, signal, slow, yolo, sensor | [sensor_ws/src/autorace_sensor_bringup/launch/camera_tf.launch.py:27](../sensor_ws/src/autorace_sensor_bringup/launch/camera_tf.launch.py#L27) |
 | `/clock` | lane, obstacle, cone, parking, crosswalk, signal, slow, yolo, sensor | ROS 2 Node use_sim_time 기본 인터페이스 |
 | `/rosout` | lane, obstacle, cone, parking, crosswalk, signal, slow, yolo, sensor | ROS 2 Node 로깅 기본 인터페이스 |
-| `/camera/color/image_raw/compressed` | lane, obstacle, parking, crosswalk, signal, slow, yolo, sensor | [lane_ws/src/autorace_lane_lite/src/node.cpp:29](../lane_ws/src/autorace_lane_lite/src/node.cpp#L29) |
-| `/odom` | lane, obstacle, cone, parking, sensor | [lane_ws/src/autorace_lane_lite/src/node.cpp:33](../lane_ws/src/autorace_lane_lite/src/node.cpp#L33) |
-| `/imu` | lane, obstacle, cone, parking, sensor | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:57](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L57) |
-| `/odometry/filtered` | lane, obstacle, cone, parking, sensor | [parking_ws/src/autorace_parking/autorace_parking/node.py:369](../parking_ws/src/autorace_parking/autorace_parking/node.py#L369) |
-| `/yolo/parking_sign` | lane, parking, yolo | [lane_ws/src/autorace_lane_pid/src/node.cpp:40](../lane_ws/src/autorace_lane_pid/src/node.cpp#L40) |
-| `/parking_start` | lane, parking | [lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp:93](../lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp#L93) |
-| `/parking/ready` | lane, parking | [lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp:100](../lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp#L100) |
-| `/parking/active` | lane, parking | [lane_ws/src/autorace_lane_pid/src/node.cpp:128](../lane_ws/src/autorace_lane_pid/src/node.cpp#L128) |
-| `/parking/approach_start` | lane, parking | [lane_ws/src/autorace_lane_pid/src/node.cpp:74](../lane_ws/src/autorace_lane_pid/src/node.cpp#L74) |
-| `/parking/approach_ready` | lane, parking | [lane_ws/src/autorace_lane_pid/src/node.cpp:116](../lane_ws/src/autorace_lane_pid/src/node.cpp#L116) |
-| `/parking/control_state` | lane, parking | [lane_ws/src/autorace_lane_pid/src/node.cpp:122](../lane_ws/src/autorace_lane_pid/src/node.cpp#L122) |
-| `/parking/lane_handoff` | lane, parking | [parking_ws/src/autorace_parking/autorace_parking/node.py:361](../parking_ws/src/autorace_parking/autorace_parking/node.py#L361) |
-| `/cone_lane/exit_lane_active` | lane, cone | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:78](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L78) |
-| `/lane_lite/target` | lane | [lane_ws/src/autorace_lane_pid/src/node.cpp:37](../lane_ws/src/autorace_lane_pid/src/node.cpp#L37) |
-| `/lane_lite/debug` | lane | [lane_ws/src/autorace_lane_lite/src/node.cpp:50](../lane_ws/src/autorace_lane_lite/src/node.cpp#L50) |
-| `/lane_pid/command` | lane | [lane_ws/src/autorace_lane_pid/src/node.cpp:68](../lane_ws/src/autorace_lane_pid/src/node.cpp#L68) |
-| `/lane_pid/state` | lane | [lane_ws/src/autorace_lane_pid/src/node.cpp:73](../lane_ws/src/autorace_lane_pid/src/node.cpp#L73) |
-| `/lane_deep/target` | lane | [lane_fusion_ws/src/autorace_lane_deep_lite/src/node.cpp:30](../lane_fusion_ws/src/autorace_lane_deep_lite/src/node.cpp#L30) |
-| `/lane_deep/debug` | lane | [lane_fusion_ws/src/autorace_lane_deep_lite/src/node.cpp:33](../lane_fusion_ws/src/autorace_lane_deep_lite/src/node.cpp#L33) |
-| `/lane_fusion/deep_mask` | lane, obstacle | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:50](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L50) |
-| `/lane_fusion/target` | lane, parking | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:89](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L89) |
-| `/lane_fusion/debug` | lane | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:92](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L92) |
-| `/lane_fusion/yellow_boundary` | lane, parking | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:88](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L88) |
-| `/lane_fusion_pid/command` | lane | [lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp:58](../lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp#L58) |
-| `/lane_fusion_pid/state` | lane | [lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp:63](../lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp#L63) |
+| `/camera/color/image_raw/compressed` | lane, obstacle, cone, parking, crosswalk, signal, slow, yolo, sensor | [lane_ws/src/autorace_lane_lite/src/node.cpp:29](../lane_ws/src/autorace_lane_lite/src/node.cpp#L29) |
+| `/odom` | lane, obstacle, cone, parking, crosswalk, signal, slow, sensor | [lane_ws/src/autorace_lane_lite/src/node.cpp:33](../lane_ws/src/autorace_lane_lite/src/node.cpp#L33) |
+| `/imu` | lane, obstacle, cone, parking, crosswalk, signal, slow, sensor | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:57](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L57) |
+| `/odometry/filtered` | lane, obstacle, cone, parking, crosswalk, signal, slow, sensor | [parking_ws/src/autorace_parking/autorace_parking/node.py:369](../parking_ws/src/autorace_parking/autorace_parking/node.py#L369) |
+| `/yolo/parking_sign` | lane, obstacle, cone, parking, crosswalk, signal, slow, yolo | [lane_ws/src/autorace_lane_pid/src/node.cpp:40](../lane_ws/src/autorace_lane_pid/src/node.cpp#L40) |
+| `/parking_start` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp:93](../lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp#L93) |
+| `/parking/ready` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp:100](../lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp#L100) |
+| `/parking/active` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_ws/src/autorace_lane_pid/src/node.cpp:128](../lane_ws/src/autorace_lane_pid/src/node.cpp#L128) |
+| `/parking/approach_start` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_ws/src/autorace_lane_pid/src/node.cpp:74](../lane_ws/src/autorace_lane_pid/src/node.cpp#L74) |
+| `/parking/approach_ready` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_ws/src/autorace_lane_pid/src/node.cpp:116](../lane_ws/src/autorace_lane_pid/src/node.cpp#L116) |
+| `/parking/control_state` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_ws/src/autorace_lane_pid/src/node.cpp:122](../lane_ws/src/autorace_lane_pid/src/node.cpp#L122) |
+| `/parking/lane_handoff` | lane, obstacle, cone, parking, crosswalk, signal, slow | [parking_ws/src/autorace_parking/autorace_parking/node.py:361](../parking_ws/src/autorace_parking/autorace_parking/node.py#L361) |
+| `/cone_lane/exit_lane_active` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:78](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L78) |
+| `/lane_lite/target` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_ws/src/autorace_lane_pid/src/node.cpp:37](../lane_ws/src/autorace_lane_pid/src/node.cpp#L37) |
+| `/lane_lite/debug` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_ws/src/autorace_lane_lite/src/node.cpp:50](../lane_ws/src/autorace_lane_lite/src/node.cpp#L50) |
+| `/lane_pid/command` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_ws/src/autorace_lane_pid/src/node.cpp:68](../lane_ws/src/autorace_lane_pid/src/node.cpp#L68) |
+| `/lane_pid/state` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_ws/src/autorace_lane_pid/src/node.cpp:73](../lane_ws/src/autorace_lane_pid/src/node.cpp#L73) |
+| `/lane_deep/target` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_deep_lite/src/node.cpp:30](../lane_fusion_ws/src/autorace_lane_deep_lite/src/node.cpp#L30) |
+| `/lane_deep/debug` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_deep_lite/src/node.cpp:33](../lane_fusion_ws/src/autorace_lane_deep_lite/src/node.cpp#L33) |
+| `/lane_fusion/deep_mask` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:50](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L50) |
+| `/lane_fusion/target` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:89](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L89) |
+| `/lane_fusion/debug` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:92](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L92) |
+| `/lane_fusion/yellow_boundary` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp:88](../lane_fusion_ws/src/autorace_lane_fusion/src/node.cpp#L88) |
+| `/lane_fusion_pid/command` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp:58](../lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp#L58) |
+| `/lane_fusion_pid/state` | lane, obstacle, cone, parking, crosswalk, signal, slow | [lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp:63](../lane_fusion_ws/src/autorace_lane_fusion_pid/src/node.cpp#L63) |
 | `/scan` | obstacle, cone, parking, sensor | [objavoid_ws/src/autorace_objavoid_v3_cpp/src/node.cpp:62](../objavoid_ws/src/autorace_objavoid_v3_cpp/src/node.cpp#L62) |
 | `/yolo/LR_sign` | obstacle, yolo | [objavoid_ws/src/autorace_objavoid_v3_cpp/src/node.cpp:82](../objavoid_ws/src/autorace_objavoid_v3_cpp/src/node.cpp#L82) |
 | `/yolo/LR_detail` | obstacle, yolo | [objavoid_ws/src/autorace_objavoid_v3_cpp/src/node.cpp:83](../objavoid_ws/src/autorace_objavoid_v3_cpp/src/node.cpp#L83) |
