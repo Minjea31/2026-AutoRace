@@ -662,7 +662,7 @@ void ObjAvoidCore::reframe(double a, double dc, double t, double ds)
       nf.to_road(x, y, ns, nd);
       s0 = std::min(s0, ns); s1 = std::max(s1, ns); d0 = std::min(d0, nd); d1 = std::max(d1, nd);
     }
-    tr.box = {s0, s1, d0, d1};
+    tr.box = {s0, s1, d0, d1, b.robot_candidate};
   }
   auto point=[&](double & s,double & d) {
     double x,y;old.to_odom(s,d,x,y);nf.to_road(x,y,s,d);
@@ -676,7 +676,7 @@ void ObjAvoidCore::reframe(double a, double dc, double t, double ds)
       point(q.x,q.y);s0=std::min(s0,q.x);s1=std::max(s1,q.x);
       d0=std::min(d0,q.y);d1=std::max(d1,q.y);
     }
-    b={s0,s1,d0,d1};
+    b={s0,s1,d0,d1,b.robot_candidate};
   }
   *grid = grid->reframed(old, nf);
   frame = nf;
@@ -724,7 +724,7 @@ bool ObjAvoidCore::restart_after_obstacle_gap(const std::vector<Box> & boxes,dou
   }
   obstacle_presence_stamp_=stamp;
   if(!valid_scan) return false;
-  if(boxes.empty()) {
+  if(std::none_of(boxes.begin(),boxes.end(),[](const Box & b){return b.robot_candidate;})) {
     obstacle_reappear_hits_=0;
     if(obstacles_seen_) {
       if(!obstacle_absent_since_) obstacle_absent_since_=stamp;
@@ -1521,6 +1521,7 @@ bool ObjAvoidCore::match_post(double stamp, double u)
   int best = -1;
   double best_d = kInf;
   for (const Track & tr : tracker->tracks) {
+    if (!tr.box.robot_candidate) {continue;}
     double x, y;
     frame->to_odom(tr.box.cs(), tr.box.cd(), x, y);
     const double dist = std::hypot(x - cx, y - cy);
@@ -1742,7 +1743,11 @@ std::string ObjAvoidCore::status_json() const
       << "]";
   }
   o << "}";
-  if (tracker) {o << ",\"tracks\":" << tracker->confirmed_count() << ",\"passed\":" << tracker->passed;}
+  if (tracker) {
+    o << ",\"tracks\":" << tracker->confirmed_count() << ",\"passed\":" << tracker->passed <<
+      ",\"structure_tracks\":" << tracker->structure_count() << ",\"robot_tracks\":" <<
+      tracker->confirmed_count() - tracker->structure_count();
+  }
   if (last_info.valid) {o << ",\"ey_now\":" << jnum(last_info.ey, 4) << ",\"epsi_now\":" << jnum(last_info.epsi, 4);}
   o << ",\"impl\":\"cpp\"}";
   return o.str();

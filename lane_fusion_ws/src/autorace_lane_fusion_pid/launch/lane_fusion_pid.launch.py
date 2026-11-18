@@ -14,7 +14,7 @@ Deep mask node (lane_fusion_deep_mask -> /lane_fusion/deep_mask):
   deep:=true (default real) / false; model_path:=<.engine|.onnx|.pt> (default: the engine
   built into src/autorace_lane_fusion_deep/model/lane_640.engine and installed by colcon
   build, else the bundled lane_640.onnx).
-  Without masks lane_fusion_node runs HSV-only, so deep:=false is still drivable.
+  HSV detection is disabled by default. Missing deep masks provide no color fallback.
 
 Two separate windows (both optional):
   lane_gui:=true  lane_fusion_tuner  - perception parameters only
@@ -86,7 +86,7 @@ def generate_launch_description():
                               description='U-Net model (.engine/.onnx/.pt); empty = installed lane_640.engine, else ONNX'),
         DeclareLaunchArgument('deep_rate', default_value='20.0',
                               description='U-Net masks per second at most (asynchronous, default 20)'),
-        DeclareLaunchArgument('hsv', default_value='true',
+        DeclareLaunchArgument('hsv', default_value='false',
                               description='false: lane_fusion_node without the HSV detector (deep mask only)'),
         DeclareLaunchArgument('lane_rate', default_value='0.0',
                               description='lane_fusion_node processing cap (Hz); 0 = every camera frame it keeps up with'),

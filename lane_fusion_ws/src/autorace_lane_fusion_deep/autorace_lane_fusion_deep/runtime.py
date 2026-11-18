@@ -53,26 +53,6 @@ def decode(logits, original_size, threshold=0.5):
     return cv2.resize(mask, original_size, interpolation=cv2.INTER_NEAREST)
 
 
-class OpenCVBackend:
-    name = 'opencv'
-
-    def __init__(self, config):
-        self.config = config
-
-    def predict(self, bgr):
-        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-        orange = cv2.inRange(hsv, np.array(self.config['orange_lower']), np.array(self.config['orange_upper']))
-        white = cv2.inRange(hsv, np.array(self.config['white_lower']), np.array(self.config['white_upper']))
-        # Remove long connected solid-white marks. This is only a color/shape heuristic.
-        count, labels, stats, _ = cv2.connectedComponentsWithStats(white)
-        for index in range(1, count):
-            if stats[index, cv2.CC_STAT_HEIGHT] > bgr.shape[0] * self.config['white_max_height_ratio']:
-                white[labels == index] = 0
-        mask = np.zeros(bgr.shape[:2], np.uint8)
-        mask[white > 0], mask[orange > 0] = 2, 1
-        return mask
-
-
 class TorchBackend:
     name = 'torch'
 
@@ -141,6 +121,10 @@ class Cuda:
             'cudaFree': [ctypes.c_void_p],
             'cudaMemcpy': [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int],
             'cudaStreamCreate': [ctypes.POINTER(ctypes.c_void_p)],
+            'cudaStreamCreateWithFlags': [ctypes.POINTER(ctypes.c_void_p), ctypes.c_uint],
+            'cudaHostAlloc': [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t, ctypes.c_uint],
+            'cudaFreeHost': [ctypes.c_void_p],
+            'cudaMemcpyAsync': [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_void_p],
             'cudaStreamSynchronize': [ctypes.c_void_p],
             'cudaStreamDestroy': [ctypes.c_void_p],
         }
@@ -162,7 +146,7 @@ class TensorRTBackend:
     def __init__(self, path, width, height, device='cuda'):
         import tensorrt as trt
         self.cuda = Cuda()
-        self.allocations, self.stream = [], ctypes.c_void_p()
+        self.allocations, self.host_allocations, self.stream = [], [], ctypes.c_void_p()
         self.logger = trt.Logger(trt.Logger.WARNING)
         self.runtime = trt.Runtime(self.logger)
         self.engine = self.runtime.deserialize_cuda_engine(Path(path).read_bytes())
@@ -199,10 +183,19 @@ class TensorRTBackend:
             raise ValueError('Engine must be rgb->logits or image->label/prob at the configured resolution')
         if shape(self.input_name) != (1, 3, height, width):
             raise ValueError('Engine input does not match configured resolution')
-        self.input = np.empty(shape(self.input_name), dtype=dtype(self.input_name))
-        self.outputs = {n: np.empty(shape(n), dtype=dtype(n)) for n in self.output_names}
+        def pinned(name):
+            dt = np.dtype(dtype(name))
+            nbytes = int(np.prod(shape(name))) * dt.itemsize
+            pointer = ctypes.c_void_p()
+            self.cuda.call('cudaHostAlloc', ctypes.byref(pointer), nbytes, 0)
+            self.host_allocations.append(pointer)
+            storage = (ctypes.c_ubyte * nbytes).from_address(pointer.value)
+            return np.ctypeslib.as_array(storage).view(dt).reshape(shape(name))
+        self.input = pinned(self.input_name)
+        self.outputs = {n: pinned(n) for n in self.output_names}
         self.output = self.outputs.get('logits')
-        self.cuda.call('cudaStreamCreate', ctypes.byref(self.stream))
+        # Nonblocking stream: do not serialize lane inference with other models.
+        self.cuda.call('cudaStreamCreateWithFlags', ctypes.byref(self.stream), 1)
         self.pointers = {}
         for name, array in ((self.input_name, self.input), *self.outputs.items()):
             pointer = ctypes.c_void_p()
@@ -216,16 +209,16 @@ class TensorRTBackend:
 
     def run(self, x):
         np.copyto(self.input, x, casting='same_kind')
-        self.cuda.call('cudaMemcpy', self.pointers[self.input_name], self.input.ctypes.data, self.input.nbytes, 1)
+        self.cuda.call('cudaMemcpyAsync', self.pointers[self.input_name], self.input.ctypes.data, self.input.nbytes, 1, self.stream)
         if self.modern:
             ok = self.context.execute_async_v3(stream_handle=self.stream.value)
         else:
             ok = self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.value)
         if not ok:
             raise RuntimeError('TensorRT execution failed')
-        self.cuda.call('cudaStreamSynchronize', self.stream)
         for name, array in self.outputs.items():
-            self.cuda.call('cudaMemcpy', array.ctypes.data, self.pointers[name], array.nbytes, 2)
+            self.cuda.call('cudaMemcpyAsync', array.ctypes.data, self.pointers[name], array.nbytes, 2, self.stream)
+        self.cuda.call('cudaStreamSynchronize', self.stream)
         return self.outputs
 
     def logits(self, rgb):
@@ -237,6 +230,9 @@ class TensorRTBackend:
         for pointer in getattr(self, 'allocations', []):
             self.cuda.call('cudaFree', pointer)
         self.allocations = []
+        for pointer in getattr(self, 'host_allocations', []):
+            self.cuda.call('cudaFreeHost', pointer)
+        self.host_allocations = []
         if getattr(self, 'stream', None) and self.stream.value:
             self.cuda.call('cudaStreamDestroy', self.stream)
             self.stream = ctypes.c_void_p()

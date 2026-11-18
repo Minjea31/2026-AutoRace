@@ -50,7 +50,7 @@ class Params:
     home_d: float = 0.0              # 복귀할 가운데 차로 중심
     lane_centers: List[float] = field(default_factory=lambda: [-0.52, 0.0, 0.52])
 
-    # --- 카메라 노란 실선(퓨전 차선 결과 재사용: /lane_fusion/deep_mask + 원본 HSV, BEV는 퓨전 lane.yaml) ---
+    # --- 카메라 노란 실선(퓨전 차선 결과 재사용: /lane_fusion/deep_mask, BEV는 퓨전 lane.yaml) ---
     use_lane: bool = True
     lane_cell: float = 0.03          # odom 노란선 격자 칸
     lane_confirm: int = 2            # 노란 확정 최소 관측 횟수
@@ -92,6 +92,12 @@ class Params:
     cluster_jump: float = 0.12
     cluster_min_points: int = 3
     obstacle_fixed_size: bool = False  # 검출·추적 박스를 지정 크기로 고정
+    obstacle_shape_filter: bool = True  # 고정 크기 보정 전 원본 점군의 벽/부적합 형상 분리(C++)
+    obstacle_wall_min_length: float = 0.55
+    obstacle_wall_max_ratio: float = 0.02
+    obstacle_wall_max_rmse: float = 0.025
+    obstacle_fit_max_rmse: float = 0.08
+    obstacle_shape_extent_margin: float = 0.08
     obstacle_min_length: float = 0.33  # LIMO 0.322 x 0.22, 과소평가 방지
     obstacle_min_width: float = 0.23
     obstacle_max_length: float = 0.70  # 이보다 커지면 누적 박스 대신 최신 관측 사용

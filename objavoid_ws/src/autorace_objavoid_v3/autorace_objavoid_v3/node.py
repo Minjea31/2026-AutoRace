@@ -16,7 +16,6 @@ import threading
 import time
 from pathlib import Path
 
-import cv2
 import numpy as np
 import yaml
 
@@ -30,7 +29,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry, Path as PathMsg
 from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import CompressedImage, Image, LaserScan
+from sensor_msgs.msg import Image, LaserScan
 from std_msgs.msg import Bool, String
 from visualization_msgs.msg import MarkerArray
 
@@ -56,18 +55,14 @@ class ObjAvoidV3Node(Node):
         odom_topic = self.declare_parameter('odom_topic', '/odom').value
         self.auto_activate = self.declare_parameter('auto_activate', False).value
         self.marker_rate = self.declare_parameter('marker_rate', 5.0).value
-        # 차선(노란 실선): 퓨전 차선 인식의 딥 마스크 + 같은 프레임 원본 HSV, 바닥 투영은 퓨전 lane.yaml
+        # 차선(노란 실선): 퓨전 차선 인식의 딥 마스크, 바닥 투영은 퓨전 lane.yaml
         repo = Path(__file__).resolve().parents[4]
         lane_cfg = self.declare_parameter(
             'lane_config', str(repo / 'lane_fusion_ws/src/autorace_lane_fusion/config/sim/lane.yaml')).value
         mask_topic = self.declare_parameter('lane_mask_topic', '/lane_fusion/deep_mask').value
-        image_topic = self.declare_parameter('camera_topic', '/camera/color/image_raw/compressed').value
         self.lane_rate = self.declare_parameter('lane_rate', 5.0).value
-        self.lane_hsv = self.declare_parameter('lane_hsv_check', True).value
         # 차별 바닥 투영(이미지 px -> base_link 바닥 m, 3x3). 0이면 lane_config의 BEV 사용. 04번은 bag 보정값.
         ground_h = [float(v) for v in self.declare_parameter('ground_homography', [0.0] * 9).value]
-        # 노란 HSV 범위 [h_min, h_max, s_min, v_min] 덮어쓰기(0이면 lane_config 값). 실차 테이프는 채도가 낮다.
-        hsv = [float(v) for v in self.declare_parameter('lane_hsv', [0.0] * 4).value]
         lane_range = float(self.declare_parameter('lane_max_range', 2.5).value)
         ground_scale = [float(v) for v in self.declare_parameter('ground_scale', [1.0, 1.0]).value]
         # 자세: odom 그대로 / imu(방향은 IMU 자이로 적분, 위치는 odom 전진 속도 x odom_scale로 적분)
@@ -82,8 +77,6 @@ class ObjAvoidV3Node(Node):
                 with open(lane_cfg, encoding='utf-8') as f:
                     self.gp = GroundProjection(yaml.safe_load(f)['lane_lite'], max_range=lane_range,
                                                homography=ground_h if any(ground_h) else None)
-                if any(hsv):
-                    self.gp.hsv = tuple(hsv)
                 if any(v != 1.0 for v in ground_scale):
                     self.gp.set_scale(*ground_scale)
             except Exception as e:  # 보정 파일이 없으면 차선 없이(사전 경계) 동작
@@ -91,7 +84,7 @@ class ObjAvoidV3Node(Node):
                 p.use_lane = False
         self.core = ObjAvoidCore(p)
         self.lane_lock = threading.Lock()
-        self.latest_mask, self.images, self.last_lane_wall = None, [], 0.0
+        self.latest_mask, self.last_lane_wall = None, 0.0
 
         sensors = MutuallyExclusiveCallbackGroup()
         control = MutuallyExclusiveCallbackGroup()
@@ -105,9 +98,6 @@ class ObjAvoidV3Node(Node):
         self.create_subscription(Bool, '/objavoid_v3/activate', self.on_activate, 10, callback_group=sensors)
         if self.gp is not None:
             self.create_subscription(Image, mask_topic, self.on_mask, qos_profile_sensor_data, callback_group=sensors)
-            if self.lane_hsv:
-                self.create_subscription(CompressedImage, image_topic, self.on_image, qos_profile_sensor_data,
-                                         callback_group=sensors)
         self.cmd_pub = self.create_publisher(AckermannDriveStamped, self.command_topic, QoSProfile(depth=1))
         self.state_pub = self.create_publisher(String, '/objavoid_v3/state', 10)
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -189,31 +179,22 @@ class ObjAvoidV3Node(Node):
         with self.lane_lock:
             self.latest_mask = msg
 
-    def on_image(self, msg):
-        with self.lane_lock:
-            self.images.append(msg)
-            del self.images[:-15]  # 최근 0.5 s만
-
     def process_lane(self):
-        """최신 마스크 1장(+ 같은 촬영 시각 원본) -> 차 기준 노란 점 -> 코어. 작업 스레드에서 lane_rate 이하로."""
+        """최신 딥 마스크 1장 -> 차 기준 노란 점 -> 코어. 작업 스레드에서 lane_rate 이하로."""
         if self.gp is None or time.monotonic() - self.last_lane_wall < 1.0 / max(self.lane_rate, 0.1):
             return
         with self.lane_lock:
             m, self.latest_mask = self.latest_mask, None
-            imgs = list(self.images)
-        if m is None or m.encoding != 'mono8' or m.height == 0:
+        if (m is None or m.encoding != 'mono8' or not m.height or not m.width
+                or m.step < m.width or len(m.data) < m.step * m.height):
             return
         self.last_lane_wall = time.monotonic()
         st = stamp_sec(m.header.stamp)
-        bgr = None
-        if self.lane_hsv:
-            near = [i for i in imgs if abs(stamp_sec(i.header.stamp) - st) < 1e-3]
-            if not near:
-                return  # 같은 프레임 원본이 없으면 이번 마스크는 건너뜀(색 확인 없이 쓰지 않음)
-            bgr = cv2.imdecode(np.frombuffer(near[-1].data, np.uint8), cv2.IMREAD_REDUCED_COLOR_2)
+        if self.now() - st > 0.5 or self.now() - st < -0.05:
+            return
         mask = np.frombuffer(m.data, np.uint8).reshape(m.height, m.step)[:, :m.width]
-        pts = self.gp.yellow_points(mask, bgr)
-        wpts = self.gp.white_points(mask, bgr)
+        pts = self.gp.yellow_points(mask)
+        wpts = self.gp.white_points(mask)
         self.core.on_lane(st, pts, self.gp.view_points, wpts)
 
     def on_activate(self, msg):

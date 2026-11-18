@@ -63,6 +63,9 @@ def scan_match_job(tracker, raw, cfg, update):
 
 
 def validate_settings(cfg):
+    if cfg.single_empty_slot and (not cfg.slot_map_enabled or cfg.fixed_parking_slot_id >= 0
+                                  or cfg.fixed_slot_empty_known or cfg.slot_columns*cfg.slot_rows != 6):
+        raise ValueError("single_empty_slot requires a dynamic six-cell parking grid")
     if cfg.fixed_slot_empty_known and (not cfg.slot_map_enabled or cfg.fixed_parking_slot_id<0):
         raise ValueError('A known empty slot requires a fixed parking-grid target')
     if (isinstance(cfg.fixed_parking_slot_id,bool) or not isinstance(cfg.fixed_parking_slot_id,int)

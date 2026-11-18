@@ -25,14 +25,17 @@ static bool occluded(const std::vector<double> & r, const std::vector<char> & ok
 
 void detect(const std::vector<float> & ranges, double angle_min, double angle_inc, const LidarPose & lp,
   const RoadFrame & frame, const Boundary & boundary, double s_vehicle, const Params & p,
-  std::vector<Box> & boxes, std::vector<Pt2> & pts)
+  std::vector<Box> & boxes, std::vector<Pt2> & pts, std::vector<ClusterInfo> * diagnostics)
 {
   boxes.clear();
   pts.clear();
+  if (diagnostics) {diagnostics->clear();}
+  const bool shape_filter = p.obstacle_fixed_size && p.obstacle_shape_filter;
   const size_t n = ranges.size();
   std::vector<double> r(n);
-  std::vector<char> ok(n);
+  std::vector<char> ok(n), in_roi;
   std::vector<long> sel;
+  std::vector<Pt2> cloud;
   for (size_t i = 0; i < n; ++i) {
     r[i] = ranges[i];
     ok[i] = std::isfinite(r[i]) && r[i] > p.scan_range_min;
@@ -42,88 +45,140 @@ void detect(const std::vector<float> & ranges, double angle_min, double angle_in
     frame.to_road(lp.x + r[i] * std::cos(th), lp.y + r[i] * std::sin(th), s, d);
     double right, left;
     boundary.limits(s, right, left);
-    if (s > s_vehicle - 0.6 && s < p.section_end + p.roi_beyond_end && d > right - p.roi_margin &&
-      d < left + p.roi_margin)
-    {
+    const bool inside = s > s_vehicle - 0.6 && s < p.section_end + p.roi_beyond_end &&
+      d > right - p.roi_margin && d < left + p.roi_margin;
+    if (inside) {pts.push_back({s, d});}
+    // Keep neighbouring scan returns outside the planning ROI as shape context.
+    // Cropping first can make a long wall look like a 20cm robot face.
+    if (inside || shape_filter) {
       sel.push_back(static_cast<long>(i));
-      pts.push_back({s, d});
+      cloud.push_back({s, d});
+      in_roi.push_back(inside);
     }
   }
   if (sel.empty()) {return;}
   double ls, ld;
   frame.to_road(lp.x, lp.y, ls, ld);
-  // 각도 순서 인접 점 간격으로 분할(ROI 밖 빔이 여러 개 끼면 분리)
   std::vector<size_t> starts{0};
   for (size_t k = 1; k < sel.size(); ++k) {
-    const bool jump = std::hypot(pts[k].s - pts[k - 1].s, pts[k].d - pts[k - 1].d) > p.cluster_jump;
+    const bool jump = std::hypot(cloud[k].s - cloud[k - 1].s, cloud[k].d - cloud[k - 1].d) > p.cluster_jump;
     if (jump || sel[k] - sel[k - 1] > 3) {starts.push_back(k);}
   }
   starts.push_back(sel.size());
   for (size_t g = 0; g + 1 < starts.size(); ++g) {
     const size_t a = starts[g], b = starts[g + 1];
-    if (static_cast<int>(b - a) < p.cluster_min_points) {continue;}
+    int roi_count = 0;
+    Box roi{kInf, -kInf, kInf, -kInf};
     double s0 = kInf, s1 = -kInf, d0 = kInf, d1 = -kInf;
     for (size_t k = a; k < b; ++k) {
-      s0 = std::min(s0, pts[k].s); s1 = std::max(s1, pts[k].s);
-      d0 = std::min(d0, pts[k].d); d1 = std::max(d1, pts[k].d);
+      s0 = std::min(s0, cloud[k].s); s1 = std::max(s1, cloud[k].s);
+      d0 = std::min(d0, cloud[k].d); d1 = std::max(d1, cloud[k].d);
+      if (in_roi[k]) {
+        ++roi_count;
+        roi.s0 = std::min(roi.s0, cloud[k].s); roi.s1 = std::max(roi.s1, cloud[k].s);
+        roi.d0 = std::min(roi.d0, cloud[k].d); roi.d1 = std::max(roi.d1, cloud[k].d);
+      }
     }
-    // 클러스터 양 끝 바로 바깥 빔이 더 가까우면 그쪽이 가려진 것
+    if (roi_count < p.cluster_min_points) {continue;}
+    ClusterInfo info;
+    info.observed = {s0, s1, d0, d1};
+    info.points = static_cast<int>(b - a);
+    if (shape_filter || diagnostics) {
+      double ms = 0, md = 0;
+      for (size_t k = a; k < b; ++k) {ms += cloud[k].s; md += cloud[k].d;}
+      const double count = static_cast<double>(b - a);
+      ms /= count; md /= count;
+      double xx = 0, xy = 0, yy = 0;
+      for (size_t k = a; k < b; ++k) {
+        const double x = cloud[k].s - ms, y = cloud[k].d - md;
+        xx += x * x; xy += x * y; yy += y * y;
+      }
+      xx /= count; xy /= count; yy /= count;
+      const double disc = std::hypot(xx - yy, 2 * xy);
+      const double major = std::max(0.0, 0.5 * (xx + yy + disc));
+      const double minor = std::max(0.0, 0.5 * (xx + yy - disc));
+      const double angle = 0.5 * std::atan2(2 * xy, xx - yy);
+      const double vx = std::cos(angle), vy = std::sin(angle);
+      double lo = kInf, hi = -kInf;
+      for (size_t k = a; k < b; ++k) {
+        const double projection = cloud[k].s * vx + cloud[k].d * vy;
+        lo = std::min(lo, projection); hi = std::max(hi, projection);
+      }
+      info.span = hi - lo;
+      info.eigen_ratio = minor / std::max(major, 1e-12);
+      info.line_rmse = std::sqrt(minor);
+      info.wall = shape_filter && info.span >= p.obstacle_wall_min_length &&
+        info.eigen_ratio <= p.obstacle_wall_max_ratio && info.line_rmse <= p.obstacle_wall_max_rmse;
+    }
     const long i0 = sel[a], i1 = sel[b - 1];
     const bool occ0 = occluded(r, ok, i0 - 1, r[i0]);
     const bool occ1 = occluded(r, ok, i1 + 1, r[i1]);
-    const bool first_low = pts[a].d <= pts[b - 1].d;
+    const bool first_low = cloud[a].d <= cloud[b - 1].d;
     const bool occ_lo = first_low ? occ0 : occ1;
     const bool occ_hi = first_low ? occ1 : occ0;
     if (p.obstacle_fixed_size) {
-      // LIMO-Pro has only two allowed orientations in the road frame.
-      // Compare exact L x W and W x L models against the visible LiDAR faces.
-      const double long_size=std::max(p.obstacle_min_length,p.obstacle_min_width);
-      const double short_size=std::min(p.obstacle_min_length,p.obstacle_min_width);
-      auto fit_axis=[](double lo,double hi,double sensor,double size) {
-        if(sensor<=lo) return std::pair<double,double>{lo,lo+size};
-        if(sensor>=hi) return std::pair<double,double>{hi-size,hi};
-        const double center=0.5*(lo+hi);
-        return std::pair<double,double>{center-size/2,center+size/2};
-      };
-      Box best;double best_score=kInf;
-      for(bool transverse:{false,true}) {
-        const double length=transverse?short_size:long_size;
-        const double width=transverse?long_size:short_size;
-        const auto sb=fit_axis(s0,s1,ls,length),db=fit_axis(d0,d1,ld,width);
-        const Box candidate{sb.first,sb.second,db.first,db.second};
-        double score=0;
-        for(size_t k=a;k<b;++k) {
-          const auto & pt=pts[k];
-          const double ds=std::max({candidate.s0-pt.s,0.0,pt.s-candidate.s1});
-          const double dd=std::max({candidate.d0-pt.d,0.0,pt.d-candidate.d1});
-          double face=kInf;
-          if(ls<=candidate.s0) face=std::min(face,std::abs(pt.s-candidate.s0));
-          if(ls>=candidate.s1) face=std::min(face,std::abs(pt.s-candidate.s1));
-          if(ld<=candidate.d0) face=std::min(face,std::abs(pt.d-candidate.d0));
-          if(ld>=candidate.d1) face=std::min(face,std::abs(pt.d-candidate.d1));
-          if(!std::isfinite(face)) face=0;
-          score+=4*(ds*ds+dd*dd)+face*face;
+      const double long_size = std::max(p.obstacle_min_length, p.obstacle_min_width);
+      const double short_size = std::min(p.obstacle_min_length, p.obstacle_min_width);
+      auto fit_axis = [](double lo, double hi, double sensor, double size) {
+          if (sensor <= lo) {return std::pair<double, double>{lo, lo + size};}
+          if (sensor >= hi) {return std::pair<double, double>{hi - size, hi};}
+          const double center = 0.5 * (lo + hi);
+          return std::pair<double, double>{center - size / 2, center + size / 2};
+        };
+      Box best;
+      double best_score = kInf, best_error = kInf;
+      for (bool transverse : {false, true}) {
+        const double length = transverse ? short_size : long_size;
+        const double width = transverse ? long_size : short_size;
+        const auto sb = fit_axis(s0, s1, ls, length), db = fit_axis(d0, d1, ld, width);
+        const Box candidate{sb.first, sb.second, db.first, db.second};
+        double score = 0;
+        for (size_t k = a; k < b; ++k) {
+          const auto & pt = cloud[k];
+          const double ds = std::max({candidate.s0 - pt.s, 0.0, pt.s - candidate.s1});
+          const double dd = std::max({candidate.d0 - pt.d, 0.0, pt.d - candidate.d1});
+          double face = kInf;
+          if (ls <= candidate.s0) {face = std::min(face, std::abs(pt.s - candidate.s0));}
+          if (ls >= candidate.s1) {face = std::min(face, std::abs(pt.s - candidate.s1));}
+          if (ld <= candidate.d0) {face = std::min(face, std::abs(pt.d - candidate.d0));}
+          if (ld >= candidate.d1) {face = std::min(face, std::abs(pt.d - candidate.d1));}
+          if (!std::isfinite(face)) {face = 0;}
+          score += 4 * (ds * ds + dd * dd) + face * face;
         }
-        score/=(b-a);
-        // Resolve a face-only observation by its measured visible width.
-        // Occluded ends do not penalize unobserved width.
-        if(!occ_lo && !occ_hi) score+=0.25*std::pow((d1-d0)-width,2);
-        if(score<best_score) {best_score=score;best=candidate;}
+        score /= (b - a);
+        const double error = std::sqrt(score);
+        if (!occ_lo && !occ_hi) {score += 0.25 * std::pow((d1 - d0) - width, 2);}
+        if (score < best_score) {best_score = score; best = candidate; best_error = error;}
       }
-      s0=best.s0;s1=best.s1;d0=best.d0;d1=best.d1;
-    } else if (ls < s0) {
-      // 앞에서 볼 때만 최소 크기 보정(앞면이 실제로 보일 때만 뒤로 확장)
-      int nf = 0;
-      double fmin = kInf, fmax = -kInf;
-      for (size_t k = a; k < b; ++k) {
-        if (pts[k].s < s0 + 0.03) {
-          ++nf; fmin = std::min(fmin, pts[k].d); fmax = std::max(fmax, pts[k].d);
+      info.fit_rmse = best_error;
+      // A short robot face can have a poor axis-aligned fit when close/rotated.
+      // Reject by fit residual only when its observed extent also exceeds the
+      // robot diagonal plus a sensor/motion tolerance; straightness alone is
+      // likewise insufficient to reject a short frontal robot face.
+      const bool oversized = info.span > std::hypot(long_size, short_size) + p.obstacle_shape_extent_margin;
+      if (shape_filter && (info.wall || (oversized && best_error > p.obstacle_fit_max_rmse))) {
+        // Do not erase physical obstacles. Preserve their measured ROI footprint
+        // for tracking/planning, without relabeling them as fixed-size robots.
+        roi.robot_candidate = false;
+        boxes.push_back(roi);
+      } else {
+        boxes.push_back(best);
+      }
+    } else {
+      if (ls < s0) {
+        int nf = 0;
+        double fmin = kInf, fmax = -kInf;
+        for (size_t k = a; k < b; ++k) {
+          if (cloud[k].s < s0 + 0.03) {
+            ++nf; fmin = std::min(fmin, cloud[k].d); fmax = std::max(fmax, cloud[k].d);
+          }
         }
+        if (nf >= 2 && fmax - fmin >= 0.08) {s1 = std::max(s1, s0 + p.obstacle_min_length);}
+        correct_extent(d0, d1, ld, p.obstacle_min_width, occ_lo, occ_hi);
       }
-      if (nf >= 2 && fmax - fmin >= 0.08) {s1 = std::max(s1, s0 + p.obstacle_min_length);}
-      correct_extent(d0, d1, ld, p.obstacle_min_width, occ_lo, occ_hi);
+      boxes.push_back({s0, s1, d0, d1});
     }
-    boxes.push_back({s0, s1, d0, d1});
+    if (diagnostics) {info.output = boxes.back(); diagnostics->push_back(info);}
   }
 }
 
@@ -138,6 +193,7 @@ void Tracker::update(const std::vector<Box> & boxes, double t, double s_rear,
     double best_d = kInf;
     for (size_t k = 0; k < tracks.size(); ++k) {
       const Track & tr = tracks[k];
+      if (tr.box.robot_candidate != b.robot_candidate) {continue;}
       const double dc = std::hypot(tr.box.cs() - b.cs(), tr.box.cd() - b.cd());
       if ((tr.box.gap_to(b, 0.0) < 0.06 || dc < p.assoc_distance) && dc < best_d) {
         best = static_cast<long>(k);
@@ -177,7 +233,7 @@ void Tracker::update(const std::vector<Box> & boxes, double t, double s_rear,
   std::vector<Track> keep;
   for (Track & tr : tracks) {
     if (s_rear > tr.box.s1 + p.pass_margin) {
-      if (tr.confirmed && tr.box.s0 < p.section_end) {
+      if (tr.confirmed && tr.box.robot_candidate && tr.box.s0 < p.section_end) {
         ++passed;
         passed_ids.push_back(tr.id);
         ++version;
@@ -236,7 +292,14 @@ int Tracker::confirmed_count() const
 int Tracker::section_count() const
 {
   int n = 0;
-  for (const Track & tr : tracks) {n += (tr.confirmed && tr.box.s0 < p_.section_end);}
+  for (const Track & tr : tracks) {n += (tr.confirmed && tr.box.robot_candidate && tr.box.s0 < p_.section_end);}
+  return n;
+}
+
+int Tracker::structure_count() const
+{
+  int n = 0;
+  for (const Track & tr : tracks) {n += tr.confirmed && !tr.box.robot_candidate;}
   return n;
 }
 

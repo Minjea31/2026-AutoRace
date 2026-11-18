@@ -13,7 +13,6 @@ import os
 import sys
 from collections import Counter
 
-import cv2
 import numpy as np
 import yaml
 
@@ -72,16 +71,14 @@ def main():
     gp = GroundProjection(yaml.safe_load(open(a.lane_config))['lane_lite'],
                           max_range=node_only.get('lane_max_range', 2.5),
                           homography=node_only.get('ground_homography'))
-    if node_only.get('lane_hsv'):
-        gp.hsv = tuple(node_only['lane_hsv'])
     if node_only.get('ground_scale'):
         gp.set_scale(*node_only['ground_scale'])
     yaw_imu = node_only.get('yaw_source', 'odom') == 'imu'
     oscale = float(node_only.get('odom_scale', 1.0))
     core = ObjAvoidCore(p)
-    imu_state, dead, images, activated = None, None, {}, False
+    imu_state, dead, activated = None, None, False
     rows = []
-    topics = ['/imu', '/odom', '/scan', '/lane_fusion/deep_mask', '/camera/color/image_raw/compressed',
+    topics = ['/imu', '/odom', '/scan', '/lane_fusion/deep_mask',
               '/objavoid_v3/activate']
     first_cmd = None
     tb0 = None
@@ -115,17 +112,9 @@ def main():
                              m.twist.twist.angular.z)
             if not activated and core.odom:
                 activated = core.activate(ts)
-        elif t == '/camera/color/image_raw/compressed':
-            images[(m.header.stamp.sec, m.header.stamp.nanosec)] = m
-            if len(images) > 30:
-                images.pop(next(iter(images)))
         elif t == '/lane_fusion/deep_mask' and activated:
-            img = images.get((m.header.stamp.sec, m.header.stamp.nanosec))
-            if img is None:
-                continue
-            bgr = cv2.imdecode(np.frombuffer(img.data, np.uint8), cv2.IMREAD_REDUCED_COLOR_2)
             mask = np.frombuffer(m.data, np.uint8).reshape(m.height, m.step)[:, :m.width]
-            core.on_lane(stamp(m), gp.yellow_points(mask, bgr), gp.view_points, gp.white_points(mask, bgr))
+            core.on_lane(stamp(m), gp.yellow_points(mask), gp.view_points, gp.white_points(mask))
         elif t == '/scan' and activated:
             ts = stamp(m)
             core.process_scan(ts, m.ranges, m.angle_min, m.angle_increment, ts + 0.02)

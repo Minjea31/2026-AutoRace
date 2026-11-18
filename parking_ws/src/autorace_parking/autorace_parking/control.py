@@ -219,6 +219,9 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
     if cfg.require_observed_parking_center and cfg.enclosed_space_detection:
         def observed_center(g):
             if g.kind not in SEMANTIC_GOALS:return True
+            if (cfg.single_empty_slot and g.slot_id>=0 and g.confirmed and len(set(g.support_ids))>=5):
+                details['single_empty_prior']=True
+                return True
             if (cfg.fixed_slot_empty_known and g.slot_id==cfg.fixed_parking_slot_id
                     and g.confirmed and len(set(g.support_ids))>=cfg.enclosure_confirm_objects):
                 details['fixed_empty_prior']=True

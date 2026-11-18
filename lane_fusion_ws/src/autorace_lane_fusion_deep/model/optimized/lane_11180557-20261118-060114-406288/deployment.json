@@ -1,0 +1,11 @@
+{
+  "checkpoint": "/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/lane_11180557.pt",
+  "source_engine": "/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/lane_mask.engine",
+  "deployed_engine": "/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/lane_640_mask.engine",
+  "sha256": "3c211abd0e6850c070033266371a75fbaf4d0c475649bdccc1bfa3007c108498",
+  "deployed_at": "2026-11-18T06:14:04.066829+09:00",
+  "consumer": "lane_deep_lite via lane_fusion_deep_mask",
+  "real_frame_engine_onnx_max_disagreement": 1.953125e-05,
+  "replay_pid": 18946,
+  "live_mask_verified": true
+}

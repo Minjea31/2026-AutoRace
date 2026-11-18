@@ -1,0 +1,142 @@
+&&&& RUNNING TensorRT.trtexec [TensorRT v100300] # /usr/src/tensorrt/bin/trtexec --onnx=/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/lane_mask.onnx --saveEngine=/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/lane_mask.engine.building --fp16 --memPoolSize=workspace:512 --builderOptimizationLevel=3 --timingCacheFile=/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/timing.cache --skipInference
+[11/18/2026-06:01:33] [I] === Model Options ===
+[11/18/2026-06:01:33] [I] Format: ONNX
+[11/18/2026-06:01:33] [I] Model: /home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/lane_mask.onnx
+[11/18/2026-06:01:33] [I] Output:
+[11/18/2026-06:01:33] [I] === Build Options ===
+[11/18/2026-06:01:33] [I] Memory Pools: workspace: 512 MiB, dlaSRAM: default, dlaLocalDRAM: default, dlaGlobalDRAM: default, tacticSharedMem: default
+[11/18/2026-06:01:33] [I] avgTiming: 8
+[11/18/2026-06:01:33] [I] Precision: FP32+FP16
+[11/18/2026-06:01:33] [I] LayerPrecisions: 
+[11/18/2026-06:01:33] [I] Layer Device Types: 
+[11/18/2026-06:01:33] [I] Calibration: 
+[11/18/2026-06:01:33] [I] Refit: Disabled
+[11/18/2026-06:01:33] [I] Strip weights: Disabled
+[11/18/2026-06:01:33] [I] Version Compatible: Disabled
+[11/18/2026-06:01:33] [I] ONNX Plugin InstanceNorm: Disabled
+[11/18/2026-06:01:33] [I] TensorRT runtime: full
+[11/18/2026-06:01:33] [I] Lean DLL Path: 
+[11/18/2026-06:01:33] [I] Tempfile Controls: { in_memory: allow, temporary: allow }
+[11/18/2026-06:01:33] [I] Exclude Lean Runtime: Disabled
+[11/18/2026-06:01:33] [I] Sparsity: Disabled
+[11/18/2026-06:01:33] [I] Safe mode: Disabled
+[11/18/2026-06:01:33] [I] Build DLA standalone loadable: Disabled
+[11/18/2026-06:01:33] [I] Allow GPU fallback for DLA: Disabled
+[11/18/2026-06:01:33] [I] DirectIO mode: Disabled
+[11/18/2026-06:01:33] [I] Restricted mode: Disabled
+[11/18/2026-06:01:33] [I] Skip inference: Enabled
+[11/18/2026-06:01:33] [I] Save engine: /home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/lane_mask.engine.building
+[11/18/2026-06:01:33] [I] Load engine: 
+[11/18/2026-06:01:33] [I] Profiling verbosity: 0
+[11/18/2026-06:01:33] [I] Tactic sources: Using default tactic sources
+[11/18/2026-06:01:33] [I] timingCacheMode: global
+[11/18/2026-06:01:33] [I] timingCacheFile: /home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/timing.cache
+[11/18/2026-06:01:33] [I] Enable Compilation Cache: Enabled
+[11/18/2026-06:01:33] [I] errorOnTimingCacheMiss: Disabled
+[11/18/2026-06:01:33] [I] Preview Features: Use default preview flags.
+[11/18/2026-06:01:33] [I] MaxAuxStreams: -1
+[11/18/2026-06:01:33] [I] BuilderOptimizationLevel: 3
+[11/18/2026-06:01:33] [I] Calibration Profile Index: 0
+[11/18/2026-06:01:33] [I] Weight Streaming: Disabled
+[11/18/2026-06:01:33] [I] Runtime Platform: Same As Build
+[11/18/2026-06:01:33] [I] Debug Tensors: 
+[11/18/2026-06:01:33] [I] Input(s)s format: fp32:CHW
+[11/18/2026-06:01:33] [I] Output(s)s format: fp32:CHW
+[11/18/2026-06:01:33] [I] Input build shapes: model
+[11/18/2026-06:01:33] [I] Input calibration shapes: model
+[11/18/2026-06:01:33] [I] === System Options ===
+[11/18/2026-06:01:33] [I] Device: 0
+[11/18/2026-06:01:33] [I] DLACore: 
+[11/18/2026-06:01:33] [I] Plugins:
+[11/18/2026-06:01:33] [I] setPluginsToSerialize:
+[11/18/2026-06:01:33] [I] dynamicPlugins:
+[11/18/2026-06:01:33] [I] ignoreParsedPluginLibs: 0
+[11/18/2026-06:01:33] [I] 
+[11/18/2026-06:01:33] [I] === Inference Options ===
+[11/18/2026-06:01:33] [I] Batch: Explicit
+[11/18/2026-06:01:33] [I] Input inference shapes: model
+[11/18/2026-06:01:33] [I] Iterations: 10
+[11/18/2026-06:01:33] [I] Duration: 3s (+ 200ms warm up)
+[11/18/2026-06:01:33] [I] Sleep time: 0ms
+[11/18/2026-06:01:33] [I] Idle time: 0ms
+[11/18/2026-06:01:33] [I] Inference Streams: 1
+[11/18/2026-06:01:33] [I] ExposeDMA: Disabled
+[11/18/2026-06:01:33] [I] Data transfers: Enabled
+[11/18/2026-06:01:33] [I] Spin-wait: Disabled
+[11/18/2026-06:01:33] [I] Multithreading: Disabled
+[11/18/2026-06:01:33] [I] CUDA Graph: Disabled
+[11/18/2026-06:01:33] [I] Separate profiling: Disabled
+[11/18/2026-06:01:33] [I] Time Deserialize: Disabled
+[11/18/2026-06:01:33] [I] Time Refit: Disabled
+[11/18/2026-06:01:33] [I] NVTX verbosity: 0
+[11/18/2026-06:01:33] [I] Persistent Cache Ratio: 0
+[11/18/2026-06:01:33] [I] Optimization Profile Index: 0
+[11/18/2026-06:01:33] [I] Weight Streaming Budget: 100.000000%
+[11/18/2026-06:01:33] [I] Inputs:
+[11/18/2026-06:01:33] [I] Debug Tensor Save Destinations:
+[11/18/2026-06:01:33] [I] === Reporting Options ===
+[11/18/2026-06:01:33] [I] Verbose: Disabled
+[11/18/2026-06:01:33] [I] Averages: 10 inferences
+[11/18/2026-06:01:33] [I] Percentiles: 90,95,99
+[11/18/2026-06:01:33] [I] Dump refittable layers:Disabled
+[11/18/2026-06:01:33] [I] Dump output: Disabled
+[11/18/2026-06:01:33] [I] Profile: Disabled
+[11/18/2026-06:01:33] [I] Export timing to JSON file: 
+[11/18/2026-06:01:33] [I] Export output to JSON file: 
+[11/18/2026-06:01:33] [I] Export profile to JSON file: 
+[11/18/2026-06:01:33] [I] 
+[11/18/2026-06:01:33] [I] === Device Information ===
+[11/18/2026-06:01:33] [I] Available Devices: 
+[11/18/2026-06:01:33] [I]   Device 0: "Orin" UUID: GPU-202c0a14-b21f-5523-b2f6-843529f06d8e
+[11/18/2026-06:01:33] [I] Selected Device: Orin
+[11/18/2026-06:01:33] [I] Selected Device ID: 0
+[11/18/2026-06:01:33] [I] Selected Device UUID: GPU-202c0a14-b21f-5523-b2f6-843529f06d8e
+[11/18/2026-06:01:33] [I] Compute Capability: 8.7
+[11/18/2026-06:01:33] [I] SMs: 8
+[11/18/2026-06:01:33] [I] Device Global Memory: 7619 MiB
+[11/18/2026-06:01:33] [I] Shared Memory per SM: 164 KiB
+[11/18/2026-06:01:33] [I] Memory Bus Width: 128 bits (ECC disabled)
+[11/18/2026-06:01:33] [I] Application Compute Clock Rate: 0.624 GHz
+[11/18/2026-06:01:33] [I] Application Memory Clock Rate: 0.624 GHz
+[11/18/2026-06:01:33] [I] 
+[11/18/2026-06:01:33] [I] Note: The application clock rates do not reflect the actual clock rates that the GPU is currently running at.
+[11/18/2026-06:01:33] [I] 
+[11/18/2026-06:01:33] [I] TensorRT version: 10.3.0
+[11/18/2026-06:01:33] [I] Loading standard plugins
+[11/18/2026-06:01:33] [I] [TRT] [MemUsageChange] Init CUDA: CPU +2, GPU +0, now: CPU 31, GPU 5085 (MiB)
+[11/18/2026-06:01:40] [I] [TRT] [MemUsageChange] Init builder kernel library: CPU +928, GPU +897, now: CPU 1002, GPU 6026 (MiB)
+[11/18/2026-06:01:40] [I] Start parsing network model.
+[11/18/2026-06:01:40] [I] [TRT] ----------------------------------------------------------------
+[11/18/2026-06:01:40] [I] [TRT] Input filename:   /home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/lane_mask.onnx
+[11/18/2026-06:01:40] [I] [TRT] ONNX IR version:  0.0.8
+[11/18/2026-06:01:40] [I] [TRT] Opset version:    17
+[11/18/2026-06:01:40] [I] [TRT] Producer name:    pytorch
+[11/18/2026-06:01:40] [I] [TRT] Producer version: 2.8.0
+[11/18/2026-06:01:40] [I] [TRT] Domain:           
+[11/18/2026-06:01:40] [I] [TRT] Model version:    0
+[11/18/2026-06:01:40] [I] [TRT] Doc string:       
+[11/18/2026-06:01:40] [I] [TRT] ----------------------------------------------------------------
+[11/18/2026-06:01:40] [I] Finished parsing network model. Parse time: 0.0342078
+[11/18/2026-06:01:40] [W] [TRT] Could not read timing cache from: /home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/timing.cache. A new timing cache will be generated and written.
+[11/18/2026-06:01:40] [I] [TRT] Global timing cache in use. Profiling results in this builder pass will be stored.
+[11/18/2026-06:08:18] [I] [TRT] Detected 1 inputs and 2 output network tensors.
+[11/18/2026-06:08:26] [I] [TRT] Total Host Persistent Memory: 488160
+[11/18/2026-06:08:26] [I] [TRT] Total Device Persistent Memory: 3072
+[11/18/2026-06:08:26] [I] [TRT] Total Scratch Memory: 6144000
+[11/18/2026-06:08:26] [I] [TRT] [BlockAssignment] Started assigning block shifts. This will take 136 steps to complete.
+[11/18/2026-06:08:26] [I] [TRT] [BlockAssignment] Algorithm ShiftNTopDown took 20.6404ms to assign 10 blocks to 136 nodes requiring 14382080 bytes.
+[11/18/2026-06:08:26] [I] [TRT] Total Activation Memory: 14381568
+[11/18/2026-06:08:26] [I] [TRT] Total Weights Memory: 2098720
+[11/18/2026-06:08:26] [I] [TRT] Engine generation completed in 405.977 seconds.
+[11/18/2026-06:08:26] [I] [TRT] [MemUsageStats] Peak memory usage of TRT CPU/GPU memory allocators: CPU 0 MiB, GPU 75 MiB
+[11/18/2026-06:08:26] [I] [TRT] [MemUsageStats] Peak memory usage during Engine building and serialization: CPU: 1685 MiB
+[11/18/2026-06:08:26] [I] Engine built in 406.089 sec.
+[11/18/2026-06:08:26] [I] Created engine with size: 3.57681 MiB
+[11/18/2026-06:08:26] [I] [TRT] Serialized 26 bytes of code generator cache.
+[11/18/2026-06:08:26] [I] [TRT] Serialized 81421 bytes of compilation cache.
+[11/18/2026-06:08:26] [I] [TRT] Serialized 5045 timing cache entries
+[11/18/2026-06:08:26] [I] [TRT] Saved 606299 bytes of timing cache to /home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/timing.cache
+[11/18/2026-06:08:26] [I] [TRT] Loaded engine size: 3 MiB
+[11/18/2026-06:08:26] [I] Engine deserialized in 0.0245512 sec.
+[11/18/2026-06:08:26] [I] Skipped inference phase since --skipInference is added.
+&&&& PASSED TensorRT.trtexec [TensorRT v100300] # /usr/src/tensorrt/bin/trtexec --onnx=/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/lane_mask.onnx --saveEngine=/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/lane_mask.engine.building --fp16 --memPoolSize=workspace:512 --builderOptimizationLevel=3 --timingCacheFile=/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/timing.cache --skipInference

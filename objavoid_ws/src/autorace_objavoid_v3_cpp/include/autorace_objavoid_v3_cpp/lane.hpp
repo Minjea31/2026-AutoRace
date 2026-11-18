@@ -23,23 +23,11 @@ public:
   GroundProjection(const std::string & cfg_path, double max_range, double max_lateral,
     const std::vector<double> & homography, bool full_image=false);
   void set_scale(double sx, double sy);
-  // mask: 8UC1 (클래스), bgr: 마스크 표본 격자 크기로 맞춘 원본(비어 있으면 HSV 확인 안 함)
-  std::vector<XY> class_points(const cv::Mat & mask, const cv::Mat & bgr, int cls, bool white, int step = 2) const;
-  std::vector<XY> yellow_points(const cv::Mat & mask, const cv::Mat & bgr) const
-  {
-    return class_points(mask, bgr, 1, false, 2);
-  }
-  std::vector<XY> white_points(const cv::Mat & mask, const cv::Mat & bgr) const
-  {
-    return class_points(mask, bgr, 2, true, 2);
-  }
-
-  // 마스크 없이 원본 전체에서 HSV 흰색(white_hsv) 바닥 점(자동 시작 정지선·점선용)
-  std::vector<XY> hsv_white_points(const cv::Mat & bgr, int step = 2) const;
-
+  // Deep class mask only: yellow=1, white=2. No raw image is required.
+  std::vector<XY> class_points(const cv::Mat & mask, int cls, int step = 2) const;
+  std::vector<XY> yellow_points(const cv::Mat & mask) const { return class_points(mask, 1); }
+  std::vector<XY> white_points(const cv::Mat & mask) const { return class_points(mask, 2); }
   int w = 0, h = 0;
-  std::array<double, 4> hsv{15, 40, 80, 80};     // h_min, h_max, s_min, v_min
-  std::array<double, 2> white_hsv{70, 120};      // s_max, v_min
   std::vector<XY> view_points;
   double near = 0, max_range = 2.5, max_lateral = 1.5;
 

@@ -18,7 +18,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 # lane_mode: which lane-keeping stack publishes /mission/lane.
-#   fusion: lane_fusion_ws  deep mask + HSV -> lane_fusion_node -> fusion PID   (default)
+#   fusion: lane_fusion_ws  deep mask (HSV off by default) -> lane_fusion_node -> fusion PID   (default)
 #   opencv: lane_ws         lane_lite (HSV/OpenCV) -> lane PID   (source lane_ws too)
 #   deep:   lane_fusion_ws  deep mask -> lane_deep_lite (lane_ws logic on the mask) -> lane PID
 #                           (source lane_ws too: the PID is lane_ws autorace_lane_pid)
@@ -29,7 +29,7 @@ LANE_NODES = {
 }
 
 
-def _lane(mode, speed_text, model):
+def _lane(mode, speed_text, model, deep_rate, hsv):
     if speed_text.strip():
         value = float(speed_text)
         if not math.isfinite(value) or not 0.0 <= value <= 1.0:
@@ -53,7 +53,7 @@ def _lane(mode, speed_text, model):
         return [
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(share('autorace_lane_fusion_deep') + '/launch/deep_mask.launch.py'),
-                launch_arguments={'model_path': model, 'use_sim_time': 'false'}.items(),
+                launch_arguments={'model_path': model, 'use_sim_time': 'false', 'max_rate': deep_rate}.items(),
             ),
             Node(package='autorace_lane_deep_lite', executable='lane_deep_lite_node', output='screen',
                  parameters=[{'config_file': deep_lite + '/config/real/lane.yaml', 'use_sim_time': False,
@@ -67,7 +67,7 @@ def _lane(mode, speed_text, model):
         PythonLaunchDescriptionSource(share('autorace_lane_fusion_pid') + '/launch/lane_fusion_pid.launch.py'),
         launch_arguments={
             'profile': 'real', 'use_sim_time': 'false',
-            'deep': 'true', 'hsv': 'true',
+            'deep': 'true', 'hsv': hsv, 'deep_rate': deep_rate,
             'model_path': model, 'debug': 'true', 'gui': 'false', 'lane_gui': 'false',
             'lane_speed': speed_text,
         }.items(),
@@ -80,7 +80,7 @@ def _setup(context):
     if mode not in LANE_NODES:
         raise RuntimeError('lane_mode must be fusion, opencv or deep: ' + mode)
     try:
-        lane = _lane(mode, C('lane_speed').perform(context), C('lane_model').perform(context))
+        lane = _lane(mode, C('lane_speed').perform(context), C('lane_model').perform(context), C('lane_deep_rate').perform(context), C('lane_hsv').perform(context))
     except PackageNotFoundError as error:
         ws = {'opencv': ['lane_ws'], 'deep': ['lane_fusion_ws', 'lane_ws']}.get(mode, ['lane_fusion_ws'])
         raise RuntimeError(f'lane_mode:={mode}: lane package not found, source '
@@ -186,7 +186,7 @@ def _defaults():
         'cone_params': share('cone_lane_follower') + '/config/clustering.yaml',
         'startup_timeout': '60.0', 'output_topic': '/cmd_vel',
         'lane_speed': '0.5',
-        'lane_mode': 'fusion',
+        'lane_mode': 'fusion', 'lane_deep_rate': '20.0', 'lane_hsv': 'false',
         'objavoid': 'true', 'objavoid_car': '04', 'objavoid_mode': 'normal',
     }
 
@@ -195,7 +195,7 @@ def generate_launch_description():
     return LaunchDescription([
         *[DeclareLaunchArgument(key, default_value=value,
                                 **({'choices': list(LANE_NODES),
-                                    'description': 'fusion (deep+HSV) | opencv (lane_ws lane_lite + lane PID) | deep (deep mask + lane_ws logic + lane PID)'}
+                                    'description': 'fusion (deep, HSV optional) | opencv (lane_ws lane_lite + lane PID) | deep (deep mask + lane_ws logic + lane PID)'}
                                    if key == 'lane_mode' else
                                    {'choices': ['normal', 'reverse'],
                                     'description': 'normal: forward/stop | reverse: optional 20cm reverse recovery'}

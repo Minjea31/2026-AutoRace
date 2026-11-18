@@ -1,7 +1,7 @@
 """카메라 노란 실선 경계(퓨전 차선 인식 결과 재사용).
 
 입력: 차 기준(base_link: x 전방, y 왼쪽) 노란선 점과, 그 프레임에서 카메라가 실제로 본 바닥 영역.
-  - 노란 점: /lane_fusion/deep_mask 노란 클래스 ∧ 같은 프레임 원본의 HSV 노란색(퓨전 lane.yaml 임계값)
+  - 노란 점: /lane_fusion/deep_mask 노란 클래스 (딥 마스크만 사용)
   - 바닥 투영: 퓨전 lane.yaml의 BEV 보정값(이미지 사다리꼴 -> 미터 직사각형)
 누적: odom 고정 격자(관측 횟수/노란 횟수). 차가 움직이거나 선이 잠깐 안 보여도 기억을 쓴다.
 출력:
@@ -48,9 +48,6 @@ class GroundProjection:
         self.Ginv = np.linalg.inv(self.G)
         self.near, self.far = c['bev_near_m'], c['bev_far_m']
         self.roi = (c.get('roi_left', 0.0), c.get('roi_right', 1.0), c.get('roi_top', 0.0), c.get('roi_bottom', 1.0))
-        self.hsv = (c.get('yellow_h_min', 15), c.get('yellow_h_max', 40), c.get('yellow_s_min', 80),
-                    c.get('yellow_v_min', 80))
-        self.white_hsv = (c.get('white_s_max', 70), c.get('white_v_min', 120))  # 흰 점선: 채도 낮고 밝음
         # 같은 바닥 투영식은 BEV 직사각형 밖 픽셀에도 성립 -> 영상 ROI 전체(거리 max_range까지)를 관측 영역으로.
         # (BEV 직사각형만 쓰면 좌우 ±0.73 m라 3차로 외곽선 ±0.77 m가 시작 위치에서 안 보였다)
         self.max_range, self.max_lateral = max_range, max_lateral
@@ -78,26 +75,14 @@ class GroundProjection:
         p = self.Ginv @ np.vstack((pts[:, 0], pts[:, 1], np.ones(len(pts))))
         return p[0] / p[2], p[1] / p[2]
 
-    def white_points(self, mask, bgr=None, white_class=2, step=2):
-        """마스크 흰 점선 클래스(∧ 원본 HSV 흰색) -> base_link 바닥 점."""
-        return self.yellow_points(mask, bgr, white_class, step, white=True)
+    def white_points(self, mask, white_class=2, step=2):
+        """마스크 흰 점선 클래스 -> base_link 바닥 점."""
+        return self.yellow_points(mask, white_class, step)
 
-    def yellow_points(self, mask, bgr=None, yellow_class=1, step=2, white=False):
-        """마스크 노란 클래스(∧ 원본 HSV 노란색) 픽셀 -> base_link 바닥 점. 마스크·영상 크기가 달라도 비례 변환."""
-        import cv2
+    def yellow_points(self, mask, yellow_class=1, step=2):
+        """마스크 노란 클래스 픽셀 -> base_link 바닥 점. 마스크·영상 크기가 달라도 비례 변환."""
         mh, mw = mask.shape[:2]
         sel = mask[::step, ::step] == yellow_class
-        if bgr is not None:
-            # 원본을 표본 격자 크기로 맞춰 HSV 확인(축소 디코딩 320x240 + 마스크 2칸 간격이면 그대로)
-            img = bgr if bgr.shape[:2] == sel.shape else cv2.resize(bgr, (sel.shape[1], sel.shape[0]),
-                                                                    interpolation=cv2.INTER_NEAREST)
-            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-            if white:
-                s1, v0 = self.white_hsv
-                sel &= (hsv[..., 1] <= s1) & (hsv[..., 2] >= v0)
-            else:
-                h0, h1, s0, v0 = self.hsv
-                sel &= (hsv[..., 0] >= h0) & (hsv[..., 0] <= h1) & (hsv[..., 1] >= s0) & (hsv[..., 2] >= v0)
         vv, uu = np.nonzero(sel)
         u = uu * step * (self.w / mw)
         v = vv * step * (self.h / mh)

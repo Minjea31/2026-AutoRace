@@ -28,7 +28,7 @@ def generate_launch_description():
         DeclareLaunchArgument('gui', default_value='false', description='true opens lane_fusion_tuner'),
         DeclareLaunchArgument('debug', default_value='false',
                               description='true publishes /lane_fusion/debug (BEV picture, built only while subscribed)'),
-        DeclareLaunchArgument('hsv', default_value='true',
+        DeclareLaunchArgument('hsv', default_value='false',
                               description='false: HSV detector off (deep mask only, e.g. tensor_bringup lane_mode:=deep)'),
         DeclareLaunchArgument('max_rate', default_value='0.0',
                               description='processing cap (Hz) on the newest camera frame; 0 = every frame'),

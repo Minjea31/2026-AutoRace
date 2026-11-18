@@ -17,9 +17,7 @@ objavoid_v3_node:
     odom_scale: 1.08
     # 내부 자세가 드라이버 odom TF와 다르므로 마커는 차체 기준으로 표시(RViz 고정 프레임 base_link)
     marker_frame: base_link
-    # 04번 실제 노란 테이프: 딥 마스크 노란 픽셀의 HSV 중앙값 H 22, S 45, V 150(퓨전 기본 S>=80이면 99% 탈락)
-    lane_hsv: [13.0, 35.0, 25.0, 60.0]
-    # Full-image deep ∩ HSV evidence, sampled every 2 pixels; retain only 2m ahead.
+    # Full-image deep-only evidence, sampled every 2 pixels; retain only 2m ahead.
     lane_full_image: true
     lane_max_range: 2.0
     lane_max_lateral: 1.5
@@ -42,9 +40,8 @@ objavoid_v3_node:
     #   센서는 보정 없이(기본) 띄우고, V3 명령만 노드 안에서 드라이버 보정식과 같은 서보 값이 되도록 변환.
     #   아래 조향 설명의 '보정 켬'은 이 변환으로 그대로 재현됨. 센서 보정을 다시 켜면 이 값을 false로.
     cmd_emulate_calibration: true
-    # 자동 시작: slow/bump 미션이 아닐 때 '흰 점선 조각 2개 이상 + 차 헤딩 방향
-    #   통로(±0.25 m, 3 m 안) 장애물' 2회 연속(방지턱 표지판 오작동 뒤 정면 장애물로 좁힘).
-    #   도로 원점 = 시작 순간 차 위치. 자동 시작 트리거는 slow/bump 미션 중에는 감지하지 않음.
+    # 자동 시작: slow/bump 미션 밖에서 노란 입구 꺾임 연속 확인 + 전방 장애물 2개.
+    # 11-17 174119 bag: 기존 흰 점선 조건은 라바콘에서도 성립하므로 04번에서는 끈다.
     start_need_line: false
     # 11-15: 갈림길 단순화(사용자) — A/B 결정 위치에서 fork_turn_after 더 간 뒤 그쪽으로 fork_turn_steer 로
     #   fork_turn_dist 꺾고 DONE(lane에 넘김). 표지판 받침·섬 추정 안 씀. 세 값은 실차에서 맞출 것.
@@ -54,6 +51,7 @@ objavoid_v3_node:
     road_outline: true
     start_entrance: true
     start_entrance_confirm: 2  # 노란 입구 꺾임을 새 영상 2장 연속 확인하면 시작 허용
+    start_legacy: false       # 흰 점선 + 물체만으로 자동 시작하지 않음
     # 11-15 10:05 시작 지점에서 오작동(점선 L0 R2 + 정면 물체): 점선 조각이 좌우 모두 있고 간격이 차로 폭(0.5 ± 0.12 m)일 때만
     lane_rate: 10.0          # 시작 판정 주기: 5 → 10Hz
     start_dash_both: true

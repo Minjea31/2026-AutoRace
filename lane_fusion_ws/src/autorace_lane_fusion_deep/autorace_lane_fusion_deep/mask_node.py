@@ -4,10 +4,9 @@ Publishes the network class mask (mono8: 0 background, 1 orange/yellow lane,
 2 white dashed lane) at the network input size, with the CAMERA header copied
 unchanged so lane_fusion_node can align the mask with a later frame (capture
 time difference + odometry). Runs asynchronously on the newest frame, at most
-max_rate masks/s (default 10: leaves the Jetson CPU/GPU for the rest; raise it
-if the logged ms/frame allows). No tracking, no control output and no OpenCV
+max_rate masks/s (default 20). No tracking, no control output and no OpenCV
 fallback: if the model is unavailable nothing is published and
-lane_fusion_node keeps running on its own HSV detection.
+the deep-only lane pipeline has no color fallback.
 """
 import array
 import time
@@ -39,8 +38,10 @@ class LaneDeepMaskNode(Node):
         self.retry = p('retry_seconds', 5.0).value
         self.log_performance = p('log_performance', False).value
         # int or float on the command line (max_rate:=10 or 10.0)
-        rate = p('max_rate', 10.0, ParameterDescriptor(dynamic_typing=True)).value
+        rate = p('max_rate', 20.0, ParameterDescriptor(dynamic_typing=True)).value
         self.period = 1.0 / max(0.1, float(rate))
+        self.next_due = 0.0
+        cv2.setNumThreads(1)
         camera = p('camera_topic', '/camera/color/image_raw/compressed').value
         output = p('mask_topic', '/lane_fusion/deep_mask').value
         if not self.model_path:
@@ -62,7 +63,8 @@ class LaneDeepMaskNode(Node):
         self.latest, self.processed, self.started = None, None, 0.0
         self.count, self.ms, self.jpeg_ms, self.report = 0, 0.0, 0.0, time.monotonic()
         self.pub = self.create_publisher(Image, output, qos_profile_sensor_data)
-        self.create_subscription(CompressedImage, camera, self._image, qos_profile_sensor_data)
+        self.create_subscription(CompressedImage, camera, self._image, rclpy.qos.QoSProfile(
+            depth=1, reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT))
         self.create_timer(0.005, self._tick)
         self._load()
 
@@ -71,7 +73,8 @@ class LaneDeepMaskNode(Node):
             self.backend = create_backend(self.backend_name, self.model_path,
                                           self.width, self.height, self.device)
             self.get_logger().info(f'{self.backend.name} ({getattr(self.backend, "interface", "logits")} output) '
-                                   f'{self.width}x{self.height} on {self.device}: {self.model_path}')
+                                   f'{self.width}x{self.height} on {self.device}: {self.model_path}; '
+                                   f'runtime={__file__}')
         except Exception as error:
             self.backend, self.retry_after = None, time.monotonic() + self.retry
             self.get_logger().error(f'model load failed ({error}); retry in {self.retry:.0f}s')
@@ -87,8 +90,14 @@ class LaneDeepMaskNode(Node):
             if time.monotonic() >= self.retry_after:
                 self._load()
             return
-        if time.monotonic() - self.started < self.period:
-            return  # rate cap; the newest frame is taken at the next slot
+        now = time.monotonic()
+        if now < self.next_due:
+            return
+        # Preserve the rate phase; skip missed slots without replaying old frames.
+        if self.next_due == 0.0 or now - self.next_due >= self.period:
+            self.next_due = now + self.period
+        else:
+            self.next_due += self.period
         self.processed = message  # newest frame only; older ones are skipped
         self.started = time.monotonic()
         start = time.perf_counter()

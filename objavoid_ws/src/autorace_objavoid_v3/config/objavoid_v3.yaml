@@ -26,7 +26,7 @@ objavoid_v3_node:
     plan_beyond_end: 0.1   # 경로 끝에서 차 앞끝이 구간 끝 + 이 값까지만: 표지판을 비켜 가지 않고 가운데 차로로 복귀
     home_d: 0.0   # 복귀할 가운데 차로 중심
     lane_centers: [-0.52, 0.0, 0.52]
-    # --- 카메라 노란 실선(퓨전 차선 결과 재사용: /lane_fusion/deep_mask + 원본 HSV, BEV는 퓨전 lane.yaml) ---
+    # --- 카메라 노란 실선(퓨전 차선 결과 재사용: /lane_fusion/deep_mask, BEV는 퓨전 lane.yaml) ---
     use_lane: true
     lane_cell: 0.03   # odom 노란선 격자 칸
     lane_confirm: 2   # 노란 확정 최소 관측 횟수
@@ -67,6 +67,14 @@ objavoid_v3_node:
     cluster_jump: 0.12
     cluster_min_points: 3
     obstacle_fixed_size: false
+    # C++ fixed-size detector: classify full scan clusters before ROI cropping.
+    # Structures keep their observed bounds for collision checks, not robot counts.
+    obstacle_shape_filter: true
+    obstacle_wall_min_length: 0.55
+    obstacle_wall_max_ratio: 0.02
+    obstacle_wall_max_rmse: 0.025
+    obstacle_fit_max_rmse: 0.08
+    obstacle_shape_extent_margin: 0.08
     obstacle_min_length: 0.33   # LIMO 0.322 x 0.22, 과소평가 방지
     obstacle_min_width: 0.23
     obstacle_max_length: 0.7   # 이보다 커지면 누적 박스 대신 최신 관측 사용

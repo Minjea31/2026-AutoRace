@@ -1,0 +1,24 @@
+{
+  "checkpoint": "/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/lane_11180557.pt",
+  "fp16": true,
+  "deployed": false,
+  "status": "engine_built",
+  "threshold": 0.5,
+  "build_command": [
+    "/usr/src/tensorrt/bin/trtexec",
+    "--onnx=/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/lane_mask.onnx",
+    "--saveEngine=/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/lane_mask.engine.building",
+    "--fp16",
+    "--memPoolSize=workspace:512",
+    "--builderOptimizationLevel=3",
+    "--timingCacheFile=/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/optimized/lane_11180557-20261118-060114-406288/timing.cache",
+    "--skipInference"
+  ],
+  "note": "Synthetic checks are smoke tests; engine throughput is not ROS pipeline FPS.",
+  "width": 640,
+  "height": 480,
+  "validation_images": 2,
+  "representative_images": false,
+  "onnx_max_mask_disagreement": 0.0,
+  "engine_mask_verified": false
+}

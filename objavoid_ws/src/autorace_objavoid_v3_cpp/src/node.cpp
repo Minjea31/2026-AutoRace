@@ -17,13 +17,11 @@
 #include <thread>
 #include <vector>
 
-#include <opencv2/imgcodecs.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <ackermann_msgs/msg/ackermann_drive_stamped.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
-#include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
@@ -65,11 +63,8 @@ public:
     marker_rate_ = dparam("marker_rate", 5.0);
     const auto lane_cfg = declare_parameter<std::string>("lane_config", "");
     const auto mask_topic = declare_parameter<std::string>("lane_mask_topic", "/lane_fusion/deep_mask");
-    const auto image_topic = declare_parameter<std::string>("camera_topic", "/camera/color/image_raw/compressed");
     lane_rate_ = dparam("lane_rate", 5.0);
-    lane_hsv_check_ = declare_parameter<bool>("lane_hsv_check", true);
     const auto ground_h = vparam("ground_homography", std::vector<double>(9, 0.0));
-    const auto hsv = vparam("lane_hsv", std::vector<double>(4, 0.0));
     const double lane_range = dparam("lane_max_range", 2.5);
     const double lane_lateral=dparam("lane_max_lateral",1.5);
     const bool full_image=declare_parameter<bool>("lane_full_image",false);
@@ -86,9 +81,6 @@ public:
       try {
         if (lane_cfg.empty()) {throw std::runtime_error("lane_config is empty");}
         gp_ = std::make_unique<objavoid::GroundProjection>(lane_cfg, lane_range, lane_lateral, ground_h, full_image);
-        if (std::any_of(hsv.begin(), hsv.end(), [](double v) {return v != 0.0;}) && hsv.size() == 4) {
-          gp_->hsv = {hsv[0], hsv[1], hsv[2], hsv[3]};
-        }
         if (ground_scale.size() == 2 && (ground_scale[0] != 1.0 || ground_scale[1] != 1.0)) {
           gp_->set_scale(ground_scale[0], ground_scale[1]);
         }
@@ -149,14 +141,6 @@ public:
       mask_sub_ = create_subscription<sensor_msgs::msg::Image>(mask_topic, rclcpp::SensorDataQoS(),
           [this](sensor_msgs::msg::Image::SharedPtr m) {std::lock_guard<std::mutex> g(lane_mtx_); latest_mask_ = m;},
           so);
-      if (lane_hsv_check_ || p.start_auto) {
-        img_sub_ = create_subscription<sensor_msgs::msg::CompressedImage>(image_topic, rclcpp::SensorDataQoS(),
-            [this](sensor_msgs::msg::CompressedImage::SharedPtr m) {
-              std::lock_guard<std::mutex> g(lane_mtx_);
-              images_.push_back(m);
-              while (images_.size() > 15) {images_.pop_front();}  // 최근 0.5 s만
-            }, so);
-      }
     }
     if(p.fork_shape) {
       lane_command_sub_=create_subscription<ackermann_msgs::msg::AckermannDriveStamped>("/mission/lane",10,
@@ -262,7 +246,7 @@ private:
     has_dead_=false;has_imu_=false;imu_yaw_=0;
     pending_activation_manual_=false;pending_activate_=auto_activate_;done_sent_=false;
     last_active_wall_=-1e9;entrance_deadline_=-1e9;replay_restart_pending_=true;
-    {std::lock_guard<std::mutex> lk(lane_mtx_);images_.clear();latest_mask_.reset();}
+    {std::lock_guard<std::mutex> lk(lane_mtx_);latest_mask_.reset();}
     {std::lock_guard<std::mutex> lk(scan_mtx_);latest_scan_.reset();}
     publish_done(false);
     RCLCPP_INFO(get_logger(),"Bag loop: reset road/island mapping and activation flags");
@@ -371,34 +355,22 @@ private:
   void process_lane()
   {
     if(!core_->active() && hold_automatic_trigger()) return;
-    // 최신 마스크 1장(+ 같은 촬영 시각 원본) -> 차 기준 노란·흰 점 -> 코어. lane_rate 이하로.
+    // 최신 딥 마스크 1장 -> 차 기준 노란·흰 점 -> 코어. lane_rate 이하로.
     if (!gp_ || steady() - last_lane_wall_ < 1.0 / std::max(lane_rate_, 0.1)) {return;}
     sensor_msgs::msg::Image::SharedPtr m;
-    std::deque<sensor_msgs::msg::CompressedImage::SharedPtr> imgs;
     {
       std::lock_guard<std::mutex> g(lane_mtx_);
       m.swap(latest_mask_);
-      imgs = images_;
     }
-    if (!m || m->encoding != "mono8" || m->height == 0) {return;}
+    if (!m || m->encoding != "mono8" || m->height == 0 || m->width == 0 ||
+        m->step < m->width || m->data.size() < size_t(m->step)*m->height) {return;}
     last_lane_wall_ = steady();
     const double st = stamp_sec(m->header.stamp);
-    if(!core_->active() && st<=trigger_not_before_) return;
-    cv::Mat bgr;
-    if (lane_hsv_check_) {
-      sensor_msgs::msg::CompressedImage::SharedPtr near;
-      for (auto & im : imgs) {
-        if (std::abs(stamp_sec(im->header.stamp) - st) < 1e-3) {near = im;}
-      }
-      if (!near) {return;}  // 같은 프레임 원본이 없으면 이번 마스크는 건너뜀
-      bgr = cv::imdecode(cv::Mat(1, static_cast<int>(near->data.size()), CV_8UC1, near->data.data()),
-          cv::IMREAD_REDUCED_COLOR_2);
-      if (bgr.empty()) {return;}
-    }
+    if(st<=trigger_not_before_ || now_s()-st>objavoid::kEntranceFreshness || now_s()-st< -0.05) return;
     const cv::Mat mask(static_cast<int>(m->height), static_cast<int>(m->width), CV_8UC1, m->data.data(), m->step);
-    const auto pts = gp_->yellow_points(mask, bgr);
-    const auto wpts = gp_->white_points(mask, bgr);
-    gate_yellow_=pts;gate_yellow_stamp_=st;
+    const auto pts = gp_->yellow_points(mask);
+    const auto wpts = gp_->white_points(mask);
+    gate_yellow_=pts;gate_white_=wpts;gate_yellow_stamp_=st;
     {
       std::lock_guard<std::recursive_mutex> lock(core_->mutex());
       if(core_->mapping_restarts!=last_reentry_epoch_) {
@@ -409,15 +381,10 @@ private:
         steady()-last_reentry_check_>=0.2) {
       last_reentry_check_=steady();
       const auto entrance=objavoid::eval_entrance_gate(pts,false,core_->p);
-      // Use transverse white paint from this image, never cached observations.
-      // Reentry stop-line evidence: only the bottom 20% of the raw compressed image.
-      // Keep full image dimensions so ground projection coordinates stay unchanged.
-      std::vector<objavoid::XY> white;
-      if(!bgr.empty()) {
-        cv::Mat bottom=bgr.clone();
-        bottom.rowRange(0,static_cast<int>(0.80*bottom.rows)).setTo(cv::Scalar::all(0));
-        white=gp_->hsv_white_points(bottom,2);
-      }
+      // Only deep white pixels in the bottom 20%, preserving projection dimensions.
+      cv::Mat bottom=mask.clone();
+      bottom.rowRange(0,static_cast<int>(0.80*bottom.rows)).setTo(cv::Scalar::all(0));
+      const auto white=gp_->white_points(bottom);
       auto reentry_params=core_->p;
       reentry_params.start_line_span=0.30;
       reentry_params.start_line_x_min=0.0;
@@ -507,21 +474,14 @@ private:
     if(hold_automatic_trigger()) return;
     if (now_s()-stamp_sec(msg.header.stamp)>p.scan_timeout) {return;}
     if (w - last_gate_wall_ < 1.0 / std::max(lane_rate_, 0.1)) {return;}
-    sensor_msgs::msg::CompressedImage::SharedPtr im;
-    {
-      std::lock_guard<std::mutex> g(lane_mtx_);
-      if (!images_.empty()) {im = images_.back();}
-      if(p.start_entrance) for(const auto & candidate:images_)
-        if(std::abs(stamp_sec(candidate->header.stamp)-gate_yellow_stamp_)<1e-3) im=candidate;
-    }
-    if (!im) {set_gate_status("no_image"); return;}
-    const double ist = stamp_sec(im->header.stamp);
-    if(ist<=trigger_not_before_) {set_gate_status("wait_post_slow_image");return;}
+    const double ist=gate_yellow_stamp_;
+    if(ist < 0) {set_gate_status("no_mask");return;}
+    if(ist<=trigger_not_before_) {set_gate_status("wait_post_slow_mask");return;}
     const double image_age=now_s()-ist;
     if(image_age>objavoid::kEntranceFreshness || image_age< -0.05) {
       entrance_window_.reset();entrance_anchor_.reset();entrance_deadline_=-1e9;
       entrance_hits_=0;entrance_previous_={};gate_hits_=0;
-      set_gate_status("stale_image");return;
+      set_gate_status("stale_mask");return;
     }
     const bool fresh_image=ist!=last_gate_img_;
     if(fresh_image && last_gate_img_>0 && ist-last_gate_img_>objavoid::kEntranceFreshness) {
@@ -531,12 +491,6 @@ private:
     if(!fresh_image && !entrance_window_.armed(now_s())) return;
     last_gate_img_ = ist;
     last_gate_wall_ = w;
-    if(fresh_image) {
-      const cv::Mat bgr = cv::imdecode(cv::Mat(1, static_cast<int>(im->data.size()), CV_8UC1, im->data.data()),
-        cv::IMREAD_REDUCED_COLOR_2);
-      if(bgr.empty()) return;
-      gate_white_=gp_->hsv_white_points(bgr,2);
-    }
     const auto & white=gate_white_;
     // LiDAR 박스를 차 기준(base_link)으로
     const objavoid::LidarPose lp{p.lidar_x, p.lidar_y, p.lidar_yaw};
@@ -549,6 +503,7 @@ private:
     // 박스는 LIMO 크기로 보정돼 있음 -> 박스 안 LiDAR 점의 실제 좌우·앞뒤 범위로 기둥·벽 제외
     std::vector<objavoid::Box> solid;
     for (const auto & b : boxes) {
+      if (!b.robot_candidate) {continue;}
       double d0 = objavoid::kInf, d1 = -objavoid::kInf, s0 = objavoid::kInf, s1 = -objavoid::kInf;
       for (const auto & q : pts) {
         if (q.s >= b.s0 - 0.02 && q.s <= b.s1 + 0.02 && q.d >= b.d0 - 0.02 && q.d <= b.d1 + 0.02) {
@@ -610,7 +565,9 @@ private:
         ",\"entrance_remaining\":" << objavoid::jnum(std::max(0.0,entrance_window_.deadline-gate_time)) <<
         ",\"entrance_x\":" << objavoid::jnum(entrance.x) << ",\"entrance_support\":" << entrance.support <<
         ",\"line_pts\":" << g.line_pts << ",\"dash_l\":" << g.dashes_l << ",\"dash_r\":" << g.dashes_r <<
-        ",\"obs\":" << g.obstacles << ",\"pair\":" << (g.pair ? "true" : "false") << ",\"obs_all\":" << boxes.size() << ",\"stripes\":" << g.stripes << ",\"after\":" << g.line_after << ",\"white\":" << white.size() << "}";
+        ",\"obs\":" << g.obstacles << ",\"pair\":" << (g.pair ? "true" : "false") << ",\"obs_all\":" << boxes.size() <<
+        ",\"structures\":" << std::count_if(boxes.begin(), boxes.end(), [](const objavoid::Box & b) {return !b.robot_candidate;}) <<
+        ",\"stripes\":" << g.stripes << ",\"after\":" << g.line_after << ",\"white\":" << white.size() << "}";
       std::lock_guard<std::mutex> lk(stat_mtx_);
       gate_json_ = o.str();
       gate_status_ = "watching";
@@ -835,7 +792,7 @@ private:
   std::unique_ptr<objavoid::ObjAvoidCore> core_;
   std::unique_ptr<objavoid::GroundProjection> gp_;
   std::string command_topic_, yaw_source_, marker_frame_;
-  bool auto_activate_ = false, lane_hsv_check_ = true;
+  bool auto_activate_ = false;
   double marker_rate_ = 5.0, lane_rate_ = 5.0, odom_scale_ = 1.0, ctrl_period_ = 0.04;
   rclcpp::CallbackGroup::SharedPtr sensors_, control_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
@@ -844,7 +801,6 @@ private:
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr act_sub_, sign_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr detail_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr mask_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr img_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr active_pub_,owner_pub_,entrance_armed_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mux_sub_;
   std::atomic<bool> mux_objavoid_{false};std::atomic<double> mux_seen_{-1e9};
@@ -874,7 +830,6 @@ private:
   double imu_t_ = 0, imu_yaw_ = 0, imu_w_ = 0, dead_t_ = 0, dead_x_ = 0, dead_y_ = 0;
   std::mutex lane_mtx_;
   sensor_msgs::msg::Image::SharedPtr latest_mask_;
-  std::deque<sensor_msgs::msg::CompressedImage::SharedPtr> images_;
   double last_lane_wall_ = 0;
   std::mutex scan_mtx_;
   std::condition_variable scan_cv_;

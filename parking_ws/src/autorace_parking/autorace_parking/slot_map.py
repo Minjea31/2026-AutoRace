@@ -39,9 +39,10 @@ def fit_slot_map(objects,cfg,hint=None,sensor_origin=(0.,0.),object_yaw=None):
         points=points_at(seed_yaw)
     owners=[cluster.track_id if cluster.track_id is not None else -indices[0]-1 for indices,cluster in objects]
     gate=cfg.slot_match_tolerance
-    fixed=cfg.fixed_parking_slot_id
+    fixed=-1 if cfg.single_empty_slot else cfg.fixed_parking_slot_id
     expected=np.arange(len(reference))!=fixed if fixed>=0 else np.ones(len(reference),dtype=bool)
-    minimum=max(3,cfg.enclosure_confirm_objects) if fixed>=0 else 3
+    minimum=(len(reference)-1 if cfg.single_empty_slot else
+             max(3,cfg.enclosure_confirm_objects) if fixed>=0 else 3)
     def evaluate(center,yaw):
         centers=reference@rotation(yaw).T+center
         observed=points_at(yaw)
@@ -135,6 +136,11 @@ def fit_slot_map(objects,cfg,hint=None,sensor_origin=(0.,0.),object_yaw=None):
                       'center':world.tolist(),'occupied':bool(occupied),'occupant_ids':occupied,
                       'eligible_empty':eligible,
                       'state':'occupied' if occupied else ('outside_candidate_roi' if not in_roi else ('outside_initial_right' if not on_right else ('empty_candidate' if inside_all else 'unconfirmed')))})
+    if cfg.single_empty_slot:
+        valid=extent_locked and sum(c['occupied'] for c in cells)==len(reference)-1
+        extent_locked=bool(valid)
+        for cell in cells:
+            cell['eligible_empty']=cell['eligible_empty'] and valid
     return {'origin':center.tolist(),'yaw':float(yaw),'locked':bool(extent_locked),'matched_cells':count,
             'fit_rmse_m':float(error) if math.isfinite(error) else None,'hypotheses':len(alternatives),
             'columns':cfg.slot_columns,'rows':cfg.slot_rows,'cell_width':cfg.slot_width,'cell_depth':cfg.slot_depth,

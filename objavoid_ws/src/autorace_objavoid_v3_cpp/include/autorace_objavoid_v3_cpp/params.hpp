@@ -71,6 +71,12 @@ using DVec = std::vector<double>;
   X(D, cluster_jump, 0.12)                                         \
   X(I, cluster_min_points, 3)                                      \
   X(B, obstacle_fixed_size, false)                                \
+  X(B, obstacle_shape_filter, true)                               \
+  X(D, obstacle_wall_min_length, 0.55)                             \
+  X(D, obstacle_wall_max_ratio, 0.02)                              \
+  X(D, obstacle_wall_max_rmse, 0.025)                              \
+  X(D, obstacle_fit_max_rmse, 0.08)                                \
+  X(D, obstacle_shape_extent_margin, 0.08)                         \
   X(D, obstacle_min_length, 0.33)                                  \
   X(D, obstacle_min_width, 0.23)                                   \
   X(D, obstacle_max_length, 0.70)                                  \

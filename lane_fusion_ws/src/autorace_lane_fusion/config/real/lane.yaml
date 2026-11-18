@@ -1,3 +1,4 @@
+# Car 06: deep-only lane; HSV detector disabled (2026-11-18).
 # REAL CAR ONLY. Tune with: lane_lite_tuner --profile real --bag <bag>
 # (Save YAML writes back to this source file; rebuild to install it).
 # BEV measured with tape on car 06 (2026-11-07, lane_ws/BEV1 .yaml): ground marks
@@ -26,12 +27,12 @@ lane_lite:
   bev_top_right: 0.892
   bev_bottom_left: -1.001
   bev_bottom_right: 1.959
-  yellow_enabled: 1
+  yellow_enabled: 0
   yellow_h_min: 15
   yellow_h_max: 40
   yellow_s_min: 80
   yellow_v_min: 80
-  white_enabled: 1
+  white_enabled: 0
   white_s_max: 70
   white_v_min: 120
   white_tophat: 30

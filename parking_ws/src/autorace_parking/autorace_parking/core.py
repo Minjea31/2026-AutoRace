@@ -80,6 +80,7 @@ class Settings:
     slot_object_width: float = .220
     slot_object_fit_tolerance: float = .04
     fixed_parking_slot_id: int = -1  # front/near-lane row, middle column is 4 in a 3x2 grid
+    single_empty_slot: bool = False  # one arbitrary empty cell, require five occupied cells
     fixed_slot_empty_known: bool = False
     slot_initial_right_only: bool = True
     slot_columns: int = 3

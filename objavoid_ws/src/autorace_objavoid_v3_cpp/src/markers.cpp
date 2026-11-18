@@ -78,6 +78,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
     const Box & b = core.last_boxes[k];
     Marker m = mk("scan_detections", static_cast<int>(k), Marker::LINE_STRIP, stamp, {0.2, 1.0, 0.3, 0.9},
         {0.01, 0, 0});
+    if (!b.robot_candidate) {m.color.r=0.2; m.color.g=0.7; m.color.b=1.0;}
     rect(m, f, b.s0, b.s1, b.d0, b.d1, 0.05);
     arr.markers.push_back(m);
   }
@@ -86,12 +87,14 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
       const Box & b = tr.box;
       std::array<double, 4> col = tr.confirmed ? std::array<double, 4>{1.0, 0.1, 0.1, 1.0} :
         std::array<double, 4>{1.0, 0.6, 0.0, 0.8};
+      if (!b.robot_candidate) {col={0.2,0.7,1.0,1.0};}
       Marker m = mk("obstacles", tr.id, Marker::LINE_STRIP, stamp, col, {0.03, 0, 0});
       rect(m, f, b.s0, b.s1, b.d0, b.d1);
       arr.markers.push_back(m);
       Marker txt = mk("obstacle_label", tr.id, Marker::TEXT_VIEW_FACING, stamp, {1, 1, 1, 1}, {0, 0, 0.06});
       txt.pose.position = pt(f, b.cs(), b.cd(), 0.25);
-      txt.text = "#" + std::to_string(tr.id) + " " + fmt("%.2fx%.2f", b.s1 - b.s0, b.d1 - b.d0);
+      txt.text = std::string(b.robot_candidate?"robot #":"structure #") + std::to_string(tr.id) + " " +
+        fmt("%.2fx%.2f", b.s1 - b.s0, b.d1 - b.d0);
       arr.markers.push_back(txt);
     }
   }
@@ -327,12 +330,13 @@ MarkerArray preview_markers(const ObjAvoidCore & core, const std::vector<float> 
     const Box & b = boxes[k];
     Marker dm = mk("scan_detections", static_cast<int>(k), Marker::LINE_STRIP, stamp, {0.2, 1.0, 0.3, 0.9},
         {0.015, 0, 0});
+    if (!b.robot_candidate) {dm.color.r=0.2; dm.color.g=0.7; dm.color.b=1.0;}
     rect(dm, f, b.s0, b.s1, b.d0, b.d1, 0.05);
     arr.markers.push_back(dm);
     Marker txt = mk("obstacle_label", static_cast<int>(k), Marker::TEXT_VIEW_FACING, stamp, {1, 1, 1, 1},
         {0, 0, 0.06});
     txt.pose.position = pt(f, b.cs(), b.cd(), 0.25);
-    txt.text = fmt("%.2fx%.2f", b.s1 - b.s0, b.d1 - b.d0);
+    txt.text = std::string(b.robot_candidate?"robot ":"structure ") + fmt("%.2fx%.2f", b.s1 - b.s0, b.d1 - b.d0);
     arr.markers.push_back(txt);
   }
   Marker st = mk("state", 0, Marker::TEXT_VIEW_FACING, stamp, {1, 1, 1, 1}, {0, 0, 0.09});

@@ -123,6 +123,7 @@ GateResult eval_start_gate(const std::vector<XY> & white, const std::vector<Box>
   }
   // 3) 전방 장애물
   for (const Box & b : boxes) {
+    if (!b.robot_candidate) {continue;}
     // 정지선을 찾았으면 그 너머(도로 위) 장애물만
     const double from = g.line ? g.line_x + p.start_line_thick : 0.3;
     if (b.s1 > from && b.s0 < p.start_obs_x_max && b.d1 > -p.start_obs_y && b.d0 < p.start_obs_y) {++g.obstacles;}

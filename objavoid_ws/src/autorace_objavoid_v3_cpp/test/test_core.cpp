@@ -861,23 +861,21 @@ TEST(Projection, FullImageSampledBothColorsAndTwoMeterLimit) {
   const std::vector<double> h{0,0.02,0.1,0.02,0,-1,0,0,1};
   GroundProjection full(config,2,1.5,h,true),cropped(config,2,1.5,h,false);
   std::remove(config.c_str());
-  cv::Mat mask(100,100,CV_8UC1),bgr(100,100,CV_8UC3);
+  cv::Mat mask(100,100,CV_8UC1);
   for(int v=0;v<100;++v) for(int u=0;u<100;++u) {
     mask.at<uchar>(v,u)=u<50?1:2;
-    bgr.at<cv::Vec3b>(v,u)=u<50?cv::Vec3b(0,200,200):cv::Vec3b(255,255,255);
   }
-  const auto yellow=full.yellow_points(mask,bgr),white=full.white_points(mask,bgr);
+  const auto yellow=full.yellow_points(mask),white=full.white_points(mask);
   ASSERT_FALSE(yellow.empty());ASSERT_FALSE(white.empty());
   bool near=false,left=false,right=false;
   for(const auto & points:{yellow,white}) for(const auto & q:points) {
     EXPECT_LE(q.x,2);EXPECT_TRUE(std::isfinite(q.x));near|=q.x<0.5;left|=q.y>0.8;right|=q.y< -0.8;
   }
   EXPECT_TRUE(near);EXPECT_TRUE(left);EXPECT_TRUE(right);
-  EXPECT_GT(yellow.size(),cropped.yellow_points(mask,bgr).size());
-  const auto dense=full.class_points(mask,bgr,1,false,1);
+  EXPECT_GT(yellow.size(),cropped.yellow_points(mask).size());
+  const auto dense=full.class_points(mask,1,1);
   EXPECT_GT(double(yellow.size())/dense.size(),0.20);EXPECT_LT(double(yellow.size())/dense.size(),0.30);
-  bgr.setTo(cv::Scalar(0,0,0));
-  EXPECT_TRUE(full.yellow_points(mask,bgr).empty());EXPECT_TRUE(full.white_points(mask,bgr).empty());
+  EXPECT_EQ(full.yellow_points(mask).size(),yellow.size());EXPECT_EQ(full.white_points(mask).size(),white.size());
 }
 TEST(Mission, OutlineReframePreservesCandidateWorldPoseAndIgnoresDuplicateFrame) {
   Params p;p.road_outline=true;p.fork_shape=true;p.lane_lidar_filter=false;
@@ -1149,6 +1147,84 @@ TEST(Perception, LimoLongitudinalAndTransverseHaveExactDimensions) {
     EXPECT_NEAR(boxes[0].s1-boxes[0].s0,transverse?0.22:0.322,1e-9);
     EXPECT_NEAR(boxes[0].d1-boxes[0].d0,transverse?0.322:0.22,1e-9);
   }
+}
+
+TEST(Perception, LongWallKeepsMeasuredCollisionFootprintWithoutRobotCount) {
+  Params p;p.obstacle_fixed_size=true;p.obstacle_min_length=.322;p.obstacle_min_width=.22;
+  PriorBoundary boundary({-1,6},{.75,.75},{-.75,-.75});
+  std::vector<float> ranges(1441,kInf);
+  const double amin=-M_PI/2,inc=M_PI/1440;
+  for(size_t i=0;i<ranges.size();++i) {
+    const double a=amin+i*inc;
+    if(std::abs(a)<1.1) ranges[i]=1/std::cos(a);
+  }
+  std::vector<Box> boxes;std::vector<Pt2> pts;std::vector<ClusterInfo> info;
+  detect(ranges,amin,inc,{},RoadFrame(0,0,0),boundary,0,p,boxes,pts,&info);
+  ASSERT_EQ(boxes.size(),1u);ASSERT_EQ(info.size(),1u);
+  EXPECT_TRUE(info[0].wall);EXPECT_FALSE(boxes[0].robot_candidate);
+  EXPECT_GT(boxes[0].d1-boxes[0].d0,1.5);  // never shrink to a 22/32cm robot
+  EXPECT_LT(body_clearance(1,0,0,obstacle_array(boxes),p),0);  // still collidable
+  EXPECT_GE(body_clearance(0,0,0,obstacle_array(boxes),p),0);
+  EXPECT_EQ(eval_start_gate({},boxes,p).obstacles,0);
+  Tracker tracker(p);
+  tracker.update(boxes,0,-.2,nullptr,nullptr);tracker.update(boxes,.1,-.2,nullptr,nullptr);
+  EXPECT_EQ(tracker.confirmed_count(),1);EXPECT_EQ(tracker.structure_count(),1);
+  EXPECT_EQ(tracker.section_count(),0);ASSERT_EQ(tracker.confirmed_boxes().size(),1u);
+  tracker.update({},.2,2.,nullptr,nullptr);EXPECT_EQ(tracker.passed,0);
+}
+
+TEST(Perception, WallClassificationUsesReturnsOutsideNarrowRoi) {
+  Params p;p.obstacle_fixed_size=true;p.obstacle_min_length=.322;p.obstacle_min_width=.22;
+  p.roi_margin=0;
+  PriorBoundary boundary({-1,6},{.35,.35},{-.35,-.35});
+  const double amin=-M_PI/2,inc=M_PI/1440;
+  std::vector<float> ranges(1441,kInf);
+  // Slanted wall y=0.1+0.8x. Its short ROI intersection resembles a robot.
+  for(size_t i=0;i<ranges.size();++i) {
+    const double a=amin+i*inc,den=std::sin(a)-.8*std::cos(a);
+    const double r=.1/den;
+    if(r>.05 && r<3.5 && r*std::cos(a)>0) ranges[i]=r;
+  }
+  std::vector<Box> boxes;std::vector<Pt2> pts;std::vector<ClusterInfo> info;
+  detect(ranges,amin,inc,{},RoadFrame(0,0,0),boundary,0,p,boxes,pts,&info);
+  ASSERT_EQ(boxes.size(),1u);ASSERT_EQ(info.size(),1u);
+  EXPECT_LT(std::hypot(boxes[0].s1-boxes[0].s0,boxes[0].d1-boxes[0].d0),.55);
+  EXPECT_GT(info[0].span,1.);EXPECT_TRUE(info[0].wall);EXPECT_FALSE(boxes[0].robot_candidate);
+}
+
+TEST(Perception, BagWallIsExcludedAndVisibleRobotFacesRemainCandidates) {
+  const auto cases=YAML::LoadFile(std::string(TEST_DATA_DIR)+"/wall_bag_cases.json");
+  Params p;p.obstacle_fixed_size=true;p.obstacle_min_length=.322;p.obstacle_min_width=.22;
+  p.start_obs_y=.35;p.start_obs_min=2;p.start_dash_both=true;p.start_need_line=false;
+  PriorBoundary boundary({-1,4},{.55,.55},{-.55,-.55});
+  for(const auto & c:cases) {
+    SCOPED_TRACE(c["bag"].as<std::string>()+" t="+c["bag_t"].as<std::string>());
+    const auto ranges=c["ranges"].as<std::vector<float>>();
+    std::vector<Box> boxes;std::vector<Pt2> pts;std::vector<ClusterInfo> info;
+    detect(ranges,c["angle_min"].as<double>(),c["angle_inc"].as<double>(),{.103,0,0},
+      RoadFrame(0,0,0),boundary,0,p,boxes,pts,&info);
+    const double x=c["target"][0].as<double>(),y=c["target"][1].as<double>();
+    double best=kInf;size_t index=0;
+    for(size_t k=0;k<info.size();++k) {
+      const double d=std::hypot(info[k].observed.cs()-x,info[k].observed.cd()-y);
+      if(d<best){best=d;index=k;}
+    }
+    ASSERT_LT(best,.16);ASSERT_LT(index,boxes.size());
+    EXPECT_EQ(boxes[index].robot_candidate,c["robot_candidate"].as<bool>());
+    if(!c["robot_candidate"].as<bool>()) {
+      EXPECT_TRUE(info[index].wall);EXPECT_GT(info[index].span,1.1);
+      EXPECT_GT(boxes[index].s1-boxes[index].s0,1.1);
+    }
+  }
+}
+
+TEST(Tracker, RobotAndStructureRemainSeparateAndOnlyRobotCountsAsPassed) {
+  Params p;Tracker tracker(p);
+  const Box robot{1,1.322,0,.22},wall{1,1.322,.01,.23,false};
+  for(double t:{0.,.1,.2}) tracker.update({robot,wall},t,-.2,nullptr,nullptr);
+  ASSERT_EQ(tracker.confirmed_count(),2);EXPECT_EQ(tracker.structure_count(),1);
+  EXPECT_EQ(tracker.section_count(),1);EXPECT_EQ(tracker.confirmed_boxes().size(),2u);
+  tracker.update({},.3,2.,nullptr,nullptr);EXPECT_EQ(tracker.passed,1);
 }
 
 TEST(Mission, LostPathRetracesTwentyCentimetersAndExcludesFailedCorridor) {

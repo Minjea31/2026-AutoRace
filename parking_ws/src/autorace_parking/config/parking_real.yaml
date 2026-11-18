@@ -161,11 +161,9 @@ parking_node:
     slot_object_length: 0.322
     slot_object_width: 0.220
     slot_object_fit_tolerance: 0.04
-    # Image row 1, column 2: the middle cell nearest the lane (internal id 4).
-    fixed_parking_slot_id: 4
-    # The course guarantees this one cell is empty; a locked occupied-cell
-    # pattern may establish it even when a cone occludes its central scan ray.
-    fixed_slot_empty_known: true
+    single_empty_slot: true
+    fixed_parking_slot_id: -1
+    fixed_slot_empty_known: false
     slot_initial_right_only: true
     slot_columns: 3
     slot_rows: 2
@@ -192,15 +190,14 @@ parking_node:
     arrival_use_rear_axle: true
     rear_axle_offset_x: -0.10
     rear_axle_offset_y: 0.0
-    # Slot occupancy chooses a target; only measured/remembered obstacles block motion.
-    block_occupied_slots: false
+    # Confirmed occupied cells retain vehicle-sized collision boxes through occlusion.
+    block_occupied_slots: true
     enclosed_space_detection: true
     continuous_replanning: true
     require_complete_entry_path: true
     control_preview_time: 0.40
     enclosure_min_objects: 3
-    # Three non-collinear objects may identify the known occupied-cell template.
-    # Require a unique registration before using the known-empty target.
+    # Single-empty mode requires five occupied cells before selecting a target.
     enclosure_confirm_objects: 3
     enclosure_grid_resolution: 0.05
     enclosure_support_radius: 1.0

@@ -24,7 +24,8 @@ def with_occupied_slots(scan,layout,pose,cfg):
         if not cell['occupied']:continue
         dx,dy=cell['center'][0]-pose[0],cell['center'][1]-pose[1]
         result.occupied_slots.append({'id':cell['id'],'pose':(c*dx+s*dy,-s*dx+c*dy,angle),
-            'half_size':((layout['cell_width']+layout['border'])/2,(layout['cell_depth']+layout['border'])/2)})
+            'half_size':((cfg.slot_object_width/2,cfg.slot_object_length/2) if cfg.single_empty_slot else
+                         ((layout['cell_width']+layout['border'])/2,(layout['cell_depth']+layout['border'])/2))})
     return result
 
 

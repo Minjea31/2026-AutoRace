@@ -12,11 +12,15 @@ namespace objavoid {
 struct Box
 {
   double s0 = 0, s1 = 0, d0 = 0, d1 = 0;
+  // Structures retain their measured footprint for collision checking, but must
+  // never count as robot/start-gate/mission-completion candidates.
+  bool robot_candidate = true;
   double cs() const {return 0.5 * (s0 + s1);}
   double cd() const {return 0.5 * (d0 + d1);}
   Box unite(const Box & o) const
   {
-    return {std::min(s0, o.s0), std::max(s1, o.s1), std::min(d0, o.d0), std::max(d1, o.d1)};
+    return {std::min(s0, o.s0), std::max(s1, o.s1), std::min(d0, o.d0), std::max(d1, o.d1),
+      robot_candidate && o.robot_candidate};
   }
   double gap_to(const Box & o, double shrink = 0.02) const
   {
@@ -48,13 +52,22 @@ struct Beam
 
 struct Pt2 {double s, d;};
 
+struct ClusterInfo
+{
+  Box observed, output;
+  int points = 0;
+  double span = 0, eigen_ratio = 0, line_rmse = 0, fit_rmse = 0;
+  bool wall = false;
+};
+
 // 관측 범위 [lo, hi]를 min_size 이상으로. 가려진 쪽(또는 센서 반대쪽)으로 확장.
 void correct_extent(double & lo, double & hi, double sensor, double min_size, bool occ_lo, bool occ_hi);
 
 // 스캔 -> 클러스터 박스, ROI 점(도로 좌표)
 void detect(const std::vector<float> & ranges, double angle_min, double angle_inc, const LidarPose & lp,
   const RoadFrame & frame, const Boundary & boundary, double s_vehicle, const Params & p,
-  std::vector<Box> & boxes, std::vector<Pt2> & pts);
+  std::vector<Box> & boxes, std::vector<Pt2> & pts,
+  std::vector<ClusterInfo> * diagnostics = nullptr);
 
 class Tracker
 {
@@ -64,6 +77,7 @@ public:
     const Beam * beam);
   std::vector<Box> confirmed_boxes() const;
   int confirmed_count() const;
+  int structure_count() const;
   int section_count() const;
   std::vector<Track> tracks;
   int next_id = 1;
