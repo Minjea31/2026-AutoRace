@@ -47,7 +47,7 @@ class CrosswalkNode(Node):
         self.white_roi = WhiteROI(**{
             name: float(self.declare_parameter('white_roi_' + name, default, descriptor).value)
             for name, default in (('left', .05), ('right', .95), ('top', .961),
-                                  ('bottom', 1.0), ('minimum_ratio', .08))
+                                  ('bottom', 1.0), ('minimum_ratio', .40))
         })
         self.white_image_timeout = float(self.declare_parameter(
             'white_image_timeout_sec', .3, descriptor).value)

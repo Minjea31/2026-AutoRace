@@ -1,7 +1,9 @@
 """Two sign inputs, fresh lane commands and one slow mission output."""
 # 시간 설정 (초) — 이 값을 수정한 뒤 빌드하고 노드를 다시 실행하세요.
-START_DELAY_SEC = 0.5       # slow·bump 공통: 흰선 감지 후 감속 시작까지 주행
+START_DELAY_SEC = 0.1       # slow: 흰선 감지 후 감속 시작까지 주행
+BUMP_START_DELAY_SEC = 0.5  # bump: 기존 감속 시작 지연 유지
 SLOW_HOLD_SEC = 15.0        # slow: 감속 시작 후 유지 시간
+FIRST_SLOW_HOLD_SEC = 6.0   # 실제 시작한 첫 slow 미션만 고정 6초, 재감지로 연장하지 않음
 BUMP_HOLD_SEC = 10.0         # bump: 유지 시간, 표지판 재감지 시 갱신
 SIGNAL_GAP_TIMEOUT_SEC = 0.5  # 표지판 확인 횟수를 초기화하는 수신 간격
 
@@ -38,14 +40,16 @@ class SlowNode(Node):
     def __init__(self, **kwargs):
         super().__init__('slow_node', **kwargs)
         defaults = dict(confirm_frames=2, hold_sec=BUMP_HOLD_SEC, slow_hold_sec=SLOW_HOLD_SEC,
+                        first_slow_hold_sec=FIRST_SLOW_HOLD_SEC, first_slow_speed_mps=.2,
                         signal_gap_timeout_sec=SIGNAL_GAP_TIMEOUT_SEC,
                         speed_mps=.2, publish_rate_hz=20., start_delay_sec=START_DELAY_SEC,
+                        bump_start_delay_sec=BUMP_START_DELAY_SEC,
                         lane_timeout_sec=.25, future_tolerance_sec=.05)
         for name, default in defaults.items():
             value = self.declare_parameter(name, default, ParameterDescriptor(read_only=True)).value
             if (isinstance(value, bool) or not isinstance(value, (int, float))
                     or not math.isfinite(value) or value < 0
-                    or (name not in ('future_tolerance_sec', 'start_delay_sec') and value == 0)
+                    or (name not in ('future_tolerance_sec', 'start_delay_sec', 'bump_start_delay_sec') and value == 0)
                     or (name == 'confirm_frames' and not isinstance(value, int))):
                 raise ValueError(f'Invalid {name}: {value}')
             setattr(self, name, value)
@@ -55,7 +59,7 @@ class SlowNode(Node):
             raise ValueError('white_roi_enabled must be a Bool')
         self.white_roi = WhiteROI(**{
             name: float(self.declare_parameter('white_roi_' + name, default, descriptor).value)
-            for name, default in (('left', .05), ('right', .95), ('top', .961), ('bottom', 1.0), ('minimum_ratio', .08))
+            for name, default in (('left', .05), ('right', .95), ('top', .961), ('bottom', 1.0), ('minimum_ratio', .40))
         })
         self.white_image_timeout = float(self.declare_parameter('white_image_timeout_sec', .3, descriptor).value)
         self.white_image_hz = float(self.declare_parameter('white_image_hz', 10., descriptor).value)
@@ -68,7 +72,8 @@ class SlowNode(Node):
         self.white_arm_stamps = {}
         self.state = SlowState(self.confirm_frames, self.hold_sec, self.signal_gap_timeout_sec,
                                require_white_mark=self.white_roi_enabled, slow_hold_sec=self.slow_hold_sec,
-                               start_delay_sec=self.start_delay_sec)
+                               start_delay_sec=self.start_delay_sec, first_slow_hold_sec=self.first_slow_hold_sec,
+                               bump_start_delay_sec=self.bump_start_delay_sec)
         self.lane = self.lane_received = self.last_ros_ns = None
         self.last_mode = None
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
@@ -219,7 +224,8 @@ class SlowNode(Node):
             eligible = [kind for kind in armed if stamp >= self.white_arm_stamps.get(kind, stamp)]
             for kind in self.state.receive_white(hit, time.monotonic(), eligible):
                 self.white_arm_stamps.pop(kind, None)
-                self.get_logger().info(f'{kind.upper()}: 흰선 확인, {self.start_delay_sec:.1f}초 뒤 서행 시작')
+                delay = self.bump_start_delay_sec if kind == 'bump' else self.start_delay_sec
+                self.get_logger().info(f'{kind.upper()}: 흰선 확인, {delay:.1f}초 뒤 서행 시작')
             self.publish_activity()
             self.white_ratio_pub.publish(Float32(data=ratio))
             self.white_detected_pub.publish(Bool(data=hit))
@@ -245,7 +251,8 @@ class SlowNode(Node):
                  and self.stamp_valid(self.lane, ros_now))
         if fresh:
             message = copy.deepcopy(self.lane)
-            message.drive.speed = self.speed_mps
+            mission = self.state.missions['slow']
+            message.drive.speed = (self.first_slow_speed_mps if mode == 'slow' and mission.ordinal == 1 else self.speed_mps)
         else:
             message = AckermannDriveStamped()
             message.header.frame_id = 'base_link'

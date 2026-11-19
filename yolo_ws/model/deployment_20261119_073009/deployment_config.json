@@ -1,0 +1,11 @@
+{
+  "tag": "20261119_073009",
+  "name": "autorace_real_v2_20261119_noflip_2_0ebaaa7b",
+  "source": "/home/a/2026-AutoRace/yolo_ws/train/checkpoints/autorace_real_v2_20261119_200e_noflip-2/weights/best.pt",
+  "source_sha256": "0ebaaa7ba0dfa269f80637b47feb414b9b9148cb07c7957114731cb45c03306a",
+  "local": "/home/a/2026-AutoRace/yolo_ws/train/checkpoints/autorace_real_v2_20261119_200e_noflip-2/platform06_deployment_20261119_073009",
+  "remote_workspace": "/home/wego/2026-AutoRace/yolo_ws",
+  "remote_model": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b.pt",
+  "remote_engine": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b_fp16.engine",
+  "remote_job": "/home/wego/2026-AutoRace/yolo_ws/model/deployment_20261119_073009"
+}

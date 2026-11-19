@@ -154,22 +154,8 @@ void ObjAvoidCore::set_state(State s, const std::string & r, double t)
 void ObjAvoidCore::on_odom(double t, double x, double y, double yaw, double v, double w)
 {
   Lock g(mtx_);
-  if (!odom_.empty() && t <= odom_.back()[0]) {
-    if (t < odom_.back()[0] - 0.5) {  // 시계 되감김(시뮬 재시작)
-      ++mapping_epoch;activated_t_=t;startup_wait_=false;startup_stopped_at_.reset();
-      odom_.clear();driven_trail_.clear();last_route_.reset();last_route_points_.clear();rev_.reset();
-      state=State::IDLE;reason="replay_restart";frame.reset();path_.reset();
-      retained_island_.pose={};island_mapper.reset();planner.island.pose.valid=false;searching=false;
-      island_fit_stamp=-1e9;island_frame_at=-1e9;fresh_island_odom.clear();yellow_history.clear();
-      pending_sign_.reset();
-      island_section_reached_at.reset();road_boundary_->reset();
-      locked_fork_goal_odom_.reset();planner.fork_target.reset();fork_path_committed_=yellow_route_blocked_=obstacle_route_blocked_=false;
-      island_sign_after=1e100;fork_side_=0;fork_votes_l=fork_votes_r=0;fork_locked=false;
-      lane_command_at=-1e9;
-    } else {
-      return;
-    }
-  }
+  // Delayed or rewound sensor packets never start a new mapping session.
+  if (!odom_.empty() && t <= odom_.back()[0]) {return;}
   if(active() && !rev_ && std::isfinite(x) && std::isfinite(y) && v>=-0.01) {
     if(driven_trail_.empty()) driven_trail_.push_back({x,y});
     else {
@@ -216,6 +202,7 @@ std::optional<Pose> ObjAvoidCore::pose_at(double t, double extrapolate) const
 bool ObjAvoidCore::activate(double t, double s_shift, double yaw_offset, double d_shift, bool start_hold)
 {
   Lock g(mtx_);
+  if (frame && state != State::IDLE && state != State::DONE) {return false;}
   const auto pose = pose_at(t, 1.0);
   if (!pose) {return false;}
   const double road_yaw=pose->yaw+yaw_offset;
@@ -223,8 +210,6 @@ bool ObjAvoidCore::activate(double t, double s_shift, double yaw_offset, double 
   frame = RoadFrame(pose->x + c * s_shift-sn*d_shift, pose->y + sn * s_shift+c*d_shift, road_yaw);
   ++mapping_epoch;
   start_shift = s_shift;
-  obstacles_seen_=false;obstacle_gap_armed_=false;obstacle_absent_since_.reset();
-  obstacle_presence_stamp_=-1e9;obstacle_reappear_hits_=0;mapping_restarts=0;
   road_boundary_->reset();
   locked_fork_goal_odom_.reset();planner.fork_target.reset();fork_path_committed_=yellow_route_blocked_=obstacle_route_blocked_=false;
   tracker = std::make_unique<Tracker>(p);
@@ -703,44 +688,6 @@ IslandShape ObjAvoidCore::navigation_island() const
   if(retained_island_.pose.valid) return retained_island_;
   return island_mapper.shape;
 }
-bool ObjAvoidCore::reset_mapping(double t,double shift,double yaw_offset,double d_shift)
-{
-  Lock lock(mtx_);
-  const int side=fork_side_,left=fork_votes_l,right=fork_votes_r,restarts=mapping_restarts;
-  const double speed=ctrl.v,steering=ctrl.delta;
-  const bool startup=startup_wait_;const auto stopped_at=startup_stopped_at_;
-  if(!activate(t,shift,yaw_offset,d_shift)) return false;
-  startup_wait_=startup;startup_stopped_at_=stopped_at;
-  mapping_restarts=restarts+1;island_sign_after=side?t:1e100;fork_side_=side;fork_votes_l=left;fork_votes_r=right;
-  planner.island_side=side;fork_replan_=true;ctrl.v=speed;ctrl.delta=steering;proj.reset();
-  return true;
-}
-
-bool ObjAvoidCore::restart_after_obstacle_gap(const std::vector<Box> & boxes,double stamp,double t,bool valid_scan)
-{
-  if(locked_fork_goal_odom_ || !p.obstacle_reacquire_reset || state==State::DONE || stamp<=obstacle_presence_stamp_) return false;
-  if(!valid_scan || stamp-obstacle_presence_stamp_>p.scan_timeout) {
-    obstacle_absent_since_.reset();obstacle_gap_armed_=false;obstacle_reappear_hits_=0;
-  }
-  obstacle_presence_stamp_=stamp;
-  if(!valid_scan) return false;
-  if(std::none_of(boxes.begin(),boxes.end(),[](const Box & b){return b.robot_candidate;})) {
-    obstacle_reappear_hits_=0;
-    if(obstacles_seen_) {
-      if(!obstacle_absent_since_) obstacle_absent_since_=stamp;
-      if(stamp-*obstacle_absent_since_>=p.obstacle_reacquire_absence_sec) obstacle_gap_armed_=true;
-    }
-    return false;
-  }
-  obstacles_seen_=true;
-  if(!obstacle_gap_armed_) {obstacle_absent_since_.reset();return false;}
-  if(++obstacle_reappear_hits_<p.obstacle_reacquire_confirm_scans) return false;
-  if(!reset_mapping(t)) return false;
-  obstacles_seen_=true;obstacle_presence_stamp_=stamp;
-  reason="obstacle_reappeared";
-  return true;
-}
-
 // ------------------------------------------------------------ 작업 스레드
 bool ObjAvoidCore::process_scan(double stamp, const std::vector<float> & ranges, double angle_min,
   double angle_inc, double t_now)
@@ -761,16 +708,6 @@ bool ObjAvoidCore::process_scan(double stamp, const std::vector<float> & ranges,
   std::vector<Box> boxes;
   std::vector<Pt2> pts;
   detect(ranges, angle_min, angle_inc, lp, *frame, *boundary(), sv, p, boxes, pts);
-  const size_t usable=std::count_if(ranges.begin(),ranges.end(),[&](float r) {
-    return (std::isfinite(r)&&r>=p.scan_range_min)||(std::isinf(r)&&r>0);
-  });
-  const bool valid_scan=!ranges.empty() && usable>=std::max(size_t(3),ranges.size()/4);
-  if(restart_after_obstacle_gap(boxes,stamp,t_now,valid_scan)) {
-    frame->pose_to_road(pose->x,pose->y,pose->yaw,sv,dv,psiv);
-    s_rear=sv-p.body_rear*std::abs(std::cos(psiv))-0.5*p.body_width*std::abs(std::sin(psiv));
-    boxes.clear();pts.clear();
-    detect(ranges,angle_min,angle_inc,lp,*frame,*boundary(),sv,p,boxes,pts);
-  }
   Beam beam{*frame, lp, angle_min, angle_inc, last_scan_t_ ? std::max(0.0, stamp - *last_scan_t_) : 0.1};
   tracker->update(boxes, stamp, s_rear, &ranges, &beam);
   if (post_id_ >= 0) {
@@ -1189,7 +1126,13 @@ bool ObjAvoidCore::control(double t, double dt, double & v_out, double & steer_o
       path_inside_yellow(*path,*boundary(),navigation_island(),p,veh->s-p.body_rear);
     if(paint_recovery && body_clearance(veh->s,veh->d,veh->psi,obstacle_array(tracker->confirmed_boxes()),p)<0)
       why="recovery_obstacle";
-    else if (std::abs(ey)>p.deviation_stop && !p.observe_mode && !paint_recovery) why="path_deviation";
+    else if (std::abs(ey)>p.deviation_stop && !p.observe_mode && !paint_recovery) {
+      // 갈림길 구간에서는 이탈로 서지 않음(서면 조향만 유지돼 ey가 줄 수 없음)
+      //   섬 매칭: 구간 끝 통과 또는 목표 잠김 / 표지판 받침: 방향 결정 후 구간 끝 통과 또는 결정 고정
+      const bool in_fork=p.fork_shape ? (island_section_reached_at || locked_fork_goal_odom_) :
+        (p.fork_enable && fork_side_!=0 && (fork_locked || veh->s+p.body_front>=p.section_end));
+      if(!in_fork) why="path_deviation";
+    }
   }
   // 단순 갈림길: 결정 후 fork_turn_after 지나면 정한 쪽으로 일정 조향, fork_turn_dist 꺾으면 DONE.
   // 꺾는 중에는 경로 없음·이탈은 무시하고 센서 끊김·비상만 정지
@@ -1510,7 +1453,7 @@ std::optional<Box> ObjAvoidCore::sign_post() const
   return std::nullopt;
 }
 
-bool ObjAvoidCore::match_post(double stamp, double u)
+bool ObjAvoidCore::match_post(double stamp, double u, double cam_dist)
 {
   const auto pose = pose_at(stamp, 0.5);
   if (!pose || !frame) {return false;}
@@ -1518,6 +1461,8 @@ bool ObjAvoidCore::match_post(double stamp, double u)
   const double cx = pose->x + c * p.fork_cam_x - sn * p.fork_cam_y;
   const double cy = pose->y + sn * p.fork_cam_x + c * p.fork_cam_y;
   const double ray = pose->yaw + std::atan((p.fork_cam_cx - u) / p.fork_cam_fx);  // 왼쪽 +
+  const bool cam = std::isfinite(cam_dist) && cam_dist > 0;
+  // 1) 그 방향(± bearing_tol)의 LiDAR 박스 중 카메라 추정 거리와 맞는 가장 가까운 것
   int best = -1;
   double best_d = kInf;
   for (const Track & tr : tracker->tracks) {
@@ -1526,34 +1471,60 @@ bool ObjAvoidCore::match_post(double stamp, double u)
     frame->to_odom(tr.box.cs(), tr.box.cd(), x, y);
     const double dist = std::hypot(x - cx, y - cy);
     const double diff = std::abs(wrap(std::atan2(y - cy, x - cx) - ray));
-    if (dist < p.fork_post_max_dist && diff < p.fork_bearing_tol && dist < best_d) {
+    if (dist < p.fork_post_max_dist && diff < p.fork_bearing_tol && std::abs(tr.box.cd()) < p.fork_post_center_d &&
+      (!cam || std::abs(dist - cam_dist) < p.fork_post_match) && dist < best_d)
+    {
       best = tr.id;
       best_d = dist;
     }
   }
-  if (best < 0) {return false;}
-  for (const Track & tr : tracker->tracks) {
-    if (tr.id == best) {
-      if (std::abs(tr.box.cd()) >= p.fork_post_center_d) {return false;}  // 도로 가장자리 물체: 갈림길 받침 아님
-      post_id_ = best;
-      post_box_ = tr.box;
-      post_align_ = align_count_;
+  if (best >= 0) {
+    for (const Track & tr : tracker->tracks) {
+      if (tr.id == best) {post_id_ = best; post_box_ = tr.box; post_align_ = align_count_;}
     }
+    return true;
   }
+  // 2) LiDAR에 없으면 카메라 추정 위치(방향 + 판 크기로 구한 거리)를 받침으로(이전 추정과 평균)
+  if (!cam || cam_dist > p.fork_post_max_dist || post_id_ >= 0) {return post_id_ >= 0;}
+  double s, d;
+  frame->to_road(cx + cam_dist * std::cos(ray), cy + cam_dist * std::sin(ray), s, d);
+  if (post_box_ && post_align_ == align_count_) {
+    s = 0.5 * (s + post_box_->cs());
+    d = 0.5 * (d + post_box_->cd());
+  }
+  post_box_ = Box{s - 0.06, s + 0.06, d - 0.06, d + 0.06};
+  post_align_ = align_count_;
   return true;
 }
 
-void ObjAvoidCore::on_sign_detail(double stamp, bool right, double u)
+// 목표 차로: 받침을 알면 받침 기준(A: 왼쪽 끝 + pass_offset, B: 오른쪽 끝 - pass_offset), 모르면 바깥 차로
+void ObjAvoidCore::fork_target()
+{
+  if (fork_side_ == 0) {return;}
+  if (const auto pb = sign_post()) {
+    p.home_d = fork_side_ > 0 ? pb->d1 + p.fork_pass_offset : pb->d0 - p.fork_pass_offset;
+  } else {
+    const auto [mn, mx] = std::minmax_element(p.lane_centers.begin(), p.lane_centers.end());
+    p.home_d = fork_side_ > 0 ? *mx : *mn;
+  }
+  p.plan_beyond_end = island_s() + p.fork_plan_beyond - p.section_end;
+  p.roi_beyond_end = std::max(roi_beyond0_, p.plan_beyond_end);
+  fork_replan_ = true;
+}
+
+void ObjAvoidCore::on_sign_detail(double stamp, bool right, double u, double h)
 {
   Lock g(mtx_);
   if (p.fork_shape || !p.fork_enable || p.fork_turn || !p.fork_use_sign_post || !frame || !tracker || fork_locked) {return;}
   if (fork_side_ != 0 && (right ? -1 : 1) != fork_side_) {return;}  // 정한 방향과 다른 표지판 박스는 무시
-  const bool had = sign_post().has_value();
-  if (match_post(stamp, u) && !had && fork_side_ != 0) {
-    // 방향을 정한 뒤 받침을 찾음: 섬 위치·계획 범위를 받침 기준으로 다시
-    p.plan_beyond_end = island_s() + p.fork_plan_beyond - p.section_end;
-    p.roi_beyond_end = std::max(roi_beyond0_, p.plan_beyond_end);
-    fork_replan_ = true;
+  const double cam_dist = h > 1.0 ? p.fork_cam_fx * p.fork_sign_size / h : kNaN;
+  const auto before = sign_post();
+  if (match_post(stamp, u, cam_dist) && fork_side_ != 0) {
+    const auto now = sign_post();
+    // 받침을 처음 찾았거나 위치가 5 cm 넘게 바뀌면 목표·계획을 받침 기준으로 다시
+    if (!before || !now || std::abs(now->cd() - before->cd()) > 0.05 || std::abs(now->cs() - before->cs()) > 0.05) {
+      fork_target();
+    }
   }
 }
 
@@ -1598,12 +1569,7 @@ void ObjAvoidCore::apply_fork(int side)
     p.roi_beyond_end=std::max(roi_beyond0_,p.plan_beyond_end);
     planner.island_side=side;fork_replan_=true;return;
   }
-  // 갈래 = 3차선의 바깥 차로(섬 좌우): 목표 차로를 그쪽으로, 계획 범위를 섬 너머까지
-  const auto [mn, mx] = std::minmax_element(p.lane_centers.begin(), p.lane_centers.end());
-  p.home_d = side > 0 ? *mx : *mn;
-  p.plan_beyond_end = island_s() + p.fork_plan_beyond - p.section_end;
-  p.roi_beyond_end = std::max(roi_beyond0_, p.plan_beyond_end);
-  fork_replan_ = true;
+  fork_target();  // 받침 기준(없으면 바깥 차로)으로 목표·계획 범위, 즉시 재계획
   wait_since_.reset();
 }
 
@@ -1638,7 +1604,9 @@ bool ObjAvoidCore::check_done(const Veh & veh, double t)
     // 갈림길: 정한 갈래로 섬 시작을 지나야 완료(그 전에는 '가운데 복귀'·'구간 끝' 완료 없음)
     const double front = veh.s + p.body_front;
     if (fork_side_ != 0 && island_known() && front >= island_s() - p.fork_lock_dist) {fork_locked = true;}
-    if (fork_side_ != 0 && front >= island_s() + p.fork_enter_len && fork_side_ * veh.d > 0.2) {
+    const auto pb = sign_post();
+    const double side_d = pb ? veh.d - pb->cd() : veh.d;  // 받침(없으면 도로 가운데) 기준 정한 쪽에 있는지
+    if (fork_side_ != 0 && front >= island_s() + p.fork_enter_len && fork_side_ * side_d > (pb ? 0.15 : 0.2)) {
       done_reason = fork_side_ > 0 ? "fork_left" : "fork_right";
       return true;
     }
@@ -1709,7 +1677,7 @@ std::string ObjAvoidCore::status_json() const
     << ",\"using_saved_map\":" << ((!road_boundary_->model && (!aligned || !outline_fit.valid))?"true":"false")
     << ",\"valid\":" << ((road_boundary_->model || outline_fit.valid)?"true":"false")
     << ",\"longitudinal_observable\":" << (outline_fit.longitudinal?"true":"false")
-    << ",\"error\":" << jnum(outline_fit.error) << ",\"hits\":" << outline_fit.hits << ",\"inlier_ratio\":" << jnum(outline_fit.inlier_ratio) << ",\"restarts\":" << mapping_restarts
+    << ",\"error\":" << jnum(outline_fit.error) << ",\"hits\":" << outline_fit.hits << ",\"inlier_ratio\":" << jnum(outline_fit.inlier_ratio)
     << ",\"road_points\":" << road_match_points.size() << ",\"island_points\":" << island_match_points.size()
     << ",\"unmatched_points\":" << unmatched_points.size() << ",\"raw_points\":" << yellow_raw_count
     << ",\"filtered_points\":" << yellow_filtered_count << ",\"ms\":" << mapping_ms.json() << "}";

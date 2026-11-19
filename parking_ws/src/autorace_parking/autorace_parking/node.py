@@ -16,7 +16,7 @@ import rclpy
 from rclpy.node import Node
 from rcl_interfaces.msg import SetParametersResult
 from rcl_interfaces.srv import GetParameters
-from rclpy.qos import QoSProfile, qos_profile_sensor_data, ReliabilityPolicy
+from rclpy.qos import QoSProfile, qos_profile_sensor_data, ReliabilityPolicy, DurabilityPolicy
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.signals import SignalHandlerOptions
 from ackermann_msgs.msg import AckermannDriveStamped
@@ -29,6 +29,8 @@ from std_srvs.srv import Trigger
 from visualization_msgs.msg import Marker, MarkerArray
 
 from .start_sequence import StartSequence
+from .sign_motion import SignMotionGate
+from .sign_sets import ParkingSignSet
 from .departure import single_reverse_route, reverse_entry_route, arc_straight_departure, arc_then_straight, anchored_reverse_entry
 from .lane_handoff import ExitLaneGate,ExitStopGate
 from .core import Activation, Scan, Settings, Gap, CollisionChecker, RecoveryCollisionChecker, cluster_points, front_clearance, wrap
@@ -63,6 +65,9 @@ def scan_match_job(tracker, raw, cfg, update):
 
 
 def validate_settings(cfg):
+    if (isinstance(cfg.candidate_plan_attempts,bool) or not isinstance(cfg.candidate_plan_attempts,int)
+            or cfg.candidate_plan_attempts<1 or cfg.candidate_plan_timeout<=0):
+        raise ValueError('Candidate planning attempts and timeout must be positive')
     if cfg.single_empty_slot and (not cfg.slot_map_enabled or cfg.fixed_parking_slot_id >= 0
                                   or cfg.fixed_slot_empty_known or cfg.slot_columns*cfg.slot_rows != 6):
         raise ValueError("single_empty_slot requires a dynamic six-cell parking grid")
@@ -134,7 +139,7 @@ def validate_settings(cfg):
         raise ValueError('회전 호 길이는 0보다 크고 직선 후진 거리는 0 이상이어야 합니다.')
     if min(cfg.blind_reverse_distance,cfg.recovery_total_distance) < 0:
         raise ValueError('미관측 후진 허용 거리는 0 이상이어야 합니다.')
-    if min(cfg.obstacle_min_cluster_size, cfg.small_cluster_filter_max_distance) < 0:
+    if min(cfg.obstacle_min_cluster_size, cfg.small_cluster_filter_max_distance,cfg.pair_min_cluster_size) < 0:
         raise ValueError('작은 장애물 군집 제외 크기와 적용 거리는 0 이상이어야 합니다.')
     if min(cfg.min_gap,cfg.row_tolerance,cfg.min_cluster_size,cfg.min_turn_radius) < 0:
         raise ValueError('최소 간격·나란함 허용치·군집 크기·회전 반경은 0 이상이어야 합니다.')
@@ -238,6 +243,13 @@ class ParkingNode(StartSequence, Node):
         self.search_clear_count = 0
         self.search_check_pose = None
         self.search_block_detail = None
+        self.search_target_phase = None
+        self.search_stop_count = 0
+        self.search_stop_stamp = None
+        self.search_replan_after = None
+        self.search_candidate_attempts = 0
+        self.search_candidate_started = None
+        self.search_excluded_targets = []
         self.fusion_health = None
         self.fusion_health_received = None
         self.localization_not_before = None
@@ -260,6 +272,16 @@ class ParkingNode(StartSequence, Node):
             raise ValueError('감지 횟수·수신 제한 시간·속도·제어 주기는 0보다 커야 하며 대기 시간은 음수일 수 없습니다.')
         self.activation = Activation(required, self.sign_timeout)
         self.sign_ignore_until = 0.  # monotonic seconds; retained across reset
+        self.parking_sign_motion_guard = parameter('parking_sign_motion_guard', False)
+        parameter('parking_sign_departure_ignore_sec', 0.)
+        parameter('parking_sign_stop_ignore_sec', 0.)
+        if any(k in self._parameter_overrides for k in ('parking_sign_departure_ignore_sec','parking_sign_stop_ignore_sec')):
+            self.get_logger().warning('주차 고정 무시 시간 설정은 사용 중단되었습니다. parking_sign_set_gap_sec 묶음 판정을 사용합니다.')
+        self.sign_motion = SignMotionGate(0.)
+        self.sign_sets = ParkingSignSet(parameter('parking_sign_set_gap_sec', 1.0), required)
+        self.sign_retry_latched = False
+        self.parking_stop_require_lane_owner = parameter('parking_stop_require_lane_owner', False)
+        self.parking_mux_source = self.parking_mux_source_wall = None
         self.exit_on_lane = parameter('exit_on_lane_reacquired', True)
         self.exit_lane_gate = ExitLaneGate(parameter('exit_lane_timeout_sec', .25),
                                            parameter('exit_lane_min_confidence', .1))
@@ -275,6 +297,7 @@ class ParkingNode(StartSequence, Node):
         self.scan_not_before = None
         self.pending_scans = deque(maxlen=1)
         self.scan_sequence = 0
+        self.scan_idle = False  # 11-19: 주차 표지 확정 전 스캔 처리 생략 중
         self.controlled_sequence = -1
         self.last_now = None
         self.state = 'WAITING_SIGN'
@@ -378,6 +401,9 @@ class ParkingNode(StartSequence, Node):
         if parameter('white_roi_enabled', False):
             from .floor_gate import ParkingFloorGate
             self.floor_gate = ParkingFloorGate(self, self.start_from_floor)
+        if self.parking_stop_require_lane_owner:
+            self.create_subscription(String, '/mux/active_source', self.on_parking_mux_source,
+                QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.create_subscription(Bool, '/yolo/parking_sign', self.on_sign, QoSProfile(depth=1))
         self.create_subscription(LaserScan, '/scan', self.on_scan, QoSProfile(depth=1,reliability=ReliabilityPolicy.BEST_EFFORT))
         self.setup_start_sequence()
@@ -591,6 +617,11 @@ class ParkingNode(StartSequence, Node):
             phase = 'FAILED'
         elif self.parking_calibration_stop and self.approach_calibration.phase != 'IDLE':
             phase = 'HOLD' if self.approach_calibration.phase != 'READY' else 'APPROACH'
+        floor_approach=self.floor_gate is not None and self.floor_gate.armed and not self.activation.active
+        if floor_approach:
+            self.floor_gate.update_approach()
+            phase='FAILED' if self.floor_gate.failure else 'APPROACH'
+            ready=ready and not self.floor_gate.failure
         if not self.manual_interrupted and not self.motion_failed and self.activation.active:
             phase = 'RELEASE' if self.follower.exited else 'DRIVE'
         if self.guard_reset and phase == 'IDLE':
@@ -607,8 +638,8 @@ class ParkingNode(StartSequence, Node):
             ready = bool(ready and (fresh or (phase == 'DRIVE' and self.can_follow_saved_path(self.now_seconds()))))
         if self.planner_ready_future is not None and phase in ('APPROACH','DRIVE'):
             ready = ready and self.planner_ready_future.done() and self.planner_ready_future.exception() is None
-        limit = .3
-        if phase == 'APPROACH' and self.approach_calibration.ready_at is not None:
+        limit = self.floor_gate.approach_speed if floor_approach else .3
+        if phase == 'APPROACH' and not floor_approach and self.approach_calibration.ready_at is not None:
             elapsed = time.monotonic()-self.approach_calibration.ready_at
             relative = (self.approach_reference.relative(self.odometry.samples[-1])
                 if self.odometry.samples else None)
@@ -633,10 +664,12 @@ class ParkingNode(StartSequence, Node):
             'attempt':self.attempt,'phase':phase,'ready':bool(ready)},separators=(',',':'))))
 
     def on_approach_start(self, msg):
+        if self.floor_gate is not None and (self.activation.active or not self.floor_gate.armed or self.floor_gate.failure):
+            return
         self.guard_reset = False
 
         stamp = msg.stamp.sec + msg.stamp.nanosec * 1e-9
-        if (self.parking_calibration_stop and not self.activation.active
+        if (self.floor_gate is None and self.parking_calibration_stop and not self.activation.active
                 and 0 <= self.now_seconds()-stamp <= self.localization_timeout
                 and self.approach_calibration.start(stamp, time.monotonic())):
             self.approach_calibration_event = deepcopy(msg)
@@ -650,6 +683,31 @@ class ParkingNode(StartSequence, Node):
 
     def approach_can_start(self):
         return not self.approach_exhausted and (not self.parking_calibration_stop or self.approach_calibration.phase == 'READY')
+
+    def begin_floor_approach(self):
+        # An accepted new sign retires a completed/failed route, while keeping
+        # the live sensors and coordinate frame intact until the white line.
+        self.guard_reset=False
+        self.parking_commands_released=False
+        self.manual_interrupted=self.motion_failed=False
+        self.motion_stall_since=None
+        self.approach_exhausted=False
+        if self.activation.active or self.follower.exited:
+            self.epoch+=1
+            for name in ('pending','exit_pending'):
+                pending=getattr(self,name)
+                if pending is not None:
+                    pending[0].cancel()
+                    setattr(self,name,None)
+            self.activation.reset()
+            self.follower=self.new_follower()
+            self.tracked_goal=self.planned_goal=None
+            self.had_control_path=False
+        if self.approach_calibration_future is not None:
+            self.approach_calibration_future.cancel()
+        self.approach_calibration_future=self.approach_calibration_event=None
+        self.approach_calibration=ApproachCalibration(self.approach_calibration.timeout,self.localization_timeout)
+        self.approach_reference.reset()
 
     def poll_approach_calibration(self):
         if self.floor_gate is not None:
@@ -1114,6 +1172,13 @@ class ParkingNode(StartSequence, Node):
         self.search_clear_count = 0
         self.search_check_pose = None
         self.search_block_detail = None
+        self.search_target_phase = None
+        self.search_stop_count = 0
+        self.search_stop_stamp = None
+        self.search_replan_after = None
+        self.search_candidate_attempts = 0
+        self.search_candidate_started = None
+        self.search_excluded_targets = []
         self.localization_hold_since = None
         self.localization_hold_samples = 0
         self.exit_lane_gate.reset()
@@ -1209,34 +1274,62 @@ class ParkingNode(StartSequence, Node):
         self.get_logger().info(response.message)
         return response
 
+    def sync_sign_retry(self):
+        if not self.parking_sign_motion_guard:
+            return
+        exhausted=(self.activation.active and self.search_started is not None
+                   and not self.follower.path and (self.search_distance>=self.search_max_distance
+                   or self.now_seconds()-self.search_started>=self.search_timeout))
+        failed=bool((self.floor_gate is not None and self.floor_gate.failure)
+                    or self.motion_failed or self.manual_interrupted
+                    or self.follower.exit_retry_exhausted or self.follower.exited or exhausted)
+        if failed and not self.sign_retry_latched:
+            self.sign_motion.require_departure()
+        self.sign_retry_latched=failed
+
     def on_sign(self, msg):
-        if self.floor_gate is not None and not self.accepts_parking_start():
-            self.floor_gate.reset()
-            return
-        if time.monotonic() < self.sign_ignore_until:
-            return
+        # Always track ignored true messages, before any mission/owner guard.
+        confirmed=self.sign_sets.receive(msg.data,time.monotonic(),self.required_detections)
         if self.floor_gate is not None:
-            self.floor_gate.on_sign(msg)
-            return
-        # Camera-free controller construction keeps its existing test/simulator API.
-        if self.manual_interrupted or (self.prevent_active_retrigger and self.activation.active and not self.follower.exited):
-            return
-        was_active = self.activation.active
-        generation = self.activation.generation
-        now = self.now_seconds()
-        if was_active:
-            if not msg.data: return
-            self.activation.restart(now)
+            self.floor_gate.update_approach()
+            self.floor_gate.confirmation.count=self.sign_sets.count
         else:
-            self.activation.update(msg.data,now)
-        if self.activation.generation != generation:
-            self.begin_parking(was_active,now)
+            self.activation.count=self.sign_sets.count
+        self.sync_sign_retry()
+        if not confirmed:return
+        if self.floor_gate is not None and self.floor_gate.armed and not self.floor_gate.failure:return
+        exhausted=(self.activation.active and self.search_started is not None and not self.follower.path
+                   and (self.search_distance>=self.search_max_distance or self.now_seconds()-self.search_started>=self.search_timeout))
+        retry=bool(self.manual_interrupted or self.motion_failed or self.follower.exit_retry_exhausted or exhausted)
+        if self.activation.active and not self.follower.exited and not retry:return
+        if not self.accepts_parking_start():return
+        if not self.sign_retry_latched and not self.parking_stop_line_allowed():return
+        if self.parking_sign_motion_guard and not self.sign_motion.allows(time.monotonic()):return
+        if time.monotonic() < self.sign_ignore_until:return
+        if self.floor_gate is not None:
+            self.floor_gate.on_confirmed_sign()
+            return
+        was_active=self.activation.active
+        self.activation.restart(self.now_seconds())
+        self.begin_parking(was_active,self.now_seconds())
+
+    def on_parking_mux_source(self, msg):
+        self.parking_mux_source, self.parking_mux_source_wall = msg.data, time.monotonic()
+
+    def parking_stop_line_allowed(self):
+        if not self.parking_stop_require_lane_owner:
+            return True
+        return (self.parking_mux_source == 'lane' and self.parking_mux_source_wall is not None
+                and 0 <= time.monotonic()-self.parking_mux_source_wall <= .3)
 
     def start_from_floor(self):
+        if not self.parking_stop_line_allowed():
+            return
+        if self.parking_sign_motion_guard and not self.sign_motion.allows(time.monotonic()):
+            return
         self.request_parking_start()
 
     def begin_parking(self, was_active, mission_now):
-        self.sign_ignore_until = time.monotonic() + 5.
         if was_active and (self.had_control_path or self.follower.path):
             self.publish_command(0.0, 0.0)
         self.reset_motion()
@@ -1253,7 +1346,24 @@ class ParkingNode(StartSequence, Node):
         self.active_pub.publish(Bool(data=True))
         self.get_logger().info(f'주차 미션 시작: {self.attempt}번째 시도. 최신 센서와 경로를 확인합니다.')
 
+    def scan_processing_needed(self):
+        """11-19: before the parking sign is confirmed nothing consumes the scan results (the start
+        sequence replaces the tracker, clears odometry and ignores earlier scans at SETPOSE), so idle
+        scans are skipped to save CPU. The subscription stays alive: resuming costs one scan (<= 0.1 s)."""
+        return (self.floor_gate is None or self.floor_gate.armed or self.activation.active
+                or self.start_phase != 'IDLE' or self.departure_active())
+
     def on_scan(self, msg):
+        if not self.scan_processing_needed():
+            self.scan_idle = True
+            return
+        if self.scan_idle:
+            # Resume from a fresh tracker: its keyframe/offset from before the idle period are stale.
+            self.scan_idle = False
+            self.pending_scans.clear()
+            if self.scan_job is None:
+                self.tracker = self.new_tracker()
+            self.get_logger().info('주차 표지 확인: LiDAR 스캔 처리 재개')
         now = self.now_seconds()
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         if self.last_scan_received_stamp is not None and stamp<self.last_scan_received_stamp:return
@@ -1691,7 +1801,8 @@ class ParkingNode(StartSequence, Node):
         self.follower.entry_path=[]
         self.follower.exit_path=[]
         self.state,self.reason='EXITED',''
-        self.sign_ignore_until=max(self.sign_ignore_until,time.monotonic()+10.)
+        if not self.parking_sign_motion_guard:
+            self.sign_ignore_until=max(self.sign_ignore_until,time.monotonic()+10.)
         if self.floor_gate is not None:self.floor_gate.reset()
         self.active_pub.publish(Bool(data=False))
         self.clear_visuals()
@@ -1744,7 +1855,8 @@ class ParkingNode(StartSequence, Node):
         self.state, self.reason = 'EXITED', ''
         if self.floor_gate is not None:
             self.floor_gate.reset()
-        self.sign_ignore_until = max(self.sign_ignore_until, time.monotonic() + 10.)
+        if not self.parking_sign_motion_guard:
+            self.sign_ignore_until = max(self.sign_ignore_until, time.monotonic() + 10.)
         # The stop precedes the stamped release. A delayed stop/drive packet
         # cannot reclaim the mux after that release.
         self.publish_command(0., 0.)
@@ -1791,6 +1903,17 @@ class ParkingNode(StartSequence, Node):
             if not self.follower.path:
                 self.reason = 'Planner result expired before acceptance; check planning load'
             return
+        if self.search_target_phase == 'STOPPING':
+            return
+        if self.search_target_phase == 'PLANNING':
+            if self.search_stationary_stamp(self.now_seconds()) is None:
+                self.search_target_phase = 'STOPPING'
+                self.search_stop_count = 0
+                self.search_stop_stamp = None
+                self.search_replan_after = None
+                return
+            if started < self.search_replan_after:
+                return  # Never use a route or target calculated before the stop.
         self.planning_info = diagnostics
         if self.cfg.slot_map_enabled and 'enclosure_objects' in diagnostics:
             layout = diagnostics.get('slot_map')
@@ -1800,7 +1923,8 @@ class ParkingNode(StartSequence, Node):
             key = (objects,matched,hypotheses)
             wall = time.monotonic()
             if key != self.last_map_log_key and wall-self.last_map_log_wall >= 1.:
-                text = (f'주차 지도 매칭 완료: 객체 {objects}개' if matched else
+                text = (f'주차 빈 공간 후보 {diagnostics.get("candidates",0)}개: 주변 장애물 간격으로 인식' if diagnostics.get('slot_map_fallback') else
+                        f'주차 지도 매칭 완료: 객체 {objects}개' if matched else
                         f'주차 지도 대기: 객체 {objects}개, 배치 후보 {hypotheses}개')
                 self.get_logger().info(text)
                 self.last_map_log_key, self.last_map_log_wall = key, wall
@@ -1819,7 +1943,8 @@ class ParkingNode(StartSequence, Node):
         elif self.follower.goal is None:
             self.selected_pair = []
             self.selected_track_ids = set()
-        if diagnostics.get('goal_invalidated_by_slot_map') or diagnostics.get('goal_invalidated_by_candidate_roi'):
+        if (diagnostics.get('goal_invalidated_by_slot_map') or diagnostics.get('goal_invalidated_by_candidate_roi')
+                or diagnostics.get('goal_invalidated_by_exclusion')):
             self.tracked_goal=None
             self.follower.goal=None
             self.follower.awaiting_target_path=bool(self.follower.path)
@@ -1850,9 +1975,41 @@ class ParkingNode(StartSequence, Node):
             if self.follower.goal is not None:
                 self.follower.goal = self.tracked_goal
 
+        candidate_goal=goal
+        if candidate_goal is None and target is not None and self.tracked_goal is not None and diagnostics.get('candidates',0)>0:
+            candidate_goal=local_goal(self.tracked_goal,origin)
+        if self.search_target_phase == 'PLANNING':
+            if self.cfg.candidate_approach_enabled and not path:
+                self.search_candidate_attempts += 1
+                if self.search_candidate_attempts>=self.cfg.candidate_plan_attempts:
+                    self.reject_search_candidate('진입 경로 계산 실패: 다른 빈 공간을 탐색합니다.')
+                    return
+            if goal is None and diagnostics.get('reason_code') == 'no_gap' and self.tracked_goal is None:
+                self.search_target_phase = None
+        elif (self.search_enabled and self.search_started is not None and not self.follower.path
+                and not self.follower.parked and candidate_goal is not None
+                and diagnostics.get('reason_code') != 'recovery_ready'):
+            # Keep the detected target in the mission frame, discard the moving
+            # snapshot's route, and plan again only after measured standstill.
+            world_goal = compose(origin,(candidate_goal.x,candidate_goal.y,candidate_goal.yaw))
+            self.tracked_goal = replace(candidate_goal,x=world_goal[0],y=world_goal[1],yaw=world_goal[2],
+                heading_options=tuple(wrap(a+origin[2]) for a in candidate_goal.heading_options))
+            self.search_target_phase = 'STOPPING'
+            self.search_stop_count = 0
+            self.search_stop_stamp = self.search_stationary_stamp(self.now_seconds())
+            self.search_replan_after = None
+            self.search_candidate_attempts = 0
+            self.search_candidate_started = None
+            self.state, self.reason = 'SEARCH_STOPPING', '주차 후보 발견: 정지 확인 후 경로를 계산합니다.'
+            self.publish_command(0.,0.)
+            self.path_pub.publish(self.path_message([]))
+            self.get_logger().info(self.reason)
+            return
+
         replacement_index = 0
         if (path and self.cfg.require_complete_entry_path and not final
-                and diagnostics.get('reason_code')!='recovery_ready'):
+                and diagnostics.get('reason_code')!='recovery_ready'
+                and not (self.cfg.candidate_approach_enabled and diagnostics.get('reason_code')=='candidate_approach_ready')):
             return
         if (path and final and self.cfg.require_complete_entry_path and self.follower.final_approach
                 and self.follower.path and not self.follower.recovering and not self.follower.exiting
@@ -1910,6 +2067,12 @@ class ParkingNode(StartSequence, Node):
             self.failed_plans += 1
         elif path and diagnostics.get('reason_code') != 'recovery_ready':
             self.failed_plans = 0
+        if (self.cfg.candidate_approach_enabled and not path and self.failed_plans>=self.cfg.candidate_plan_attempts
+                and not self.follower.parked and not self.follower.recovering and not self.follower.exiting
+                and self.state in ('PATH_HELD','REPLAN','REOBSERVE','ROUTE_BLOCKED','PLANNING')
+                and self.search_stationary_stamp(self.now_seconds()) is not None):
+            self.reject_search_candidate('접근 경로를 잇지 못했습니다. 다른 빈 공간을 탐색합니다.')
+            return
 
         if path:
             recovery = diagnostics.get('reason_code') == 'recovery_ready'
@@ -1977,6 +2140,7 @@ class ParkingNode(StartSequence, Node):
             if self.follower.path and not recovery:
                 self.recovery_lane_released=False
                 self.recovery_stop_confirmations=0
+                self.search_target_phase = None
             if self.cfg.continuous_replanning and not recovery:
                 self.follower.index = replacement_index
             if not diagnostics.get('blind_reverse_distance_m', 0.) and not diagnostics.get('recovery_uses_memory_map'):
@@ -2038,7 +2202,73 @@ class ParkingNode(StartSequence, Node):
         self.state='LANE_REPLAN'
         self.reason=''
 
+    def reject_search_candidate(self, reason):
+        now=self.now_seconds()
+        target=self.tracked_goal or self.follower.goal
+        if target is not None:
+            self.search_excluded_targets.append((target.x,target.y,now+self.cfg.candidate_plan_timeout))
+        if self.pending is not None:
+            self.pending[0].cancel()
+            self.pending=None
+        self.epoch+=1
+        self.follower.path=[]
+        self.follower.entry_path=[]
+        self.follower.goal=self.follower.path_goal=None
+        self.follower.final_approach=self.follower.awaiting_target_path=False
+        self.tracked_goal=self.planned_goal=None
+        self.search_target_phase=None
+        self.search_replan_after=self.search_candidate_started=None
+        self.search_stop_count=self.search_candidate_attempts=self.failed_plans=0
+        self.planning_info={'reason_code':'no_gap','candidate_rejected_reason':reason}
+        self.last_plan_wall=-math.inf
+        self.publish_command(0.,0.)
+        self.path_pub.publish(self.path_message([]))
+        self.get_logger().info(reason)
+
+    def search_stationary_stamp(self, now):
+        wheel = self.wheel_sample
+        if wheel is not None:
+            stamp, speed, yaw_rate, received = wheel
+            if (not -.05 <= now-stamp <= .3 or time.monotonic()-received > .3
+                    or abs(speed) >= .01 or abs(yaw_rate) >= .02):
+                return None
+            return stamp
+        if self.localization_source == 'fused':
+            return None  # Real vehicle stops require fresh measured wheel data.
+        sample = self.follower.previous_sample
+        if sample is None or not 0 <= now-sample[1] <= .3 or self.follower.measured_speed >= .01:
+            return None
+        return sample[1]
+
     def search_command(self, now, pose, scan):
+        if (self.cfg.candidate_approach_enabled and self.search_target_phase=='PLANNING'
+                and self.search_candidate_started is not None
+                and time.monotonic()-self.search_candidate_started>=self.cfg.candidate_plan_timeout):
+            self.reject_search_candidate('경로 계산 제한 시간 도달: 다른 빈 공간을 탐색합니다.')
+        if self.search_enabled and self.search_target_phase is not None:
+            stamp = self.search_stationary_stamp(now)
+            if stamp is None:
+                self.search_target_phase = 'STOPPING'
+                self.search_stop_count = 0
+                self.search_stop_stamp = None
+                self.search_replan_after = None
+                if self.pending is not None:
+                    self.pending[0].cancel()
+                    self.pending = None
+                self.epoch += 1
+            elif self.search_target_phase == 'STOPPING' and stamp != self.search_stop_stamp:
+                self.search_stop_count += 1
+                self.search_stop_stamp = stamp
+                if self.search_stop_count >= 3:
+                    self.search_target_phase = 'PLANNING'
+                    self.search_replan_after = now
+                    self.search_candidate_started = time.monotonic()
+                    self.last_plan_wall = -math.inf
+                    self.get_logger().info('탐색 정지 확인 완료: 현재 위치에서 주차 경로를 다시 계산합니다.')
+            self.state = 'SEARCH_STOPPING' if self.search_target_phase == 'STOPPING' else 'SEARCH_PLANNING'
+            self.reason = ('주차 후보 발견: 정지를 확인하고 있습니다.' if self.search_target_phase == 'STOPPING' else
+                           '정지 위치에서 주차 후보까지 이동할 경로를 계산하고 있습니다.')
+            return 0.,0.
         if (not self.search_enabled or self.follower.parked or self.follower.path
                 or self.follower.entry_locked or self.follower.recovering
                 or self.planning_info.get('reason_code') not in ('no_gap','no_observed_path','center_pose_blocked','budget_exceeded','entry_departure_unavailable')):
@@ -2067,10 +2297,9 @@ class ParkingNode(StartSequence, Node):
         moved=(self.search_check_pose is None or math.dist(pose[:2],self.search_check_pose[:2])>.02
                or abs(wrap(pose[2]-self.search_check_pose[2]))>.02)
         if new_scan or moved:
-            # Search uses measured forward visibility even when normal parking
-            # permits unknown sectors. Reuse this result only within one scan.
-            cfg=replace(self.cfg,assume_unobserved_free=False)
-            checker=CollisionChecker(scan,cfg,known_free_poses=[(0.,0.,0.)])
+            # Search follows the configured visibility policy too. Zero returns
+            # must not override assume_unobserved_free; real obstacles still block.
+            checker=CollisionChecker(scan,self.cfg,known_free_poses=[(0.,0.,0.)])
             distance=min(.3,max(.25,self.search_max_distance-self.search_distance))
             self.search_clear = True
             self.search_block_detail = None
@@ -2087,7 +2316,7 @@ class ParkingNode(StartSequence, Node):
             elif new_scan:self.search_clear_count=min(self.search_resume_scans,self.search_clear_count+1)
         ready=self.search_clear and self.search_clear_count>=self.search_resume_scans
         self.state='SEARCHING' if ready else 'SEARCH_BLOCKED'
-        self.reason=('Looking for parking candidates along a measured clear corridor' if ready else
+        self.reason=('Looking for parking candidates along a clear corridor' if ready else
                      'Waiting for stable observed search corridor' if self.search_clear else
                      {'yellow_boundary':'노란선 경계로 탐색 정지',
                       'obstacle':'탐색 전방 장애물로 정지',
@@ -2110,6 +2339,8 @@ class ParkingNode(StartSequence, Node):
             self.on_yellow_boundary(pending)
         if self.tick_start_sequence():
             return
+        if self.floor_gate is not None:
+            self.floor_gate.update_approach()
         self.poll_approach_calibration()
         self.resolve_approach_reference()
         now = self.now_seconds()
@@ -2127,6 +2358,9 @@ class ParkingNode(StartSequence, Node):
         search_control = False
         if not self.activation.active:
             self.state = 'WAITING_WHITE_LINE' if self.floor_gate is not None and self.floor_gate.armed else 'WAITING_SIGN'
+            if self.floor_gate is not None and self.floor_gate.armed:
+                self.state='APPROACH_LIMIT' if self.floor_gate.failure else 'WAITING_WHITE_LINE'
+                self.reason=self.floor_gate.failure or f'흰선을 확인하며 {self.floor_gate.approach_speed:.2f}m/s 이하로 접근합니다.'
             if self.approach_calibration.pending or self.approach_calibration.phase == 'FAILED':
                 self.state = 'WAITING_CALIBRATION' if self.approach_calibration.pending else 'CALIBRATION_FAILED'
                 self.reason = self.approach_calibration.reason
@@ -2222,7 +2456,8 @@ class ParkingNode(StartSequence, Node):
                 speed,steering=0.,0.
                 self.state='EXIT_LANE_STOPPING'
             wall_now = time.monotonic()
-            search_exhausted=(self.search_enabled and self.search_started is not None
+            search_exhausted=(self.search_enabled and self.search_target_phase is None and not self.follower.path
+                and self.search_started is not None
                 and (self.search_distance>=self.search_max_distance or now-self.search_started>=self.search_timeout))
             observe_pair=(self.cfg.automatic_target_selection and not self.cfg.auto_exit_after_parking
                           and self.follower.goal is not None
@@ -2233,7 +2468,9 @@ class ParkingNode(StartSequence, Node):
                 and ((not self.cfg.replan_while_following and self.follower.goal.confirmed)
                      or math.dist(control_pose[:2],(self.follower.goal.x,self.follower.goal.y))
                         <=self.cfg.terminal_recovery_guard_distance))
-            if (not self.health_path_tracking and not search_exhausted and not retain_entry and not self.follower.parked and self.pending is None
+            if (not self.health_path_tracking and self.search_target_phase != 'STOPPING'
+                    and (self.search_target_phase != 'PLANNING' or self.scan_time >= self.search_replan_after)
+                    and not search_exhausted and not retain_entry and not self.follower.parked and self.pending is None
                     and not self.recovery_running
                     and not (self.follower.entry_locked and self.state != 'FRONT_BLOCKED')
                     and not (self.follower.final_approach and self.follower.path and self.state != 'FRONT_BLOCKED' and not self.cfg.continuous_replanning)
@@ -2252,9 +2489,11 @@ class ParkingNode(StartSequence, Node):
                 known = [p for p in known if math.hypot(*p[:2]) <= cfg.max_range+1.]
                 recovery_allowed = (not self.recovery_lane_released and self.recovery_attempts < self.cfg.max_recovery_attempts and self.recovery_remaining >= 3*cfg.collision_step
                     and (not cfg.recovery_uses_memory_map or (self.memory_enabled and self.memory.stamp is not None)))
+                self.search_excluded_targets=[t for t in self.search_excluded_targets if now<t[2]]
+                excluded=tuple((x,y,.15) for x,y,_ in self.search_excluded_targets)
                 self.pending = (self.worker.submit(build_plan_report, self.planning_scan(), cfg, goal, self.tracker.pose,
                                                    known, recovery_allowed, self.blind_reverse_remaining, True, self.scan, self.failed_plans,
-                                                   bool(self.follower.path) and self.state in ('PATH_HELD','ROUTE_BLOCKED','FRONT_BLOCKED','PLANNING','REPLAN'),self.slot_map),
+                                                   bool(self.follower.path) and self.state in ('PATH_HELD','ROUTE_BLOCKED','FRONT_BLOCKED','PLANNING','REPLAN'),self.slot_map,excluded),
                                 self.epoch, self.tracker.pose, now)
                 self.last_plan_wall = wall_now
             self.publish_control_visuals()
@@ -2263,6 +2502,8 @@ class ParkingNode(StartSequence, Node):
         has_control_path = self.activation.active and not self.follower.exited and not self.recovery_lane_released and (bool(self.follower.path) or search_control)
         if self.parking_commands_released:
             pass
+        elif self.floor_gate is not None and self.floor_gate.failure:
+            self.publish_command(0.,0.)
         elif self.motion_failed or self.manual_interrupted or (self.activation.active and not self.vehicle_automatic()):
             self.publish_command(0., 0.)
         elif self.parking_calibration_stop and (self.approach_calibration.pending or self.approach_calibration.phase == 'FAILED'):
@@ -2357,10 +2598,23 @@ class ParkingNode(StartSequence, Node):
                     'requested':self.approach_calibration.requested,
                     'reason':self.approach_calibration.reason},
                 'search':{'distance_m':self.search_distance,'max_distance_m':self.search_max_distance,
-                    'started':self.search_started,'speed_m_s':self.search_speed},
+                    'started':self.search_started,'speed_m_s':self.search_speed,
+                    'target_phase':self.search_target_phase,'stop_samples':self.search_stop_count},
                 'mission_attempt': self.attempt,
                 'consecutive_detections': self.floor_gate.confirmation.count if self.floor_gate is not None else self.activation.count, 'reason': explanation,
                 'white_roi_armed': self.floor_gate.armed if self.floor_gate is not None else False,
+                'parking_stop_line_guard': {'requires_lane_owner':self.parking_stop_require_lane_owner,
+                    'mux_source':self.parking_mux_source,'allowed':self.parking_stop_line_allowed()},
+                'parking_sign_motion': {'enabled':self.parking_sign_motion_guard,
+                    'allowed':self.sign_motion.allows(time.monotonic()),
+                    'scope':'parking_stop_line',
+                    'stop_ignore_sec':self.sign_motion.ignore_sec,
+                    'ignore_remaining_sec':max(0.,self.sign_motion.ignore_until-time.monotonic())},
+                'white_approach':{'speed_m_s':self.floor_gate.approach_speed,
+                    'distance_m':self.floor_gate.approach_distance,
+                    'max_distance_m':self.floor_gate.approach_max_distance,
+                    'timeout_s':self.floor_gate.approach_timeout,
+                    'failure':self.floor_gate.failure} if self.floor_gate is not None else None,
                 'white_roi_ratio': self.floor_gate.ratio if self.floor_gate is not None else None,
                 'path_poses': len(self.follower.path),
                 'path_hidden_by_occupied_slot':self.path_hidden_by_slot,

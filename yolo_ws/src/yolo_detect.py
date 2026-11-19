@@ -60,8 +60,8 @@ CLASS_THRESHOLDS = {
     'green': {'confidence': 0.60, 'min_area_pixels': 3000},
 }
 
+# Bump stays class 0 in the model; only its mission-topic publication is disabled.
 PRESENCE_TOPICS = {
-    '/yolo/bump_sign': ('bump',),
     '/yolo/slow_sign': ('slow',),
     '/yolo/crosswalk_sign': ('crosswalk',),
     '/yolo/parking_sign': ('parking',),
@@ -306,6 +306,8 @@ class YoloDetect(Node):
 
     def log_detections(self, detected, values):
         for name, confidence in sorted(detected.items()):
+            if name == 'bump':
+                continue
             topic = SIGNAL_TOPIC if name in ('red', 'green') else next(
                 (topic for topic, classes in PRESENCE_TOPICS.items() if name in classes), LR_TOPIC)
             if topic not in values:

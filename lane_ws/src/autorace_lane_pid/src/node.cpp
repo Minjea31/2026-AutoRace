@@ -2,8 +2,10 @@
 // Gains are ROS parameters; the separate lane_pid_tuner window edits them live.
 #include "autorace_lane_pid/pid.hpp"
 #include "autorace_lane_pid/parking_approach.hpp"
+#include "autorace_lane_pid/sign_motion.hpp"
 #include <ackermann_msgs/msg/ackermann_drive_stamped.hpp>
 #include <chrono>
+#include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
@@ -45,6 +47,11 @@ public:
                                        declare_parameter<double>("parking_slowdown_max_gap", .5),
                                        declare_parameter<double>("parking_slowdown_cooldown", 5.),
                                        declare_parameter<bool>("parking_calibration_stop", false));
+    // Same departure rule as the parking node (parking_sign_motion_guard): ignore the sign until the
+    // car has moved for parking_sign_departure_ignore_sec, so lane never arms the mux guard alone.
+    sign_motion_guard_ = declare_parameter<bool>("parking_sign_motion_guard", false);
+    const double departure_ignore = declare_parameter<double>("parking_sign_departure_ignore_sec", 5.);
+    sign_motion_ = lane_pid::SignMotionGate(departure_ignore);
 
     parameters_ = add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter> &ps) {
       rcl_interfaces::msg::SetParametersResult result;
@@ -103,6 +110,10 @@ public:
     parking_sign_ = create_subscription<std_msgs::msg::Bool>(
         parking_topic, rclcpp::QoS(10),
         [this, parking_speed, parking_duration](std_msgs::msg::Bool::ConstSharedPtr msg) {
+          if (sign_motion_guard_ && !sign_motion_.allows(steady())) {
+            parking_.receive(false, steady()); // drop, never count it after departure
+            return;
+          }
           if (!parking_mission_active_ && parking_.receive(msg->data, steady())) {
             std_msgs::msg::Header event;
             event.stamp = now();
@@ -127,7 +138,21 @@ public:
     parking_active_ = create_subscription<std_msgs::msg::Bool>(
         "/parking/active", rclcpp::QoS(1),
         [this](std_msgs::msg::Bool::ConstSharedPtr msg) { parking_mission_active_ = msg->data; });
+    if (sign_motion_guard_)
+      odom_ = create_subscription<nav_msgs::msg::Odometry>(
+          "/odom", rclcpp::SensorDataQoS(), [this](nav_msgs::msg::Odometry::ConstSharedPtr m) {
+            // Same filter as parking start_sequence.on_measured_wheel.
+            const double stamp = m->header.stamp.sec + m->header.stamp.nanosec * 1e-9;
+            const double v = m->twist.twist.linear.x, w = m->twist.twist.angular.z, age = now().seconds() - stamp;
+            if (!std::isfinite(stamp) || !std::isfinite(v) || !std::isfinite(w) || age < -.05 || age > .3 ||
+                std::abs(v) > 1.5 || std::abs(w) > 3. || m->child_frame_id != "base_link")
+              return;
+            sign_motion_.update(stamp, v, steady());
+          });
     timer_ = create_wall_timer(std::chrono::milliseconds(20), [this] { tick(); });
+    if (sign_motion_guard_)
+      RCLCPP_INFO(get_logger(), "주차 표지: 출발 후 %.1f초 동안 무시(주차 노드와 같은 조건, /odom)",
+                  departure_ignore);
     RCLCPP_INFO(get_logger(), "lane_pid_controller: %s -> /lane_pid/command%s", input.c_str(),
                 vehicle ? " + /mission/lane" : " (vehicle output OFF)");
   }
@@ -164,6 +189,9 @@ private:
   lane_pid::ParkingApproach parking_;
   builtin_interfaces::msg::Time parking_event_stamp_;
   bool parking_mission_active_ = false;
+  bool sign_motion_guard_ = false;
+  lane_pid::SignMotionGate sign_motion_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_;
   rclcpp::Subscription<std_msgs::msg::Header>::SharedPtr parking_ready_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr parking_active_;
   lane_pid::Measurement measurement_;

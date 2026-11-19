@@ -197,11 +197,18 @@ objavoid_v3_node:
     fork_cam_cx: 321.5
     fork_cam_x: 0.133   # base_link 기준 카메라 위치(전방, 왼쪽)
     fork_cam_y: -0.05
-    fork_bearing_tol: 0.1   # YOLO 박스 방향과 LiDAR 박스 방향 차이 허용(rad)
+    fork_bearing_tol: 0.15   # YOLO 박스 방향과 LiDAR 박스 방향 차이 허용(rad)
     fork_post_max_dist: 3.5
-    fork_post_center_d: 0.4   # 받침이 도로 가운데(|d| < 이 값)일 때만 갈림길 표지판으로 사용
+    fork_post_center_d: 0.8   # 받침 후보 |d| 상한(도로 좌표가 틀어져도 받침을 놓치지 않게 넉넉히)
+    fork_sign_size: 0.1   # 표지판 판 높이(m): YOLO 박스 높이로 카메라-표지판 거리 = fx * size / h
+    fork_post_match: 0.5   # LiDAR 받침 후보 거리와 카메라 추정 거리 차 허용(m). 없으면 카메라 추정 위치를 받침으로
+    fork_pass_offset: 0.3   # 목표 경로: A면 받침 왼쪽 끝 + 이 값, B면 오른쪽 끝 - 이 값
     # --- 자동 시작(C++ 노드만): 흰 정지선 + 그 너머 흰 점선(3차선에만 있음) + 전방 장애물이 연속으로 보이면 활성화 ---
     start_auto: true
+    start_white_ratio: 0.0   # >0: deep 흰색(클래스 2)이 차선 BEV 영상의 이 비율 이상이면 시작(다른 시작 조건 무시)
+    manual_resume_restart: false   # 회피 중 수동(control_mode != 1) -> 자율(1) 복귀 시 정지 후 재시작
+    manual_resume_stop_sec: 0.5   # 자율 복귀 후 정지 명령을 내는 시간(s)
+    start_white_confirm: 1   # 새 마스크 기준 연속 횟수
     start_need_line: false   # true: 흰 정지선도 있어야 시작(false = 점선 + 장애물만)
     start_line_x_min: 0.15   # 정지선을 찾는 차 앞 거리 범위(m, base_link 전방)
     start_line_x_max: 1.0
@@ -230,6 +237,10 @@ objavoid_v3_node:
     start_arm_dist: 0.8   # 재출발 뒤 이만큼(m) 지나야 감시 시작(횡단보도 정지선·줄무늬 무시)
     start_confirm: 2   # 연속 판정 횟수
     start_rearm: 20.0   # 완료·비활성 뒤 이 시간 지나야 다시 자동 시작
+    start_restart_on_fail: false   # 실패 정지(STOP) 중 시작 점수 충족 시 새 입구 기준으로 재활성화(C++)
+    start_restart_stop: 2.0   # STOP이 이 초 이상 이어져야 실패로 봄(startup_*·first_plan·odom/scan_stale 제외)
+    start_restart_min_active: 5.0   # 활성화 후 이 초가 지나야 재시작 판정
+    start_restart_sign_block: 3.0   # 좌우 표지판을 최근 이 초 안에 받았으면 재시작 점수 비우고 막음(갈림길 섬 오인 방지)
     start_origin_at_line: true   # 도로 좌표 원점을 정지선에(section_end·fork_island_s = 정지선부터 거리)
     cmd_emulate_calibration: false
     cmd_cal_gain: 1.92
@@ -254,9 +265,6 @@ objavoid_v3_node:
 
     fork_sign_cache_sec: 30.0
     fork_goal_tolerance: 0.15
-    obstacle_reacquire_reset: true
-    obstacle_reacquire_absence_sec: 1.0
-    obstacle_reacquire_confirm_scans: 2
     preferred_obstacle_clearance: 0.10
     road_outline: false
     road_outline_length: 6.665

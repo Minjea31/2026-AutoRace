@@ -23,7 +23,6 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     share = FindPackageShare('autorace_lane_deep_lite')
-    pid_share = FindPackageShare('autorace_lane_pid')
     deep_share = FindPackageShare('autorace_lane_fusion_deep')
     arg = LaunchConfiguration
     profile = arg('profile')
@@ -33,7 +32,7 @@ def generate_launch_description():
         DeclareLaunchArgument('config_file', default_value=PathJoinSubstitution(
             [share, 'config', profile, 'lane.yaml'])),
         DeclareLaunchArgument('pid_config', default_value=PathJoinSubstitution(
-            [pid_share, 'config', profile, 'pid.yaml'])),
+            [share, 'config', profile, 'pid.yaml'])),  # deep-only copy of the lane_ws PID values
         DeclareLaunchArgument('use_sim_time', default_value=PythonExpression(
             ["'true' if '", profile, "' == 'sim' else 'false'"])),
         DeclareLaunchArgument('image_topic', default_value='/camera/color/image_raw/compressed'),

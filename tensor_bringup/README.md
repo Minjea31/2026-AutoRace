@@ -127,3 +127,29 @@ colcon build --symlink-install --packages-select cone_lane_follower
 source install/setup.bash
 # Source the other overlays above, then rebuild tensor_bringup.
 ```
+
+## Mission web on the same Wi-Fi
+
+Start only the read-only web viewer:
+
+```bash
+source ~/2026-AutoRace/source_all_ws.bash
+ros2 launch tensor_bringup mission_web.launch.py web_host:=0.0.0.0
+```
+
+Open `http://192.168.0.106:8080` from another device on the same Wi-Fi
+(use the platform's current IP if it changes). `0.0.0.0` is the listening address;
+enter the platform IP in the browser. The ROS domain and current LAN URLs appear
+in the launch output. `web_port:=8081` selects another port.
+
+To start the viewer with the mission bringup, opt in explicitly:
+
+```bash
+ros2 launch tensor_bringup tensor_bringup.launch.py web:=true web_host:=0.0.0.0
+```
+
+`web` defaults to false, preserving manual viewer startup. Ctrl+C stops a viewer
+started by that launch. If the standalone `web_viewer/start.sh` viewer already owns
+port 8080, stop it with `~/2026-AutoRace/web_viewer/stop.sh` before starting the launch,
+or choose another `web_port`. This viewer does not start sensors or vehicle control
+when launched on its own. Network/hotspot client isolation can still block peers.

@@ -16,7 +16,7 @@ LANE_NODES = {  # same as tensor_bringup.launch.py
 }
 BASE_TOPICS = (
     '/camera/color/image_raw/compressed', '/scan', '/odometry/filtered',
-    '/mission/lane', '/yolo/parking_sign', '/yolo/slow_sign', '/yolo/bump_sign',
+    '/mission/lane', '/yolo/parking_sign', '/yolo/slow_sign',
     '/yolo/crosswalk_sign', '/parking/control_state', '/cone_lane/control_status',
 )
 INPUT_TOPICS = BASE_TOPICS  # replaced in main() by the lane mode's topics

@@ -1,0 +1,19 @@
+slow_node:
+  ros__parameters:
+    confirm_frames: 2
+    # 첫 실제 slow 미션은 0.2 m/s로 6초 고정. 이후 slow·bump는 기존 시간·갱신 로직 사용.
+    first_slow_hold_sec: 6.0
+    first_slow_speed_mps: 0.2
+    white_roi_enabled: true
+    # Ratios of the original camera image: shallow strip near the vehicle.
+    white_roi_left: 0.050
+    white_roi_right: 0.950
+    white_roi_top: 0.961
+    white_roi_bottom: 1.000
+    white_roi_minimum_ratio: 0.08
+    white_image_topic: /camera/color/image_raw/compressed
+    white_image_timeout_sec: 0.30
+    white_image_hz: 10.0
+    # Read HSV values from the real lane config, then follow the live lane node.
+    lane_white_config: ''
+    lane_white_node: /lane_fusion_node

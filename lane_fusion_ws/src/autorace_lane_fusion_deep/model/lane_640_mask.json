@@ -1,0 +1,33 @@
+{
+  "deployed_at": "2026-11-18T22:55:21.270871+00:00",
+  "checkpoint": "/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/lane_20261119_0710_best.pt",
+  "checkpoint_sha256": "d03b3ad176675643bb735cf82c66f6efc2e6e7f248eba8c71345c3cd3f1c8a82",
+  "source_engine": "/home/wego/autorace_backups/lane_model_20261119_0710/optimized/lane_mask.engine",
+  "deployed_engine": "/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/lane_640_mask.engine",
+  "engine_sha256": "4b6f41f2a94aac93de95d67feb41e9018effe4a5e4e379430b77f6f405d12822",
+  "deployed_onnx": "/home/wego/2026-AutoRace/lane_fusion_ws/src/autorace_lane_fusion_deep/model/lane_640_mask.onnx",
+  "onnx_sha256": "18e9aa449fe2bbe1025f2356857d33af0beaff7a52c3c1e875b1d195897e43f0",
+  "input_size": [
+    640,
+    480
+  ],
+  "precision": "TensorRT FP16",
+  "interface": "image -> label, prob",
+  "classes": [
+    "background",
+    "orange_lane",
+    "white_dashed_lane"
+  ],
+  "threshold": 0.5,
+  "hsv_enabled": false,
+  "verification_images": 35,
+  "max_mask_disagreement": 5.208333333333334e-05,
+  "class_iou": [
+    0.9999830218812856,
+    0.9991374118271557,
+    0.9992467043314501
+  ],
+  "backup_manifest": "/home/wego/autorace_backups/lane_model_20261119_0710/previous_model/manifest.json",
+  "build_verified": true,
+  "ros_mask_verified": true
+}

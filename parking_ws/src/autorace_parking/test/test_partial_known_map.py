@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 from dataclasses import fields,replace
 import yaml
-from autorace_parking.core import Settings,Scan,Cluster
+from autorace_parking.core import Settings,Scan,Cluster,CollisionChecker
 from autorace_parking.control import build_plan_report
 from autorace_parking.slot_map import fit_slot_map,reference_centers
 
@@ -32,10 +32,13 @@ def test_real_three_objects_uniquely_register_known_empty_target():
     assert result['path'] and result['final']
 
 
-def test_same_scan_was_rejected_by_old_four_object_threshold():
+def test_unmatched_grid_uses_geometric_gap_even_with_four_object_threshold():
     source,cfg=fixture();result=report(source,replace(cfg,enclosure_confirm_objects=4))
     assert result['diagnostics']['enclosure_objects']==3
-    assert result['diagnostics']['slot_map'] is None and not result['path']
+    assert result['diagnostics']['slot_map'] is None
+    assert result['diagnostics']['slot_map_fallback']
+    assert result['goal'] is not None and result['path']
+    assert all(CollisionChecker(source,cfg).free(p) for p in result['path'])
 
 
 def test_collinear_three_objects_do_not_lock_a_two_dimensional_map():

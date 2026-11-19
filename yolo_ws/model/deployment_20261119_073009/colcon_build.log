@@ -1,0 +1,55 @@
+Starting >>> yolo_detect
+-- Found ament_cmake: 1.3.15 (/opt/ros/humble/share/ament_cmake/cmake)
+-- Override CMake install command with custom implementation using symlinks instead of copying resources
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/wego/2026-AutoRace/yolo_ws/build/yolo_detect
+-- Install configuration: "Release"
+-- Execute custom install script
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/ament_index/resource_index/package_run_dependencies/yolo_detect
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/ament_index/resource_index/parent_prefix_path/yolo_detect
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/environment/ament_prefix_path.sh
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/environment/ament_prefix_path.dsv
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/environment/path.sh
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/environment/path.dsv
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/local_setup.bash
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/local_setup.sh
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/local_setup.zsh
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/local_setup.dsv
+-- Symlinking: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/package.dsv
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/ament_index/resource_index/packages/yolo_detect
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/cmake/yolo_detectConfig.cmake
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/cmake/yolo_detectConfig-version.cmake
+-- Up-to-date symlink: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/package.xml
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/lib/yolo_detect/yolo_detect
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/test_in_e87.onnx
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/11180552_fp16.onnx
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/11180552_fp16.engine
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b_fp16.onnx
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b_fp16.engine
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/test_in_e87.engine
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/best.engine
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/best.onnx
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/test_in_e87.pt
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/best.pt
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/samples
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/install
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/install/yolo_detect
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/install/yolo_detect/share
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/install/yolo_detect/share/yolo_detect
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/install/yolo_detect/share/yolo_detect/model
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/install/yolo_detect/share/yolo_detect/model/best.engine
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/install/yolo_detect/share/yolo_detect/model/best.onnx
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/install/yolo_detect/share/yolo_detect/model/best.pt
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/model
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/model/best.engine
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/model/best.onnx
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/deployment_20261119_073009/backups/model/best.pt
+-- Installing: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b.pt
+-- Up-to-date: /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/11180552.pt
+Finished <<< yolo_detect [0.89s]
+
+Summary: 1 package finished [1.54s]

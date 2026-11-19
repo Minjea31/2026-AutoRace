@@ -198,14 +198,14 @@ using DVec = std::vector<double>;
   X(D, fork_cam_cx, 321.5)                                         \
   X(D, fork_cam_x, 0.133)                                          \
   X(D, fork_cam_y, -0.05)                                          \
-  X(D, fork_bearing_tol, 0.10)                                     \
+  X(D, fork_bearing_tol, 0.15)                                     \
   X(D, fork_post_max_dist, 3.5)                                    \
-  X(D, fork_post_center_d, 0.4)                                    \
+  X(D, fork_post_center_d, 0.8)                                    \
+  X(D, fork_sign_size, 0.10)                                       \
+  X(D, fork_post_match, 0.5)                                       \
+  X(D, fork_pass_offset, 0.3)                                      \
   X(D, fork_sign_cache_sec, 30.0) \
   X(D, fork_goal_tolerance, 0.15) \
-  X(B, obstacle_reacquire_reset, true) \
-  X(D, obstacle_reacquire_absence_sec, 1.0) \
-  X(I, obstacle_reacquire_confirm_scans, 2) \
   X(D, preferred_obstacle_clearance, 0.10) \
   X(B, road_outline, false) \
   X(D, road_outline_length, 6.665) \
@@ -223,9 +223,40 @@ using DVec = std::vector<double>;
   X(I, start_entrance_confirm, 3) \
   X(D, start_entrance_window, 5.0) \
   X(I, start_entrance_obstacles, 2) \
+  /* 누적 점수 시작(start_score_min 0 = 끔): 최근 start_score_window 초 동안 입구 support(>= start_score_support) */ \
+  /* x 시간 합 >= start_score_min, 그리고 최근 start_obs_hold 초 장애물 최대 >= start_entrance_obstacles */ \
+  X(D, start_score_min, 0.0) \
+  X(D, start_score_window, 1.0) \
+  X(I, start_score_support, 40) \
+  X(D, start_obs_hold, 1.0) \
+  X(D, start_gate_rate, 0.0) \
+  /* 미션 상황: lane 주행 중에만 / 콘 미션 뒤 start_cone_block 초 차단 / 한 번 DONE 되면 다시 자동 시작 안 함 */ \
+  X(B, start_require_lane, false) \
+  X(D, start_cone_block, 0.0) \
+  X(B, start_once, false) \
+  /* 실패 재시작: 활성 중 STOP(시작 대기·센서 끊김 제외)이 start_restart_stop 초 이어지고 활성화 후 start_restart_min_active 초 */ \
+  /* 지났으면 시작 점수 판정을 다시 돌려, 충족 시 새 입구 기준으로 재활성화(lane 조건·rearm 무시). 2026-11-19 */ \
+  X(B, start_restart_on_fail, false) \
+  X(D, start_restart_stop, 2.0) \
+  X(D, start_restart_min_active, 5.0) \
+  /* 좌우 표지판(/yolo/LR_sign)을 최근 이 초 안에 받았으면 재시작 점수를 비우고 막음(갈림길 섬이 입구처럼 22~26점). 0이면 끔 */ \
+  X(D, start_restart_sign_block, 3.0) \
+  /* 횡단보도 정지(mux=crosswalk) 중에도 입구 점수를 쌓음(시작은 lane 복귀 후). 2026-11-19 */ \
+  X(B, start_score_crosswalk, false) \
+  /* 횡단보도 해제(mux crosswalk -> 다른 상태) 후 이 초 동안은 점수 기준을 start_score_min_after_crosswalk로. 0이면 끔 */ \
+  X(D, start_score_after_crosswalk_sec, 0.0) \
+  X(D, start_score_min_after_crosswalk, 0.0) \
   /* 자동 시작 */                                                    \
   X(B, start_legacy, true)                                       \
   X(B, start_auto, true)                                           \
+  /* 11-19(사용자): >0이면 이 조건만으로 시작 — deep 흰색(클래스 2)이 차선 BEV 영상의 이 비율 이상. */ \
+  /* start_white_confirm: 새 마스크 기준 연속 횟수. 다른 시작 조건(점수·점선·장애물)은 보지 않음. */ \
+  X(D, start_white_ratio, 0.0) \
+  /* 11-19(사용자): 회피 중 수동(/limo_status control_mode != 1)이 됐다가 자율(1)로 돌아오면 */ \
+  /* manual_resume_stop_sec 동안 정지 명령 후 현재 위치 기준으로 미션 재시작 */ \
+  X(B, manual_resume_restart, false) \
+  X(D, manual_resume_stop_sec, 0.5) \
+  X(I, start_white_confirm, 1) \
   X(B, start_need_line, false)                                     \
   X(D, start_line_x_min, 0.15)                                     \
   X(D, start_line_x_max, 1.0)                                      \

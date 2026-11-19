@@ -27,6 +27,8 @@ public:
   std::vector<XY> class_points(const cv::Mat & mask, int cls, int step = 2) const;
   std::vector<XY> yellow_points(const cv::Mat & mask) const { return class_points(mask, 1); }
   std::vector<XY> white_points(const cv::Mat & mask) const { return class_points(mask, 2); }
+  // Fraction of the lane BEV image (lane.yaml bev_* quad -> w x h) covered by deep class cls (2 = white).
+  double class_ratio_bev(const cv::Mat & mask, int cls) const;
   int w = 0, h = 0;
   std::vector<XY> view_points;
   double near = 0, max_range = 2.5, max_lateral = 1.5;
@@ -34,7 +36,7 @@ public:
 private:
   void to_ground(double u, double v, double & x, double & y) const;
   bool to_image(double x, double y, double & u, double & v) const;
-  cv::Matx33d G_, Ginv_;
+  cv::Matx33d G_, Ginv_, Hbev_;
   std::array<double, 4> roi_{0, 1, 0, 1};
   double sx_ = 1.0, sy_ = 1.0;
 };

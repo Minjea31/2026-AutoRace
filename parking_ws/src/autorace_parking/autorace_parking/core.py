@@ -93,6 +93,7 @@ class Settings:
     slot_ambiguity_margin: float = 0.02
     automatic_target_selection: bool = False
     pair_fallback_enabled: bool = True
+    pair_min_cluster_size: float = 0.0  # 0 uses the normal object threshold.
     path_tracking_margin: float = 0.0
     path_preferred_clearance: float = 0.0
     path_clearance_weight: float = 0.0
@@ -123,6 +124,9 @@ class Settings:
     enclosed_space_detection: bool = False
     continuous_replanning: bool = False
     require_complete_entry_path: bool = False
+    candidate_approach_enabled: bool = False
+    candidate_plan_attempts: int = 3
+    candidate_plan_timeout: float = 3.0
     control_preview_time: float = 0.4
     enclosure_min_objects: int = 3
     enclosure_confirm_objects: int = 5

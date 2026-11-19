@@ -1,0 +1,7 @@
+Loading /home/wego/2026-AutoRace/yolo_ws/model/best.engine for TensorRT inference...
+[11/19/2026-07:44:15] [TRT] [I] Loaded engine size: 7 MiB
+[11/19/2026-07:44:16] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +9, now: CPU 0, GPU 13 (MiB)
+Loading /home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/best.engine for TensorRT inference...
+[11/19/2026-07:44:16] [TRT] [I] Loaded engine size: 7 MiB
+[11/19/2026-07:44:16] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +9, now: CPU 0, GPU 13 (MiB)
+RUNTIME_CHECK_PASSED {"passed": true, "ros_nodes_started": false, "entry_points": [{"entry_point": "source", "script": "/home/wego/2026-AutoRace/yolo_ws/src/yolo_detect.py", "default_model": "/home/wego/2026-AutoRace/yolo_ws/model/best.engine", "engine_sha256": "23dfe30a6da885a5f087d7557442fcf66f375a0a2df6e5a2d45ec5d288f17189", "class_mapping_matches": true, "real_image_boxes": 1}, {"entry_point": "installed", "script": "/home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/lib/yolo_detect/yolo_detect", "default_model": "/home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/best.engine", "engine_sha256": "23dfe30a6da885a5f087d7557442fcf66f375a0a2df6e5a2d45ec5d288f17189", "class_mapping_matches": true, "real_image_boxes": 1}]}

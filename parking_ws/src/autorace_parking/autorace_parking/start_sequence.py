@@ -51,6 +51,8 @@ class StartSequence:
         return bool(exhausted and not self.follower.path)
 
     def request_parking_start(self):
+        if self.start_phase != 'IDLE':
+            return
         if not self.accepts_parking_start():
             return
         if time.monotonic() < self.sign_ignore_until:
@@ -254,6 +256,8 @@ class StartSequence:
                 or abs(v)>1.5 or abs(w)>3. or msg.child_frame_id != self.base_frame): return
         if self.wheel_sample is not None and stamp <= self.wheel_sample[0]: return
         self.wheel_sample = stamp,v,w,time.monotonic()
+        self.sync_sign_retry()
+        self.sign_motion.update(stamp, v, self.wheel_sample[3])
         if not self.departure_active() or self.localization_source != 'fused': return
         self.lock_departure_localization()
         if not self.departure_wheel or not self.odometry.samples: return

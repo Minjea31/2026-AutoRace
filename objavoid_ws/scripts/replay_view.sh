@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Looping bag + lane model + NEW C++ planner + read-only viewer.
+# Bag + lane model + C++ planner + read-only viewer.
 set -eo pipefail
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 bag="${1:-$HOME/AutoRace_bag/rosbag2_2026_11_16-08_49_37}"
@@ -73,14 +73,14 @@ setsid /usr/bin/python3 "$repo/objavoid_ws/web_viewer.py" --host "$viewer_host" 
 pids+=("$!")
 echo "NEW planner viewer: http://$(hostname -I | awk '{print $1}'):$port/ (bind=$viewer_host)"
 echo "Logs: $logdir/{mask,planner,viewer}.log"
-echo "Bag: $bag (ROS_DOMAIN_ID=$ROS_DOMAIN_ID, loop=${REPLAY_LOOP:-true})"
+echo "Bag: $bag (ROS_DOMAIN_ID=$ROS_DOMAIN_ID, loop=${REPLAY_LOOP:-false})"
 echo 'Only regenerated /objavoid_eval outputs are displayed.'
 if [[ -t 0 ]]; then echo 'SPACE: pause/resume bag | Ctrl+C: stop this session'; fi
 sleep 3
 bag_args=("$bag" --clock --rate "${RATE:-0.5}" --topics
   /camera/color/image_raw/compressed /scan /odom /imu
   /yolo/LR_sign /yolo/LR_detail /mission/lane)
-if [[ "${REPLAY_LOOP:-true}" == true ]]; then bag_args+=(--loop); fi
+if [[ "${REPLAY_LOOP:-false}" == true ]]; then bag_args+=(--loop); fi
 if [[ "${REPLAY_START_PAUSED:-false}" == true ]]; then bag_args+=(--start-paused); fi
 if [[ -t 0 ]]; then
   # Explicitly retain terminal input: ordinary background jobs otherwise receive /dev/null.

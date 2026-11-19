@@ -36,6 +36,7 @@ class Harness:
         common = [Parameter('use_sim_time', value=sim)]
         if start_delay is not None:
             common.append(Parameter('start_delay_sec', value=start_delay))
+            common.append(Parameter('bump_start_delay_sec', value=start_delay))
         clock_args = ['--ros-args', '-r', '/clock:='+prefix+'/clock']
         self.node = SlowNode(context=self.context, parameter_overrides=common+[
             Parameter('hold_sec', value=hold),
@@ -271,29 +272,36 @@ def test_missing_stale_invalid_lane_stops_and_first_fresh_lane_resumes_tracking(
         h.close()
 
 
-def test_default_white_start_waits_half_second_and_repeated_white_does_not_postpone():
+def test_default_white_start_waits_one_tenth_second_and_repeated_white_does_not_postpone():
     h=Harness(white_gate=True,start_delay=None)
     try:
-        assert h.node.start_delay_sec==.5
+        assert h.node.start_delay_sec==.1
+        assert h.node.bump_start_delay_sec==.5
         h.lane_enabled=True
         h.detect('slow')
+        frame=np.full((240,320,3),255,dtype=np.uint8)
+        ok,encoded=cv2.imencode('.jpg',frame)
+        assert ok
+        message=CompressedImage(format='jpeg',data=encoded.tobytes())
+        message.header.stamp=h.probe.get_clock().now().to_msg()
         first=time.monotonic()
-        h.floor(True)
+        h.node.on_white_image(message)
         start=h.node.state.missions['slow'].start_at
-        assert start>=first+.5
+        assert start>=first+.1
+        assert start<first+.2
         assert not h.commands
-        h.floor(True)
+        h.node.on_white_image(message)
         assert h.node.state.missions['slow'].start_at==start
-        h.pump(max(0.,start-time.monotonic()-.08))
+        h.pump(max(0.,start-time.monotonic()-.04))
         assert not h.commands
-        h.pump(.22)
+        h.pump(.15)
         assert h.commands and h.commands[0].drive.speed==pytest.approx(.2)
     finally:
         h.close()
 
 
 def test_signal_stop_event_cancels_scheduled_slow_before_it_starts():
-    h=Harness(white_gate=True,start_delay=None)
+    h=Harness(white_gate=True,start_delay=.5)
     try:
         h.lane_enabled=True
         h.detect('slow')

@@ -129,14 +129,18 @@ def automatic_goals(scan,clusters,cfg,origin,details,map_hint=None):
         details['target_mode']='enclosed_center' if goals else 'none'
         details['enclosure_candidates']=len(goals)
         details['slot_map_reason']='ready' if goals else 'layout_not_matched'
-        # Grid mode never starts parking from a pair or an unrelated enclosure.
-        return goals
+        if goals or not cfg.pair_fallback_enabled:
+            return goals
+        # A missing/ambiguous grid must not suppress geometric free-space
+        # detection when the operator enables the two-object fallback.
+        details['slot_map_fallback'] = True
     merged=physical_objects(world,cfg)
     objects=[(indices,cluster) for indices,cluster in merged if cfg.min_cluster_size<=max(cluster.bounds[1]-cluster.bounds[0],cluster.bounds[3]-cluster.bounds[2])<=cfg.max_cluster_size]
     details['enclosure_objects']=len(objects);details['enclosure_detected']=False
     checker=CollisionChecker(scan,cfg);transform=inverse(origin)
     from .boundaries import boundary_rectangles
     rectangles=boundary_rectangles(objects,cfg,origin) if cfg.enclosed_space_detection else []
+    boundary_goals=[]
     if rectangles:
         goals=[];regions=[]
         for rect in rectangles[:6]:
@@ -155,21 +159,27 @@ def automatic_goals(scan,clusters,cfg,origin,details,map_hint=None):
         details['enclosure_detected']=True;details['target_mode']='enclosed_center'
         details['target_center_method']='three_boundaries'
         details['enclosure_candidates']=len(goals);details['center_regions']=regions
-        return goals
-    details['enclosure_candidates']=0
+        if not (cfg.slot_map_enabled and cfg.pair_fallback_enabled):
+            return goals
+        boundary_goals=goals
+    details['enclosure_candidates']=len(boundary_goals)
     if not cfg.pair_fallback_enabled:
         details['target_mode']='none';return []
     # Pair geometry still uses the configured row alignment, size and gap bounds.
+    pair_cfg=replace(cfg,min_cluster_size=cfg.pair_min_cluster_size or cfg.min_cluster_size)
+    pair_objects=[(indices,c) for indices,c in merged
+                  if pair_cfg.min_cluster_size<=max(c.bounds[1]-c.bounds[0],c.bounds[3]-c.bounds[2])<=cfg.max_cluster_size]
+    details['pair_objects']=len(pair_objects)
     axes=[cfg.row_yaw]
     if cfg.slot_map_enabled:
-        for i,(_,a) in enumerate(objects):
-            for _,b in objects[i+1:]:
+        for i,(_,a) in enumerate(pair_objects):
+            for _,b in pair_objects[i+1:]:
                 if cfg.slot_initial_right_only and (a.center[1]>=0 or b.center[1]>=0):continue
                 axes.append(wrap(math.atan2(b.center[1]-a.center[1],b.center[0]-a.center[0])-origin[2]))
         details['target_center_method']='two_object_gap'
     pairs=[];seen=set()
     for angle in axes:
-        for candidate in find_gaps(clusters,replace(cfg,goal_from_observed_front=False,row_yaw=angle),origin,diagnostics=details):
+        for candidate in find_gaps(clusters,replace(pair_cfg,goal_from_observed_front=False,row_yaw=angle),origin,diagnostics=details):
             key=tuple(sorted((candidate.left,candidate.right)))
             if key not in seen:pairs.append(candidate);seen.add(key)
     accepted=[];checks=[]
@@ -179,16 +189,17 @@ def automatic_goals(scan,clusters,cfg,origin,details,map_hint=None):
         # Two fragments belonging to one merged physical object are not a pair.
         if any(pair.left in ids and pair.right in ids for ids,_ in merged):continue
         center=compose(origin,(pair.x,pair.y,0.))[:2]
-        options=available_headings(center,objects,cfg,origin,checker)
+        options=available_headings(center,pair_objects,cfg,origin,checker)
         checks.append({'track_ids':(a.track_id,b.track_id),'width_m':pair.width,'accepted':bool(options),
                        'reason':'' if options else 'goal_footprint_obstacle'})
         if not options:continue
         ids=tuple(sorted({i for i in (a.track_id,b.track_id) if i is not None}))
         accepted.append(replace(pair,yaw=options[0],support_indices=(pair.left,pair.right),support_ids=ids,
                                 kind='pair_midpoint',heading_options=options,stop_tolerance=cfg.pair_stop_tolerance))
-    details['candidate_checks']=checks;details['target_mode']='pair_midpoint' if accepted else 'none'
+    details['candidate_checks']=checks
+    details['target_mode']='enclosed_center' if boundary_goals else ('pair_midpoint' if accepted else 'none')
     details['pair_candidates']=len(accepted)
-    return accepted
+    return boundary_goals+accepted
 
 
 def update_geometry_goal(previous,candidates):

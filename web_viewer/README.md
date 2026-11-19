@@ -1,5 +1,7 @@
 # AutoRace Web Viewer
 
+기본 웹뷰어 실행 방법은 [미션 웹뷰어 안내](MISSION_WEB.md)를 참고하세요. 아래는 `run_legacy.sh`로 실행하는 카메라·ROI·주차 뷰어 안내입니다.
+
 ## 흰색 ROI 웹 조절
 
 같은 Wi-Fi에서 **http://192.168.50.83:8080/roi**를 엽니다.
@@ -25,7 +27,7 @@ ROI 편집 중에만 원본 `/camera/color/image_raw` 또는 compressed 카메�
 
 ## 주차 상단 뷰
 
-83 차량에서는 `ROS_DOMAIN_ID=94 PORT=8080 FPS=5 ./start.sh`로 시작한 뒤
+83 차량에서는 `ROS_DOMAIN_ID=94 PORT=8080 FPS=5 ./run_legacy.sh`로 시작한 뒤
 같은 Wi-Fi에서 `http://192.168.50.83:8080/parking`에 접속합니다.
 주차 미션 활성화 시 RViz와 같은 토픽의 실시간 라이다, 기억 장애물, 탐색 구역,
 계획 경로, 목표와 lookahead를 차량 기준 상단 뷰로 표시합니다.
@@ -36,23 +38,20 @@ ROI 편집 중에만 원본 `/camera/color/image_raw` 또는 compressed 카메�
 미션 종료, 새 시도, 위치 초기화와 수신 중단 시 이전 오버레이를 비웁니다.
 확대·축소·드래그·화면 맞춤·전체화면·레이어 표시와 전방 카메라를 지원합니다.
 화면은 독립 프로세스로 임시 실행되며, 자동 부팅 등록은 하지 않습니다.
-종료 명령은 `~/2026-AutoRace/web_viewer/stop.sh`입니다.
+종료하려면 실행한 터미널에서 `Ctrl+C`를 누릅니다.
 
 플랫폼이 ROS 영상을 수신해 HTTP로 제공합니다. 같은 네트워크의 PC에서 브라우저만으로 접속합니다.
 
 ```bash
 cd ~/2026-AutoRace/web_viewer
-./start.sh
-# 종료
-./stop.sh
+./run_legacy.sh
 ```
 
 접속 주소: `http://192.168.50.97:8080` (플랫폼 IP가 바뀌면 새 IP 사용).
 기본 ROS_DOMAIN_ID는 96입니다. 센서와 같은 도메인을 사용하세요.
 
 ```bash
-ROS_DOMAIN_ID=96 PORT=8080 FPS=10 ./start.sh
-# 터미널에서 직접 실행하려면 ./run.sh
+ROS_DOMAIN_ID=96 PORT=8080 FPS=10 ./run_legacy.sh
 ```
 
 | 화면 | 수신 토픽 |
@@ -72,5 +71,4 @@ JPEG 카메라는 재인코딩 없이 전달하고, raw 마스크·디버그는 
 이미지 저장, 전체화면, 영상별 보기, 수신 상태 및 자동 재연결을 지원합니다.
 
 ROS Humble의 시스템 Python(`/usr/bin/python3`), rclpy, sensor_msgs, NumPy, OpenCV를 사용합니다. pip 설치나 colcon 빌드는 필요하지 않습니다.
-로그: `.run/viewer.log`. PID: `.run/viewer.pid`.
 LAN용 HTTP 서버이며 별도 로그인은 없습니다. 자동 부팅 등록은 하지 않습니다.

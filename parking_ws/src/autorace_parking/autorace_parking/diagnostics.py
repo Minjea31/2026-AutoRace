@@ -5,12 +5,14 @@ import re
 STATES = {
     'MISSION_FAILED':'주차 진행 실패·재시도 대기',
     'SEARCHING': '저속 전진하며 주차 후보 탐색',
+    'SEARCH_STOPPING': '주차 후보 발견·정지 확인 중',
+    'SEARCH_PLANNING': '정지 위치에서 주차 진입 경로 계산 중',
     'SEARCH_BLOCKED': '주차 탐색 정지',
     'SEARCH_LIMIT': '주차 탐색 한도 도달·인식 확인 필요',
     'WAITING_CALIBRATION': '주차 접근 전 정지·자이로 보정 대기',
     'CALIBRATION_FAILED': '주차 접근 보정 실패·수동 초기화 대기',
     'WAITING_STEERING':'주차 전용 조향 보정 준비 대기',
-    'WAITING_WHITE_LINE': '주차 바닥 흰선 감지 대기',
+    'WAITING_WHITE_LINE': '주차 흰선을 확인하며 저속 접근 중',
     'MANUAL_INTERRUPTED':'수동 개입·초기화 대기',
     'APPROACH_LIMIT':'주차 시작선 탐색 한도 도달',
     'WAITING_SIGN': '주차 시작 신호 대기', 'WAITING_SCAN': '라이다 수신 대기',
@@ -36,6 +38,7 @@ REASONS = {
     'Parking made no progress for 20 s; reset required':'20초간 이동이 없어 정지했습니다. 새 주차 감지로 재시도할 수 있습니다.',
     'Manual control or stale vehicle mode; reset required after takeover':'수동 개입 또는 차량 상태 지연: 새 주차 감지 대기',
     'Looking for parking candidates along a measured clear corridor': '관측된 전방 통로를 저속으로 전진하며 주차 후보를 찾습니다.',
+    'Looking for parking candidates along a clear corridor': '전방 장애물을 확인하며 저속으로 전진해 주차 후보를 찾습니다.',
     'Parking search corridor is blocked or unobserved': '탐색 전방에 장애물이 있거나 이동할 차체 구간을 관측하지 못했습니다.',
     'Waiting for fresh observed search corridor': '탐색 전방을 확인할 최신 라이다를 기다립니다.',
     'Waiting for stable observed search corridor': '새 라이다 관측에서 안전한 탐색 통로가 연속 확인되기를 기다립니다.',
@@ -190,7 +193,7 @@ def planning_text(details):
 
 def operator_reason(state, reason='', planning=None, detections=0, required=3):
     if state == 'WAITING_WHITE_LINE':
-        return '주차 표지를 확인했습니다. 차량 앞 바닥 흰선이 새 영상에서 감지되기를 기다립니다.'
+        return reason or '주차 표지를 확인했습니다. 저속 접근하며 차량 앞 바닥 흰선을 확인합니다.'
     if state=='EXIT_PATH_ERROR':
         code=(planning or {}).get('exit_route_reason','')
         detail={

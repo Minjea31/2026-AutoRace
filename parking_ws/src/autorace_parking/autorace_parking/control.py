@@ -107,9 +107,44 @@ def refine_goal(goal, candidates, cfg, checker):
     return goal, False
 
 
+def candidate_approach(scan, targets, cfg, known_free_poses, clear_center):
+    """A short, collision-checked approach to the same detected parking space."""
+    best=None
+    for target in targets:
+        if not target.heading_options:
+            continue
+        distance=math.hypot(target.x,target.y)
+        if distance <= (target.stop_tolerance or cfg.goal_tolerance):
+            continue
+        checker=CollisionChecker(scan,cfg,known_free_poses,clear_center)
+        radius=max(cfg.turn_radius,cfg.preferred_turn_radius)
+        parts=[[(.3,curvature)] for curvature in (0.,-1/radius,1/radius)]
+        parts.extend(value for _,value in parking_candidates(target,cfg)[:12])
+        seen=set()
+        for route in parts:
+            short=[];remaining=min(.3,distance)
+            for length,curvature in route:
+                step=min(length,remaining)
+                if step>1e-8:short.append((step,curvature));remaining-=step
+                if remaining<=1e-8:break
+            key=tuple((round(a,4),round(b,4)) for a,b in short)
+            if not short or key in seen:continue
+            seen.add(key)
+            path,_=sample_candidate(checker,short,cfg)
+            length=sum(math.dist(a[:2],b[:2]) for a,b in zip(path,path[1:]))
+            if length<.10:continue
+            end=path[-1]
+            progress=distance-math.hypot(target.x-end[0],target.y-end[1])
+            if progress<.03:continue
+            heading=abs(wrap(math.atan2(target.y-end[1],target.x-end[0])-end[2]))
+            score=progress-.03*heading
+            if best is None or score>best[0]:best=score,target,path
+    return (best[1],best[2]) if best else (None,[])
+
+
 def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, known_free_poses=(),
                recovery_allowed=True, blind_reverse_remaining=None, validate_goal=False, front_scan=None,
-               failed_plans=0,stalled_route=False,layout_hint=None):
+               failed_plans=0,stalled_route=False,layout_hint=None,excluded_targets=()):
     """Return (final goal, path, final approach).
 
     Prefer driving straight along the row before turning into the bay. If
@@ -175,6 +210,13 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
         goal,details['goal_updated']=update_geometry_goal(goal,visible_goals)
     terminal_goal=bool(goal is not None and goal.confirmed and math.hypot(goal.x,goal.y)<=.15
                        and space_checker.free((goal.x,goal.y,goal.yaw),allow_unknown=True))
+    def excluded(candidate):
+        point=compose(origin,(candidate.x,candidate.y,0.))
+        return any(math.hypot(point[0]-x,point[1]-y)<=radius for x,y,radius in excluded_targets)
+    visible_goals=[g for g in visible_goals if not excluded(g)]
+    if goal is not None and excluded(goal):
+        details['goal_invalidated_by_exclusion']=True
+        goal=None
     reachable_goal,reachable_path=None,[]
     if not cfg.automatic_target_selection and cfg.enclosed_space_detection and cfg.continuous_replanning and len(visible_goals)>1 and not terminal_goal:
         # Clearance alone can favor an empty pocket that the measured turning
@@ -412,12 +454,13 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
                 continue
             remaining=deadline-time.monotonic()
             if remaining<=0:break
+            pair_approach=cfg.candidate_approach_enabled and target.kind=='pair_midpoint'
             search_cfg=replace(cfg,planning_timeout=remaining/max(1,len(goals)-target_index),require_goal_heading=True,
-                clearance=cfg.clearance+cfg.path_tracking_margin,
+                clearance=cfg.clearance+(0. if pair_approach else cfg.path_tracking_margin),
                 goal_tolerance=min(cfg.goal_tolerance,target.stop_tolerance*.5),
                 resolution=min(cfg.resolution,.04),yaw_resolution=min(cfg.yaw_resolution,cfg.target_heading_step),
                 goal_yaw_tolerance=(math.pi if not cfg.require_goal_heading else min(cfg.goal_yaw_tolerance,cfg.target_heading_step*.5)),
-                allow_reverse=cfg.allow_reverse and not cfg.recovery_on_front_obstacle_only)
+                allow_reverse=cfg.allow_reverse and (pair_approach or not cfg.recovery_on_front_obstacle_only))
             details['entry_reserve_blocked']=any(abs(x)<=cfg.vehicle_length/2+search_cfg.clearance
                 and abs(y)<=cfg.vehicle_width/2+search_cfg.clearance for x,y in scan.points)
             path=plan_path(scan,target,search_cfg,known_free_poses,clear_center)
@@ -425,6 +468,11 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
                 heading=min(target.heading_options,key=lambda a:abs(wrap(a-path[-1][2])))
                 return finish(replace(target,yaw=heading),path,True,'path_ready')
         code='budget_exceeded' if time.monotonic()>=deadline else 'no_observed_path'
+        if cfg.candidate_approach_enabled:
+            target,path=candidate_approach(scan,goals,cfg,known_free_poses,clear_center)
+            if path:
+                details['complete_path_pending']=True
+                return finish(target,path,False,'candidate_approach_ready')
         return recover(code)
     for target in goals:
         if (reachable_goal is not None and reachable_path
@@ -461,7 +509,7 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
 
 
 def build_plan_report(scan, cfg, goal=None, origin=(0., 0., 0.), known_free_poses=(), recovery_allowed=True,
-                      blind_reverse_remaining=None, validate_goal=False, front_scan=None, failed_plans=0,stalled_route=False,layout_hint=None):
+                      blind_reverse_remaining=None, validate_goal=False, front_scan=None, failed_plans=0,stalled_route=False,layout_hint=None,excluded_targets=()):
     """Process-worker interface with operator diagnostics and the normal plan."""
     report_started=time.monotonic()
     details = {}
@@ -475,7 +523,8 @@ def build_plan_report(scan, cfg, goal=None, origin=(0., 0., 0.), known_free_pose
     target, path, final = build_plan(scan, primary_cfg, goal, origin, diagnostics=details,
                                    known_free_poses=known_free_poses, recovery_allowed=recovery_allowed,
                                    blind_reverse_remaining=blind_reverse_remaining, validate_goal=validate_goal, front_scan=front_scan,
-                                   failed_plans=failed_plans,stalled_route=stalled_route,layout_hint=layout_hint)
+                                   failed_plans=failed_plans,stalled_route=stalled_route,layout_hint=layout_hint,
+                                   excluded_targets=excluded_targets)
     if reverse_checked and not path and target is None and details.get('goal_confirmed') and details.get('target'):
         d=details['target']
         target=Gap(d['x'],d['y'],d['yaw'],.5,0,1,confirmed=True,
@@ -1139,6 +1188,8 @@ class Follower:
             distance += segment
         # Apply the floor to steering-related slowdown, preserving final braking.
         cruise_limit = min(self.speed, self.cfg.recovery_speed) if direction < 0 and not self.exiting else self.speed
+        if self.cfg.candidate_approach_enabled and not self.final_approach and not self.recovering and not self.exiting:
+            cruise_limit=min(cruise_limit,.2)
         yaw_limit = self.max_yaw_rate * self.cfg.wheelbase / max(abs(math.tan(steering))*response_scale, 1e-6)
         speed = min(cruise_limit, braking, yaw_limit,
                     steering_speed_limit if self.cfg.respect_steering_settle_speed else math.inf,

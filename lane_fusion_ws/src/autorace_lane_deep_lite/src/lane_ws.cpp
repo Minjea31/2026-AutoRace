@@ -810,10 +810,50 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const cv::
     span += length(center[i] - center[i - 1]);
   if (center.size() >= 3 && span >= .1 * h) {
     const double want = c["bev_near_m"] + (1 - c["lookahead_row"]) * (h - 1) * m_row;
+    // deep_lite (2026-11-18): a single boundary in a bend gives a centre that
+    // leaves the BEV early, so the target jumped between ~0.9 m and ~0.3 m and
+    // the turn came late or early depending on what was visible. Extend a short
+    // centre along its last ~0.15 m direction (at most 0.4 m) to reach `want`.
+    auto pixel = [&](cv::Point2d p) {
+      return cv::Point2f(float(cu - p.y / m_px), float(h - 1 - (p.x - c["bev_near_m"]) / m_row));
+    };
+    if (cv::norm(metric(center.back())) < want) {
+      const auto end = metric(center.back());
+      size_t j = center.size() - 1;
+      while (j > 0 && cv::norm(end - metric(center[j])) < .15)
+        --j;
+      cv::Point2d d = end - metric(center[j]);
+      const double n = cv::norm(d);
+      // Only a forward-pointing end (within 60 deg of the vehicle heading) is
+      // extended: facing a boundary at an angle (stopped, or a transverse
+      // line) the end points sideways and a 0.4 m extension put the target
+      // ~77 deg off-axis (bag 172535, 77-90 s) -> full-lock steering.
+      if (n > .02 && d.x / n >= .5) {
+        d /= n;
+        for (double s = .05; s <= .4 + 1e-9; s += .05) {
+          const auto p = end + d * s;
+          center.push_back(pixel(p));
+          if (cv::norm(p) >= want)
+            break;
+        }
+        r.notes.push_back("중앙 경로가 짧아 목표 거리까지 연장");
+      }
+    }
     size_t t = 0;
     while (t + 1 < center.size() && cv::norm(metric(center[t])) < want)
       ++t;
-    const auto a = metric(center[t ? t - 1 : 0]), b = metric(center[std::min(t + 1, center.size() - 1)]);
+    // Heading and curvature over a ~0.15 m chord on each side of the target:
+    // adjacent points (~7 cm) turned a few px of mask noise into |k| > 25 1/m.
+    size_t ia = t, ib = t;
+    while (ia > 0 && cv::norm(metric(center[t]) - metric(center[ia])) < .15)
+      --ia;
+    while (ib + 1 < center.size() && cv::norm(metric(center[ib]) - metric(center[t])) < .15)
+      ++ib;
+    if (ia == t && t > 0)
+      --ia;
+    if (ib == t && t + 1 < center.size())
+      ++ib;
+    const auto a = metric(center[ia]), b = metric(center[ib]);
     const auto target = metric(center[t]);
     r.valid = true;
     r.center_path = center;
@@ -827,6 +867,8 @@ Result Pipeline::process(const cv::Mat &bgr, double time, bool views, const cv::
     const double ab = cv::norm(b - a), at = cv::norm(target - a), tb = cv::norm(b - target);
     const double cross = (target - a).x * (b - a).y - (target - a).y * (b - a).x;
     r.curvature = ab * at * tb > 1e-9 ? 2 * cross / (ab * at * tb) : 0; // left positive
+    // Track bends are R >= ~0.3 m; anything tighter is mask noise.
+    r.curvature = std::clamp(r.curvature, -4., 4.);
     // Near point: first centre point, heading over the first ~0.25 m of path.
     const auto n0 = metric(center[0]);
     size_t k = 1;

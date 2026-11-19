@@ -1,5 +1,6 @@
 #include "autorace_lane_pid/pid.hpp"
 #include "autorace_lane_pid/parking_approach.hpp"
+#include "autorace_lane_pid/sign_motion.hpp"
 #include <cmath>
 #include <cstdio>
 #include <gtest/gtest.h>
@@ -313,4 +314,25 @@ TEST(ParkingApproach, SamePersistentSignCannotRestartCalibrationAfterCooldown) {
   EXPECT_FALSE(gate.receive(false,206.6));
   EXPECT_FALSE(gate.receive(true,207.));
   EXPECT_TRUE(gate.receive(true,207.1));
+}
+
+// Same rule as parking_ws sign_motion.py: no sign while stopped or within 5 s of departure.
+TEST(SignMotionGate, IgnoresSignsUntilFiveSecondsAfterDeparture) {
+  lane_pid::SignMotionGate gate(5.);
+  EXPECT_FALSE(gate.allows(0.));
+  for (int i = 0; i < 5; ++i)
+    gate.update(i * .05, 0., i * .05); // standing still
+  EXPECT_FALSE(gate.allows(.25));
+  for (int i = 0; i < 100; ++i) { // depart at 1.0 s, last sample 5.95 s
+    const double t = 1. + i * .05;
+    gate.update(t, .3, t);
+    EXPECT_FALSE(gate.allows(t)) << t;
+  }
+  gate.update(6.05, .3, 6.05);
+  EXPECT_TRUE(gate.allows(6.05));
+  EXPECT_FALSE(gate.allows(6.5)); // odom stale (> 0.3 s)
+  for (int i = 1; i <= 3; ++i)
+    gate.update(6.05 + i * .05, 0., 6.05 + i * .05); // stopped again -> rearm
+  gate.update(6.3, .3, 6.3);
+  EXPECT_FALSE(gate.allows(6.3));
 }

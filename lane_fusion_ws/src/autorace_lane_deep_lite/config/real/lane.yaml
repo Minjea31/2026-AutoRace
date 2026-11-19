@@ -12,8 +12,8 @@ lane_deep_lite:
   roi_right: 1.0
   bev_top_y: 0.567
   bev_bottom_y: 0.962
-  bev_top_left: 0.126
-  bev_top_right: 0.892
+  bev_top_left: 0.111   # 11-18: 0.126 -> 0.111, top_right도 -0.015. 직선 bag 2개에서 BEV 기울기 약 0.024 rad(왼쪽) 보정
+  bev_top_right: 0.877
   bev_bottom_left: -1.001
   bev_bottom_right: 1.959
   line_width_max: 24
@@ -32,6 +32,6 @@ lane_deep_lite:
   smoothing: 0.6
   track_jump_px: 35
   track_memory: 0.5
-  lane_width_m: 0.52
+  lane_width_m: 0.5
   bev_near_m: 0.49
   bev_far_m: 1.39

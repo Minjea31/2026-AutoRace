@@ -1,7 +1,6 @@
 """Stop after a white floor mark; release on green or a fixed red deadline."""
 # 시간 설정 (초) — 이 값을 수정한 뒤 빌드하고 노드를 다시 실행하세요.
 STOP_DELAY_SEC = 2.0        # 빨간불 확인·흰선 감지 후 정지 시작까지 주행
-MAX_RED_WAIT_SEC = 10.0     # 빨간불 2회 확인부터 정지 해제까지, 재수신으로 연장하지 않음
 SIGNAL_GAP_TIMEOUT_SEC = 0.5  # 같은 신호 확인 횟수를 초기화하는 수신 간격
 LANE_TIMEOUT_SEC = 0.25
 FUTURE_TOLERANCE_SEC = 0.05
@@ -55,7 +54,7 @@ class WhiteROI:
     right: float = .95
     top: float = .961
     bottom: float = 1.0
-    minimum_ratio: float = .08
+    minimum_ratio: float = .40
 
     def __post_init__(self):
         if (not all(math.isfinite(v) for v in (self.left, self.right, self.top, self.bottom, self.minimum_ratio))
@@ -97,7 +96,7 @@ class WhiteROI:
 class SignalNode(Node):
     def __init__(self, **kwargs):
         super().__init__('signal_node', **kwargs)
-        defaults = dict(confirm_frames=CONFIRM_FRAMES, max_red_wait_sec=MAX_RED_WAIT_SEC,
+        defaults = dict(confirm_frames=CONFIRM_FRAMES,
                         signal_gap_timeout_sec=SIGNAL_GAP_TIMEOUT_SEC,
                         publish_rate_hz=PUBLISH_RATE_HZ, lane_timeout_sec=LANE_TIMEOUT_SEC,
                         future_tolerance_sec=FUTURE_TOLERANCE_SEC, stop_delay_sec=STOP_DELAY_SEC)
@@ -115,7 +114,7 @@ class SignalNode(Node):
             raise ValueError('white_roi_enabled must be a Bool')
         self.white_roi = WhiteROI(**{
             name: float(self.declare_parameter('white_roi_' + name, default, descriptor).value)
-            for name, default in (('left', .05), ('right', .95), ('top', .961), ('bottom', 1.0), ('minimum_ratio', .08))
+            for name, default in (('left', .05), ('right', .95), ('top', .961), ('bottom', 1.0), ('minimum_ratio', .40))
         })
         self.white_image_timeout = float(self.declare_parameter('white_image_timeout_sec', .3, descriptor).value)
         self.white_image_hz = float(self.declare_parameter('white_image_hz', 10., descriptor).value)
@@ -126,7 +125,7 @@ class SignalNode(Node):
         self.last_white_wall = -math.inf
         self.white_ratio = None
         self.white_arm_stamp = None
-        self.state = SignalState(self.confirm_frames, self.max_red_wait_sec, self.signal_gap_timeout_sec,
+        self.state = SignalState(self.confirm_frames, self.signal_gap_timeout_sec,
                                  require_white_mark=self.white_roi_enabled, stop_delay_sec=self.stop_delay_sec)
         self.lane = None
         self.lane_received = None
@@ -169,7 +168,7 @@ class SignalNode(Node):
                 f'lane HSV S<={self.white_s_max}, V>={self.white_v_min}')
         self.steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self.timer = self.create_timer(1/self.publish_rate_hz, self.publish, clock=self.steady_clock)
-        self.get_logger().info(f'신호등: 빨간불 확인부터 최대 {self.max_red_wait_sec:.1f}초, 초록불 확인 시 해제')
+        self.get_logger().info('신호등: 초록불 확인 시 해제')
 
     def ros_now(self):
         now = self.get_clock().now().nanoseconds
@@ -209,16 +208,13 @@ class SignalNode(Node):
         if was_stopping != self.state.stopping:
             if self.state.stopping:
                 self.get_logger().info('신호등: 빨간불 정지')
-            elif self.state.release_reason == 'red wait timeout':
-                self.get_logger().info(f'신호등: {self.max_red_wait_sec:.1f}초 경과, 차선 추종 복귀')
             else:
                 self.get_logger().info('신호등: 초록불 확인, 차선 추종 복귀')
 
     def on_signal(self, message):
         was_stopping, was_armed = self.state.stopping, self.state.armed
-        previous_red_start = self.state.red_started_at
         self.state.receive(message.data, time.monotonic())
-        if self.state.armed and (not was_armed or self.state.red_started_at != previous_red_start):
+        if self.state.armed and not was_armed:
             self.white_arm_stamp = self.get_clock().now().nanoseconds
             self.get_logger().info('신호등: 빨간불 확인, 흰선 대기')
         elif not self.state.armed:

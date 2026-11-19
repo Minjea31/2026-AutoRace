@@ -34,8 +34,6 @@ double IslandShape::clearance(double s,double d,double yaw,const Params & p) con
 }
 bool IslandMapper::update(const std::vector<XY> & input,double reference,const Params * vehicle,double car_s,double car_d,double car_yaw) {
   (void)reference;input_count=input.size();candidate_count=0;evaluations=0;rejection="insufficient_evidence";
-  // A previously accepted model cannot occupy the measured vehicle footprint.
-  if(vehicle && shape.pose.valid && shape.clearance(car_s,car_d,car_yaw,*vehicle)<0) reset();
   // Bounded deterministic sample and coarse-to-fine matching. No allocations per hypothesis.
   std::vector<XY> pts; pts.reserve(96);
   std::set<std::pair<int,int>> occupied;
@@ -54,9 +52,11 @@ bool IslandMapper::update(const std::vector<XY> & input,double reference,const P
   }
   auto unavailable=[&]() {
     ++misses;
-    if(misses>=3) shape.pose.confirmed=false;
-    if(!shape.pose.confirmed) shape.pose.stable=0;
-    if(misses>=6) shape.pose.valid=false;
+    // Missing or rejected observations cannot erase a confirmed static map.
+    if(!shape.pose.confirmed) {
+      shape.pose.stable=0;
+      if(misses>=6) shape.pose.valid=false;
+    }
     return false;
   };
   if(pts.size()<10) return unavailable();

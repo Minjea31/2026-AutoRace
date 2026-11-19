@@ -18,6 +18,7 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(ackermann_msgs REQUIRED)
+find_package(limo_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(yaml_cpp_vendor REQUIRED)
@@ -43,7 +44,7 @@ set_target_properties(objavoid_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_executable(objavoid_v3_node src/node.cpp src/markers.cpp)
 target_link_libraries(objavoid_v3_node objavoid_core)
-ament_target_dependencies(objavoid_v3_node rclcpp std_msgs sensor_msgs nav_msgs geometry_msgs
+ament_target_dependencies(objavoid_v3_node limo_msgs rclcpp std_msgs sensor_msgs nav_msgs geometry_msgs
   visualization_msgs ackermann_msgs builtin_interfaces rcl_interfaces)
 
 install(TARGETS objavoid_v3_node DESTINATION lib/${PROJECT_NAME})

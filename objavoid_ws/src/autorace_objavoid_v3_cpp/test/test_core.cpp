@@ -716,6 +716,41 @@ TEST(StartGate, EntranceWindowIsAlternativeAndWaitsForTwoObstacles) {
   EXPECT_TRUE(eval_start_gate({},{{0.7,1,-0.1,0.1},{1.2,1.5,-0.1,0.1}},p).ok);
 }
 
+// 11-18 bags: the real entrance is in view ~0.3 s at support 70-120 while the obstacle count
+// flickers 1<->2 and is 2 only on frames where the corner is not detected.
+TEST(StartGate, AccumulatedScoreStartsWhenEntranceAndObstaclesAreNotSimultaneous) {
+  StartScore s;
+  const int support[] = {0, 110, 90, 70, 112, 116, 0, 0, 0};
+  const int obstacles[] = {2, 1, 1, 1, 1, 1, 2, 1, 2};
+  bool ready = false;
+  for (int i = 0; i < 9; ++i) {
+    ready = s.update(10 + 0.05 * i, support[i], obstacles[i], 1.0, 1.0, 40, 22.0, 2) || ready;
+  }
+  EXPECT_TRUE(ready);
+  EXPECT_NEAR(s.score, 0.05 * (110 + 90 + 70 + 112 + 116), 1e-6);
+  EXPECT_EQ(s.obstacles, 2);
+}
+
+TEST(StartGate, AccumulatedScoreRejectsWeakOrBriefCornersAndExpires) {
+  StartScore s;
+  // Parking / road paint corners: support 22-34 (< 40) counts nothing, however long.
+  for (int i = 0; i < 40; ++i) {EXPECT_FALSE(s.update(0.05 * i, 34, 4, 1.0, 1.0, 40, 22.0, 2));}
+  EXPECT_DOUBLE_EQ(s.score, 0.0);
+  // A brief strong sighting (3 frames) stays below the threshold.
+  s.reset();
+  for (int i = 0; i < 3; ++i) {EXPECT_FALSE(s.update(5 + 0.05 * i, 100, 2, 1.0, 1.0, 40, 22.0, 2));}
+  // Evidence older than the window is gone before the obstacles arrive.
+  s.reset();
+  for (int i = 0; i < 8; ++i) {s.update(20 + 0.05 * i, 100, 0, 1.0, 1.0, 40, 22.0, 2);}
+  EXPECT_GT(s.score, 22.0);
+  bool late = false;
+  for (int i = 0; i < 10; ++i) {late = s.update(21.5 + 0.05 * i, 0, 2, 1.0, 1.0, 40, 22.0, 2) || late;}
+  EXPECT_FALSE(late);
+  // min_score 0 = feature off.
+  s.reset();
+  for (int i = 0; i < 20; ++i) {EXPECT_FALSE(s.update(0.05 * i, 120, 3, 1.0, 1.0, 40, 0.0, 2));}
+}
+
 TEST(StartGate, PassedEntranceAndStaleConfirmationCannotStart) {
   EntranceWindow w;
   EXPECT_FALSE(w.update(1,true,0));
@@ -773,24 +808,22 @@ TEST(StartGate, ContinuousYellowDoesNotExtendFiveSecondDeadlineAndClockResetClea
   EXPECT_TRUE(w.update(1,true,2));
 }
 
-TEST(Island, FreshObservationsUnlockAndRecoverWrongModel) {
-  IslandMapper mapper;IslandShape truth;truth.pose={4.6,0.05,0.1,0,3,true,true};
-  const auto vertices=truth.vertices();std::vector<XY> points;
-  for(int edge:{0,1,5}) for(int i=0;i<24;++i) {
-    const auto a=vertices[edge],b=vertices[(edge+1)%6];const double t=i/23.0;
-    points.push_back({a.x+t*(b.x-a.x),a.y+t*(b.y-a.y)});
-  }
-  mapper.shape.pose={3.6,0,0,0,3,true,true};
-  for(int i=0;i<6;++i) mapper.update({},4.25);
-  EXPECT_FALSE(mapper.shape.pose.valid);EXPECT_FALSE(mapper.shape.pose.confirmed);
-  for(int i=0;i<4;++i) mapper.update(points,4.25);
-  EXPECT_TRUE(mapper.shape.pose.confirmed);EXPECT_NEAR(mapper.shape.pose.s,4.6,0.08);
-  // A model covering the measured vehicle must be discarded, not frozen as confirmed.
-  Params p;mapper.shape.pose={3.7,0,0,0,3,true,true};
-  for(int i=0;i<4;++i) mapper.update(points,4.25,&p,4.1,0,0);
-  ASSERT_TRUE(mapper.shape.pose.confirmed);
-  EXPECT_GT(mapper.shape.clearance(4.1,0,0,p),p.margin_obstacle);
+TEST(Island, ConfirmedMapSurvivesMissingAndContradictoryObservations) {
+  IslandMapper mapper;mapper.shape.pose={4.6,0.05,0.1,0,3,true,true};
+  const auto saved=mapper.shape.pose;
+  std::vector<XY> contradictory;for(int i=0;i<40;++i)contradictory.push_back({2.0+i*.02,.25});
+  for(int i=0;i<8;++i) EXPECT_FALSE(mapper.update({},4.25));
+  for(int i=0;i<8;++i) EXPECT_FALSE(mapper.update(contradictory,4.25));
+  EXPECT_TRUE(mapper.shape.pose.valid);EXPECT_TRUE(mapper.shape.pose.confirmed);
+  EXPECT_DOUBLE_EQ(mapper.shape.pose.s,saved.s);EXPECT_DOUBLE_EQ(mapper.shape.pose.d,saved.d);
+  EXPECT_DOUBLE_EQ(mapper.shape.pose.yaw,saved.yaw);
 }
+TEST(Island, UnconfirmedCandidateCanExpireWithoutCreatingAConfirmedMap) {
+  IslandMapper mapper;mapper.shape.pose={4.6,0,0,0,1,true,false};
+  for(int i=0;i<8;++i) EXPECT_FALSE(mapper.update({},4.25));
+  EXPECT_FALSE(mapper.shape.pose.valid);EXPECT_FALSE(mapper.shape.pose.confirmed);
+}
+
 TEST(Island, RoadExternalFlareIsNotIslandEvidence) {
   IslandMapper mapper;std::vector<XY> road;
   for(int i=0;i<100;++i) {
@@ -801,16 +834,16 @@ TEST(Island, RoadExternalFlareIsNotIslandEvidence) {
   EXPECT_FALSE(mapper.shape.pose.confirmed);
 }
 
-TEST(Mission, ReplayTimeRewindClearsConfirmedIslandAndActivation) {
-  Params p;p.use_lane=false;p.fork_shape=true;ObjAvoidCore core(p);
+TEST(Mission, OldOdometryPreservesMapsActivationAndDirection) {
+  Params p;p.use_lane=false;p.fork_shape=true;p.fork_sign_min=1;ObjAvoidCore core(p);
   core.on_odom(10,0,0,0,0,0);ASSERT_TRUE(core.activate(10));
-  core.island_mapper.shape.pose={4.2,0,0,0,3,true,true};
-  core.on_sign(10,false);core.on_sign(10,false);
-  core.on_odom(20,1,0,0,0,0);
-  core.on_odom(1,0,0,0,0,0);
-  EXPECT_FALSE(core.active());EXPECT_EQ(core.state,State::IDLE);
-  EXPECT_FALSE(core.island_mapper.shape.pose.valid);EXPECT_EQ(core.fork_votes_l,0);
-  ASSERT_TRUE(core.activate(1));EXPECT_FALSE(core.island_known());
+  core.island_mapper.shape.pose={4.2,0,0,0,3,true,true};core.on_sign(10,false);
+  const auto epoch=core.mapping_epoch;const auto frame=*core.frame;
+  core.on_odom(20,1,0,0,0,0);core.on_odom(1,0,0,0,0,0);
+  EXPECT_TRUE(core.active());EXPECT_NE(core.state,State::IDLE);
+  EXPECT_TRUE(core.island_mapper.shape.pose.confirmed);EXPECT_EQ(core.fork_side(),1);
+  EXPECT_EQ(core.mapping_epoch,epoch);EXPECT_DOUBLE_EQ(core.frame->x0,frame.x0);
+  ASSERT_TRUE(core.pose_at(20));EXPECT_DOUBLE_EQ(core.pose_at(20)->x,1);
 }
 
 TEST(Outline, FullOutlineFitsWithoutIslandInfluence) {
@@ -1012,7 +1045,6 @@ TEST(Mission, GoalArrivalEndsOutputEvenWithoutPathOrLaneCommand) {
     EXPECT_FALSE(core.path_);EXPECT_FALSE(core.last_info.valid);
     EXPECT_FALSE(core.control(1.24,0.04,v,steer));
     EXPECT_FALSE(core.process_scan(1.24,std::vector<float>(720,8),-M_PI,2*M_PI/720,1.24));
-    EXPECT_EQ(core.mapping_restarts,0);
   }
 }
 TEST(Mission, SignObservedWellBeforeActivationIsRetained) {
@@ -1022,27 +1054,35 @@ TEST(Mission, SignObservedWellBeforeActivationIsRetained) {
   ObjAvoidCore expired(p);expired.on_sign(1,true);expired.on_odom(32,0,0,0,0,0);
   ASSERT_TRUE(expired.activate(32));EXPECT_EQ(expired.fork_side(),0);
 }
-TEST(Mission, ConfirmedObstacleReappearanceRestartsMapsButPreservesDirection) {
-  Params p;p.use_lane=false;p.fork_shape=true;p.fork_sign_min=1;p.obstacle_reacquire_absence_sec=0.5;
+TEST(Mission, ObstacleReappearanceKeepsRoadIslandAndObservationMaps) {
+  Params p;p.fork_shape=true;p.road_outline=true;p.fork_sign_min=1;p.lane_align=false;p.lane_lidar_filter=false;
   p.boundary_s={-1,8};p.boundary_left={0.77,0.77};p.boundary_right={-0.77,-0.77};
   ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));core.on_sign(1,false);
-  std::vector<float> clear(720,8),obstacle=clear;
-  for(int i=335;i<=385;++i) obstacle[i]=1.0;
+  std::vector<XY> points;for(int i=0;i<20;++i)points.push_back({.5+i*.03,.7});
+  for(double t:{1.01,1.02,1.03,1.04}) {
+    core.on_odom(t,0,0,0,0,0);ASSERT_TRUE(core.on_lane(t,points,points,nullptr));
+  }
+  ASSERT_FALSE(core.ymap->confirmed().empty());
+  const auto epoch=core.mapping_epoch;const auto frame=*core.frame;
+  const auto *yellow=core.ymap.get();const auto *white=core.wmap.get();const auto *grid=core.grid.get();
+  std::vector<float> clear(720,8),obstacle=clear;for(int i=335;i<=385;++i)obstacle[i]=1;
   auto scan=[&](double t,const std::vector<float> & ranges) {
-    core.on_odom(t,0,0,0,0,0);core.process_scan(t,ranges,-M_PI,2*M_PI/720,t);
+    core.on_odom(t,0,0,0,0,0);ASSERT_TRUE(core.process_scan(t,ranges,-M_PI,2*M_PI/720,t));
   };
-  scan(1,obstacle);ASSERT_FALSE(core.last_boxes.empty());
+  scan(1.1,obstacle);ASSERT_FALSE(core.last_boxes.empty());
   core.aligned=true;core.island_mapper.shape.pose={4.6,0,0,0,3,true,true};
-  core.yellow_history.emplace_back(1,std::vector<XY>{{4.6,0}});
-  for(double t:{1.1,1.2,1.3,1.4,1.5,1.6,1.7}) scan(t,clear);
-  scan(1.8,obstacle);EXPECT_EQ(core.mapping_restarts,0);
-  scan(1.9,obstacle);EXPECT_EQ(core.mapping_restarts,1);EXPECT_EQ(core.fork_side(),1);
-  EXPECT_FALSE(core.aligned);EXPECT_FALSE(core.island_mapper.shape.pose.valid);
-  EXPECT_TRUE(core.yellow_history.empty());EXPECT_FALSE(core.last_boxes.empty());
-  scan(2.0,obstacle);EXPECT_EQ(core.mapping_restarts,1);
+  for(int i=0;i<15;++i)scan(1.2+i*.1,clear);
+  for(double t:{2.8,2.9,3.0})scan(t,obstacle);
+  EXPECT_EQ(core.mapping_epoch,epoch);EXPECT_EQ(core.ymap.get(),yellow);EXPECT_EQ(core.wmap.get(),white);
+  EXPECT_EQ(core.grid.get(),grid);EXPECT_TRUE(core.aligned);EXPECT_EQ(core.fork_side(),1);
+  EXPECT_TRUE(core.navigation_island().pose.confirmed);EXPECT_NEAR(core.island_s(),4.6,1e-9);
+  EXPECT_FALSE(core.ymap->confirmed().empty());EXPECT_FALSE(core.yellow_history.empty());
+  EXPECT_DOUBLE_EQ(core.frame->x0,frame.x0);EXPECT_DOUBLE_EQ(core.frame->y0,frame.y0);
+  EXPECT_DOUBLE_EQ(core.frame->yaw0,frame.yaw0);
 }
+
 TEST(Mission, SensorDropoutOrShortGapDoesNotRestartMapping) {
-  Params p;p.use_lane=false;p.obstacle_reacquire_absence_sec=0.5;
+  Params p;p.use_lane=false;
   ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));
   std::vector<float> clear(720,8),obstacle=clear,invalid(720,0);
   for(int i=335;i<=385;++i) obstacle[i]=1;
@@ -1050,7 +1090,7 @@ TEST(Mission, SensorDropoutOrShortGapDoesNotRestartMapping) {
       {1.4,invalid},{2.4,invalid},{2.5,obstacle},{2.6,obstacle}}) {
     core.on_odom(sample.first,0,0,0,0,0);core.process_scan(sample.first,sample.second,-M_PI,2*M_PI/720,sample.first);
   }
-  EXPECT_EQ(core.mapping_restarts,0);
+  EXPECT_EQ(core.mapping_epoch,1u);
 }
 
 TEST(Planner, PrefersTenCentimeterBodyClearanceInRoomyCorridor) {
@@ -1086,35 +1126,17 @@ TEST(Mission, ConfirmedIslandMapSurvivesLostEvidenceAndPurpleLineThreshold) {
   };
   step(1.1,3.075);
   for(int i=0;i<8;++i)core.island_mapper.update({},4.25);
-  ASSERT_FALSE(core.island_mapper.shape.pose.valid);
+  ASSERT_TRUE(core.island_mapper.shape.pose.confirmed);
   core.search_started=0;core.search_distance=2.575;
   step(1.2,3.111);ASSERT_TRUE(core.path_);EXPECT_FALSE(core.searching);
   EXPECT_TRUE(core.navigation_island().pose.confirmed);EXPECT_NEAR(core.island_s(),4.493,1e-6);
   EXPECT_DOUBLE_EQ(core.search_distance,0);EXPECT_DOUBLE_EQ(core.search_started,-1);
-  ASSERT_TRUE(core.reset_mapping(1.2));EXPECT_EQ(core.fork_side(),-1);
+  core.deactivate();ASSERT_TRUE(core.activate(1.2));
   EXPECT_FALSE(core.navigation_island().pose.valid);EXPECT_FALSE(core.path_);
 }
-TEST(StartGate, ReentryRequiresLeavingAndFreshStableEntrance) {
-  EntranceReentry reentry;reentry.note_start(1);EntranceResult good{true,true,false,0.5,0,0,30};
-  for(double t:{1.1,1.2,1.3,6.0,6.1}) EXPECT_FALSE(reentry.update(t,good,true));
-  EXPECT_FALSE(reentry.update(6.2,{},false));EXPECT_FALSE(reentry.update(7.3,{},false));
-  EXPECT_FALSE(reentry.update(7.4,good,true));EXPECT_FALSE(reentry.update(7.5,good,true));EXPECT_TRUE(reentry.update(7.6,good,true));
-  EXPECT_FALSE(reentry.update(7.7,good,true));EXPECT_FALSE(reentry.update(8.0,good,true));
-}
 
-TEST(StartGate, ReentryRequiresWhiteLineInEveryConfirmationFrame) {
-  EntranceReentry reentry;reentry.note_start(1);
-  EntranceResult good{true,true,false,0.5,0,0,30};
-  EXPECT_FALSE(reentry.update(6,{},false));
-  EXPECT_FALSE(reentry.update(7.1,{},false));
-  for(double t:{7.2,7.4,7.6,7.8}) EXPECT_FALSE(reentry.update(t,good,false));
-  EXPECT_FALSE(reentry.update(8.0,good,true));
-  EXPECT_FALSE(reentry.update(8.2,good,true));
-  EXPECT_FALSE(reentry.update(8.4,good,false));
-  EXPECT_FALSE(reentry.update(8.6,good,true));
-  EXPECT_FALSE(reentry.update(8.8,good,true));
-  EXPECT_TRUE(reentry.update(9.0,good,true));
-}
+
+
 
 TEST(Perception, LimoLongitudinalAndTransverseHaveExactDimensions) {
   Params p;p.obstacle_fixed_size=true;p.obstacle_min_length=0.322;p.obstacle_min_width=0.22;
@@ -1279,9 +1301,9 @@ TEST(Mission, LostPathRetracesTwentyCentimetersAndExcludesFailedCorridor) {
     }
     const auto before=YAML::Load(core.status_json())["recovery"]["excluded_regions"].as<int>();
     ASSERT_GT(before,0);
-    // Carry the vehicle back to another odometry pose and re-anchor the same course.
+    // A deliberately started new mission can re-anchor the same course.
     t+=0.1;core.on_odom(t,3.0,-1.0,0.5,0,0);
-    ASSERT_TRUE(core.reset_mapping(t));
+    core.deactivate();ASSERT_TRUE(core.activate(t));
     EXPECT_EQ(YAML::Load(core.status_json())["recovery"]["excluded_regions"].as<int>(),before);
     core.on_odom(t+0.1,3.0,-1.0,0.5,0,0);
     core.process_scan(t+0.1,std::vector<float>(720,8),-M_PI,2*M_PI/720,t+0.1);
@@ -1380,7 +1402,7 @@ TEST(Mission, IslandFitWaitsForPurpleLineAndReusesEarlierObservations) {
     EXPECT_DOUBLE_EQ(*core.island_section_reached_at,2.3);
     const auto status=YAML::Load(core.status_json());
     EXPECT_TRUE(status["island_mapping"]["section_reached"].as<bool>());
-    ASSERT_TRUE(core.reset_mapping(2.7));
+    core.deactivate();ASSERT_TRUE(core.activate(2.7));
     EXPECT_FALSE(core.island_section_reached_at);
     EXPECT_FALSE(core.island_mapper.shape.pose.valid);
     core.on_odom(1,0,0,0,0,0);
@@ -1408,7 +1430,7 @@ TEST(Mission, PurpleLineStillRequiresDirectionAndPostSignObservations) {
   ASSERT_TRUE(core.process_scan(2.1,scan,-M_PI,2*M_PI/720,2.1));
   EXPECT_DOUBLE_EQ(core.island_fit_stamp,2.1);
   core.on_odom(1,0,0,0,0,0);
-  EXPECT_FALSE(core.island_section_reached_at);
+  EXPECT_TRUE(core.island_section_reached_at);
 }
 
 
@@ -1481,7 +1503,7 @@ TEST(Mission, IslandCorrectsRoadSidesWithoutMovingEgoFrame) {
     EXPECT_NEAR((new_l-axis)*std::cos(updated.pose.yaw)-updated.width/2,0.5,1e-9);
     EXPECT_NEAR((axis-new_r)*std::cos(updated.pose.yaw)-updated.width/2,0.5,1e-9);
     EXPECT_DOUBLE_EQ(core.fork_goal()->x,goal->x);EXPECT_DOUBLE_EQ(core.fork_goal()->y,goal->y);
-    ASSERT_TRUE(core.reset_mapping(3.75));
+    core.deactivate();ASSERT_TRUE(core.activate(3.75));
     EXPECT_FALSE(YAML::Load(core.status_json())["road_mapping"]["island_anchored"].as<bool>());
     core.on_odom(1,0,0,0,0,0);EXPECT_FALSE(core.fork_goal());
   }
@@ -1590,7 +1612,7 @@ TEST(Outline, RecoversLargeLateralOffsetFromVisibleBendAndKeepsVehicleInside) {
   }
 }
 
-TEST(Mission, ResetEpochClearsObservedPointsAndRejectsPacketsFromPreviousMap) {
+TEST(Mission, ExplicitNewMissionRejectsPacketsFromPreviousSession) {
   Params p;p.fork_shape=true;p.lane_lidar_filter=false;p.lane_align=false;
   ObjAvoidCore core(p);core.on_odom(1,0,0,0,0,0);ASSERT_TRUE(core.activate(1));
   std::vector<XY> points;for(int i=0;i<20;++i) points.push_back({.5+i*.03,.7});
@@ -1599,7 +1621,7 @@ TEST(Mission, ResetEpochClearsObservedPointsAndRejectsPacketsFromPreviousMap) {
   }
   ASSERT_FALSE(core.ymap->confirmed().empty());ASSERT_FALSE(core.yellow_observed.empty());
   const auto epoch=core.mapping_epoch;core.on_odom(2,0,0,0,0,0);
-  ASSERT_TRUE(core.reset_mapping(2));EXPECT_EQ(core.mapping_epoch,epoch+1);
+  core.deactivate();ASSERT_TRUE(core.activate(2));EXPECT_EQ(core.mapping_epoch,epoch+1);
   EXPECT_TRUE(core.ymap->confirmed().empty());EXPECT_TRUE(core.wmap->confirmed().empty());
   EXPECT_TRUE(core.yellow_observed.empty());EXPECT_TRUE(core.white_observed.empty());
   EXPECT_TRUE(core.yellow_history.empty());EXPECT_FALSE(core.fork_goal());EXPECT_FALSE(core.path_);
@@ -1660,10 +1682,11 @@ TEST(Mission, StartupRestartsStopConfirmationWhenOdometryIsStale) {
   for(double t:{4.,6.999}) {startup_scan(core,t);core.control(t,.04,v,steer);EXPECT_DOUBLE_EQ(v,0);}
   startup_scan(core,7.);core.control(7.,.04,v,steer);EXPECT_GT(v,0);
 }
-TEST(Mission, StartupHoldSurvivesMapResetWithoutEarlyReleaseOrRestart) {
+TEST(Mission, RepeatedActivationCannotResetMapsOrStartupHold) {
   ObjAvoidCore core(startup_params());core.on_odom(0,0,0,0,0,0);ASSERT_TRUE(core.activate(0,0,0,0,true));
   double v=1,steer=0;startup_scan(core,0);core.control(0,.04,v,steer);
-  startup_scan(core,1.);ASSERT_TRUE(core.reset_mapping(1.));
+  startup_scan(core,1.);const auto epoch=core.mapping_epoch;
+  EXPECT_FALSE(core.activate(1.));EXPECT_EQ(core.mapping_epoch,epoch);
   startup_scan(core,2.999);core.control(2.999,.04,v,steer);EXPECT_DOUBLE_EQ(v,0);
   startup_scan(core,3.);core.control(3.,.04,v,steer);EXPECT_GT(v,0);
 }

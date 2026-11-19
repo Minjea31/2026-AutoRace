@@ -7,6 +7,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(ackermann_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Threads REQUIRED)
 
@@ -17,7 +18,7 @@ target_link_libraries(lane_pid_core PUBLIC yaml-cpp)
 
 add_executable(lane_pid_controller src/node.cpp)
 target_link_libraries(lane_pid_controller lane_pid_core)
-ament_target_dependencies(lane_pid_controller rclcpp std_msgs ackermann_msgs)
+ament_target_dependencies(lane_pid_controller rclcpp std_msgs ackermann_msgs nav_msgs)
 install(TARGETS lane_pid_controller DESTINATION lib/${PROJECT_NAME})
 
 find_package(Qt5 QUIET COMPONENTS Widgets)

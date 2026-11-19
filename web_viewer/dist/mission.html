@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoRace 웹뷰어</title>
+  <link rel="stylesheet" href="/mission.css">
+  <script src="/mission.js" defer></script>
+</head>
+<body>
+  <main>
+    <section class="path-panel">
+      <header>
+        <h1>장애물 경로</h1>
+        <button id="fit" type="button">화면 맞춤</button>
+      </header>
+      <canvas id="path" aria-label="차량 중심 장애물 경로"></canvas>
+      <p class="legend"><span class="candidate">후보 경로</span><span class="selected">선택 경로</span><span>LiDAR</span></p>
+    </section>
+    <section>
+      <header><h2>Status Activate</h2></header>
+      <p id="connection" role="status">수신 대기</p>
+      <dl id="activation"></dl>
+    </section>
+    <section>
+      <header><h2>현재 YOLO 감지</h2></header>
+      <p id="yolo-empty">수신 대기</p>
+      <ul id="yolo-detections" class="topics" hidden></ul>
+      <h3>최근 감지 기록</h3>
+      <p id="yolo-history-empty">감지 기록 없음</p>
+      <ul id="yolo-history" class="topics" hidden></ul>
+    </section>
+  </main>
+</body>
+</html>

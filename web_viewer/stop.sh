@@ -5,7 +5,7 @@ task_pidfile="$task_viewer_root/.run/viewer.pid"
 if [[ ! -f "$task_pidfile" ]]; then echo 'Web viewer is not running.'; exit 0; fi
 task_viewer_pid=$(cat "$task_pidfile")
 if [[ "$task_viewer_pid" =~ ^[0-9]+$ ]] && kill -0 "$task_viewer_pid" 2>/dev/null; then
-  if [[ "$(tr '\0' ' ' < "/proc/$task_viewer_pid/cmdline")" != *"$task_viewer_root/server.py"* ]]; then
+  if [[ "$(tr '\0' ' ' < "/proc/$task_viewer_pid/cmdline")" != *"$task_viewer_root/mission_server.py"* ]]; then
     echo 'PID belongs to another process; it was not stopped.' >&2
     exit 1
   fi

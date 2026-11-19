@@ -11,10 +11,15 @@ parking_node:
     exit_lane_timeout_sec: 0.25
     exit_lane_min_confidence: 0.10
     prevent_active_retrigger: true
+    parking_sign_motion_guard: true
+    # Confirm each true stream once; gap > 1s starts another set.
+    parking_sign_set_gap_sec: 1.0
+    # A signal/crosswalk-owned white-line stop cannot begin a parking stop.
+    parking_stop_require_lane_owner: true
     retain_parking_control: true
     parking_center_adjustment: 0.05
     entry_departure_reserve: 0.01
-    require_observed_parking_center: true
+    require_observed_parking_center: false  # Infer the gap from surrounding objects; collision checks still apply.
     validate_reverse_entry: true
     async_scan_matching: true
     planner_prewarm: true
@@ -26,10 +31,13 @@ parking_node:
     white_roi_right: 0.950
     white_roi_top: 0.961
     white_roi_bottom: 1.000
-    white_roi_minimum_ratio: 0.08
+    white_roi_minimum_ratio: 0.40
     white_image_topic: /camera/color/image_raw/compressed
     white_image_timeout_sec: 0.30
     white_image_hz: 10.0
+    white_approach_speed: 0.20
+    white_approach_timeout_sec: 20.0
+    white_approach_max_distance: 3.0
     lane_white_config: ''
     lane_white_node: /lane_fusion_node
     obstacle_memory_enabled: true
@@ -70,7 +78,7 @@ parking_node:
     yellow_boundary_clearance: 0.02
     initial_clear_radius: 0.3
     # Operator-selected policy: unobserved/zero-range sectors are assumed free.
-    assume_unobserved_free: true
+    assume_unobserved_free: true  # Also used by forward parking search; measured obstacles still block.
     allow_reverse: true
     recovery_uses_memory_map: true
     recovery_min_distance: 0.20
@@ -88,7 +96,7 @@ parking_node:
     max_recovery_attempts: 5
     parking_speed: 0.40
     min_turn_speed: 0.05
-    parking_hold_seconds: 3.0
+    parking_hold_seconds: 30.0  # 11-19(사용자): 주차 후 대기 3 s -> 30 s
     exit_heading_tolerance: 0.05
     max_deceleration: 1.0
     max_yaw_rate: 1.5
@@ -103,7 +111,7 @@ parking_node:
     localization_preserve_timeout: 1.0
     health_path_hold_timeout: 2.0  # Late heartbeat: follow the saved path only with fresh EKF + collision scans.
     search_enabled: true
-    search_speed: 0.20
+    search_speed: 0.20  # Find a candidate, confirm a stop, then replan from the stopped pose.
     search_max_distance: 1.5
     search_timeout: 20.0
     search_resume_scans: 2
@@ -175,7 +183,8 @@ parking_node:
     slot_ambiguity_margin: 0.02
     boundary_tolerance: 0.12
     automatic_target_selection: true
-    pair_fallback_enabled: false
+    pair_fallback_enabled: true  # A full five-object grid is optional; use observed object gaps too.
+    pair_min_cluster_size: 0.08  # Partial faces may bound a pair gap without changing the grid/enclosure model.
     target_heading_step: 0.08726646259971647
     center_stop_tolerance: 0.03
     pair_stop_tolerance: 0.05
@@ -195,6 +204,9 @@ parking_node:
     enclosed_space_detection: true
     continuous_replanning: true
     require_complete_entry_path: true
+    candidate_approach_enabled: true  # Move along a checked approach while refining the complete entry path.
+    candidate_plan_attempts: 3
+    candidate_plan_timeout: 3.0
     control_preview_time: 0.40
     enclosure_min_objects: 3
     # Single-empty mode requires five occupied cells before selecting a target.

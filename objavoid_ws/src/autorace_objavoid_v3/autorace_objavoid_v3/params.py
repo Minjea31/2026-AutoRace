@@ -11,11 +11,23 @@ class Params:
     start_legacy: bool = True
     start_entrance: bool = False
     start_entrance_confirm: int = 3
+    start_score_min: float = 0.0
+    start_score_window: float = 1.0
+    start_score_support: int = 40
+    start_obs_hold: float = 1.0
+    start_gate_rate: float = 0.0
+    start_require_lane: bool = False
+    start_cone_block: float = 0.0
+    start_once: bool = False
+    start_restart_on_fail: bool = False  # 실패 정지 중 시작 점수 충족 시 재활성화(C++ 노드)
+    start_restart_stop: float = 2.0
+    start_restart_min_active: float = 5.0
+    start_restart_sign_block: float = 3.0
+    start_score_crosswalk: bool = False
+    start_score_after_crosswalk_sec: float = 0.0
+    start_score_min_after_crosswalk: float = 0.0
     fork_sign_cache_sec: float = 30.0
     fork_goal_tolerance: float = 0.15
-    obstacle_reacquire_reset: bool = True
-    obstacle_reacquire_absence_sec: float = 1.0
-    obstacle_reacquire_confirm_scans: int = 2
     preferred_obstacle_clearance: float = 0.10
     road_outline: bool = False
     road_outline_length: float = 6.665
@@ -226,12 +238,19 @@ class Params:
     fork_cam_cx: float = 321.5
     fork_cam_x: float = 0.133        # base_link 기준 카메라 위치(전방, 왼쪽)
     fork_cam_y: float = -0.05
-    fork_bearing_tol: float = 0.10   # YOLO 박스 방향과 LiDAR 박스 방향 차이 허용(rad)
+    fork_bearing_tol: float = 0.15   # YOLO 박스 방향과 LiDAR 박스 방향 차이 허용(rad)
     fork_post_max_dist: float = 3.5
-    fork_post_center_d: float = 0.4  # 받침이 도로 가운데(|d| < 이 값)일 때만 갈림길 표지판으로 사용
+    fork_post_center_d: float = 0.8  # 받침 후보 |d| 상한(도로 좌표가 틀어져도 받침을 놓치지 않게)
+    fork_sign_size: float = 0.10  # 표지판 판 높이(m): 카메라-표지판 거리 = fx * size / 박스 높이
+    fork_post_match: float = 0.5  # LiDAR 받침 후보 거리와 카메라 추정 거리 차 허용(m)
+    fork_pass_offset: float = 0.3  # 목표 경로: A면 받침 왼쪽 끝 + 이 값, B면 오른쪽 끝 - 이 값
 
     # --- 자동 시작(C++ 노드만): 흰 정지선 + 그 너머 흰 점선(3차선에만 있음) + 전방 장애물이 연속으로 보이면 활성화 ---
     start_auto: bool = True
+    start_white_ratio: float = 0.0  # >0: deep 흰색이 차선 BEV의 이 비율 이상이면 시작(이 조건만)
+    manual_resume_restart: bool = False  # 회피 중 수동->자율 복귀 시 정지 후 재시작(C++ 노드)
+    manual_resume_stop_sec: float = 0.5
+    start_white_confirm: int = 1
     start_need_line: bool = False    # true: 흰 정지선도 있어야 시작(false = 점선 + 장애물만)
     start_line_x_min: float = 0.15   # 정지선을 찾는 차 앞 거리 범위(m, base_link 전방)
     start_line_x_max: float = 1.0

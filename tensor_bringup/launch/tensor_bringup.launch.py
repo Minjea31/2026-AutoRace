@@ -29,6 +29,11 @@ LANE_NODES = {
 }
 
 
+def _is_pid(action):
+    """lane_pid_controller Node(deep/opencv). fusion 모드 PID는 include라 비전 그룹에 그대로 남음."""
+    return isinstance(action, Node) and getattr(action, 'node_executable', None) == 'lane_pid_controller'
+
+
 def _lane(mode, speed_text, model, deep_rate, hsv):
     if speed_text.strip():
         value = float(speed_text)
@@ -44,11 +49,15 @@ def _lane(mode, speed_text, model, deep_rate, hsv):
                               'debug': True}]),
             Node(package='autorace_lane_pid', executable='lane_pid_controller', output='screen',
                  parameters=[pid + '/config/real/pid.yaml',
-                             {'use_sim_time': False, 'enable_vehicle_output': True}, speed]),
+                             {'use_sim_time': False, 'enable_vehicle_output': True,
+                              'parking_calibration_stop': False, 'parking_slowdown_speed': .2,
+                              # same as parking_real.yaml parking_sign_motion_guard (sign ignored 5 s after departure)
+                              'parking_sign_motion_guard': True, 'parking_sign_departure_ignore_sec': 5.}, speed]),
         ]
     if mode == 'deep':
-        # Detection = deep mask, everything after = lane_ws (lane_deep_lite), lane_ws PID.
-        deep_lite, pid = share('autorace_lane_deep_lite'), share('autorace_lane_pid')
+        # Detection = deep mask, everything after = lane_ws (lane_deep_lite), lane_ws PID with
+        # deep-only values (autorace_lane_deep_lite config/real/pid.yaml; the lane_ws file stays for opencv).
+        deep_lite = share('autorace_lane_deep_lite')
         speed = {'speed': float(speed_text)} if speed_text.strip() else {}
         return [
             IncludeLaunchDescription(
@@ -59,9 +68,12 @@ def _lane(mode, speed_text, model, deep_rate, hsv):
                  parameters=[{'config_file': deep_lite + '/config/real/lane.yaml', 'use_sim_time': False,
                               'debug': True}]),
             Node(package='autorace_lane_pid', executable='lane_pid_controller', output='screen',
-                 parameters=[pid + '/config/real/pid.yaml',
+                 parameters=[deep_lite + '/config/real/pid.yaml',
                              {'use_sim_time': False, 'enable_vehicle_output': True,
-                              'target_topic': '/lane_deep/target'}, speed]),
+                              'target_topic': '/lane_deep/target',
+                              'parking_calibration_stop': False, 'parking_slowdown_speed': .2,
+                              # same as parking_real.yaml parking_sign_motion_guard (sign ignored 5 s after departure)
+                              'parking_sign_motion_guard': True, 'parking_sign_departure_ignore_sec': 5.}, speed]),
         ]
     return [IncludeLaunchDescription(
         PythonLaunchDescriptionSource(share('autorace_lane_fusion_pid') + '/launch/lane_fusion_pid.launch.py'),
@@ -125,6 +137,13 @@ def _setup(context):
                               'command_topic': '/mission/objavoid/command_05'}.items(),
         )])]
 
+    web = []
+    if C('web').perform(context) == 'true':
+        web = [IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(str(Path(__file__).with_name('mission_web.launch.py'))),
+            launch_arguments={'web_host': C('web_host'), 'web_port': C('web_port')}.items(),
+        )]
+
     mux = include('autorace_mux', 'mux.launch.py', {'output_topic': C('output_topic'), 'parking_guard_enabled':'true'})
     timeout = ParameterValue(C('startup_timeout'), value_type=float)
     ready = Node(
@@ -151,6 +170,7 @@ def _setup(context):
         return [LogInfo(msg='[bringup 결과] 전체 실행 확인 실패: 위의 누락 항목을 확인하세요.')]
 
     return [
+        *web,
         LogInfo(msg=f'Lane mode: {mode} ({", ".join(LANE_NODES[mode])})'),
         LogInfo(msg='Mission startup stagger: parking 0s, slow/crosswalk/signal/cone 2s, lane 4s, objavoid V3 4s, YOLO 8s'),
         RegisterEventHandler(OnProcessExit(target_action=ready, on_exit=inputs_ready)),
@@ -165,7 +185,9 @@ def _setup(context):
         heavy(include('cone_lane_follower', 'roi.launch.py', {
             'use_sim_time': 'false', 'rviz': 'false', 'params_file': C('cone_params'),
         }), 2.),
-        heavy(GroupAction(actions=lane), 4.),
+        # 11-19: lane PID(50 Hz 제어)는 비전 그룹(코어 0~4, nice 5)에서 빼 기본 우선순위로 — 비전 노드가 밀려도 제어 명령은 제때
+        heavy(GroupAction(actions=[a for a in lane if not _is_pid(a)]), 4.),
+        TimerAction(period=4., actions=[a for a in lane if _is_pid(a)]),
         *objavoid,
         heavy(Node(
             package='yolo_detect', executable='yolo_detect',
@@ -185,9 +207,10 @@ def _defaults():
         'parking_params': share('autorace_parking') + '/config/parking_real.yaml',
         'cone_params': share('cone_lane_follower') + '/config/clustering.yaml',
         'startup_timeout': '60.0', 'output_topic': '/cmd_vel',
+        'web': 'false', 'web_host': '0.0.0.0', 'web_port': '8080',
         'lane_speed': '0.5',
         'lane_mode': 'fusion', 'lane_deep_rate': '20.0', 'lane_hsv': 'false',
-        'objavoid': 'true', 'objavoid_car': '04', 'objavoid_mode': 'normal',
+        'objavoid': 'true', 'objavoid_car': '06', 'objavoid_mode': 'normal',
     }
 
 

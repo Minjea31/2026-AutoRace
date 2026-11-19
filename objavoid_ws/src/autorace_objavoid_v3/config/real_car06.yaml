@@ -1,0 +1,147 @@
+# 06번 실차 덮어쓰기(launch car:=06, tensor_bringup objavoid_car 기본). 2026-11-18 real_car04.yaml에서 복사.
+# 11-18 bag 2개(06번이 04번 설정으로 주행): 회피 중 노란 선 밖으로 나감.
+#   바닥 투영: 04번 호모그래피·좌우 0.877은 06번 영상에서 바닥을 5~30 cm 멀리, 오른쪽을 5~10 cm 더 바깥으로 놓음
+#   (트랙 바깥 노란 선이 LiDAR 벽보다 바깥으로 그려짐). 0으로 두면 lane_config(06번 줄자 보정 BEV)를 씀.
+# 조향은 04번과 같게 둠: 06번 드라이버(보정 끔)도 실제 조향이 명령의 약 0.4배(IMU, 11-18 bag 2개: 명령 0.6 -> 0.26,
+#   0.87 -> 0.35 rad)로 04번 보정 끈 상태와 같은 특성. 보정 흉내(cmd_emulate_calibration)를 켜면 원한 0.2 -> 실제 약 0.22,
+#   0.3 -> 약 0.25. 흉내를 끄면 회피 조향이 0.4배로 약해짐.
+# 04번에서 맞춘 나머지(계획 반경, 여유, 시작 판정 등)도 그대로.
+objavoid_v3_node:
+  ros__parameters:
+    w_dkappa: 0.002
+    obstacle_fixed_size: true
+    obstacle_min_length: 0.322
+    obstacle_min_width: 0.22
+    v_max: 0.3               # 11-19(사용자): 0.2는 구간 6~8 m에 40~70 s로 너무 느림 -> 기본값 0.3
+    curve_slow: 0.1
+    ff_preview_time: 0.2
+    # 04번 카메라 바닥 투영: camera_info(fx 487.3, cx 321.5, cy 220.4) + 장착(앞 0.133, 좌 -0.05, 높이 0.21 m)
+    #   + 콘 238쌍으로 맞춘 숙임 1.5°·yaw 1.4°, 오차 중앙값 3.4 cm(06번 BEV 값은 25 cm)
+    # 06번: 0 = lane_config(lane_fusion real/lane.yaml, 06번 2026-11-07 줄자 보정 BEV)
+    ground_homography: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # 04번 /odom: 회전 미확인(06번은 IMU의 2배), 거리 약 8% 짧음 -> 방향은 IMU, 위치는 odom 속도 x 1.08
+    yaw_source: imu
+    imu_topic: /imu
+    odom_scale: 1.0          # 06번 거리 배율 미측정(04번 1.08은 04번 값)
+    # 내부 자세가 드라이버 odom TF와 다르므로 마커는 차체 기준으로 표시(RViz 고정 프레임 base_link)
+    marker_frame: base_link
+    # Full-image deep-only evidence, sampled every 2 pixels; retain only 2m ahead.
+    lane_full_image: true
+    lane_max_range: 2.0
+    lane_max_lateral: 1.5
+    lane_align_max: 0.35        # 활성화는 도로와 거의 나란한 자세에서(뒤쪽 콘 줄 등 오인 방지)
+    lane_align_min_len: 0.4      # 04번 시야에서 한 번에 보이는 외곽선이 짧음(약 0.45 m)
+    # 실차 트랙에는 시뮬 입구 깔때기가 없음: 사전 경계를 처음부터 3차로 폭(±0.768)으로
+    boundary_s: [-1.0, 4.25, 4.75, 8.0]      # 갈림길: 표지판 받침(약 5.5 m) 너머 갈래 안까지 경로를 그리도록(5.8이면 받침 앞에서 끝남)
+    # 실차 트랙: 차로 폭 0.50 m(사용자 실측) -> 3차로 노란선 안쪽 ±0.75
+    #   04번 카메라는 같은 점선 간격을 0.57 m, 외곽선을 0.86 m로 잼(좌우 약 14% 과대) -> 좌우 0.877 보정
+    ground_scale: [1.0, 1.0]   # 06번 BEV는 차로 폭 0.52 m로 보정됨(0.877은 04번 카메라용)
+    boundary_left: [0.75, 0.75, 0.77, 0.77]
+    boundary_right: [-0.75, -0.75, -0.77, -0.77]
+    lane_centers: [-0.5, 0.0, 0.5]
+    lane_dash_offset: 0.25
+    lane_pair_widths: [0.5, 1.5]
+    lane_island: false          # 실차 배치 미확인: 섬 검출로 구간 끝을 바꾸지 않음(오검출 시 3.5 m로 줄었음)
+    lane_align_tol: 0.05
+    lane_center_tol: 0.06
+    # 11-15: 통합 실행에서 센서를 steering_command_calibration:=true로 띄우면 차선 주행(lane PID)이 망가짐 ->
+    #   센서는 보정 없이(기본) 띄우고, V3 명령만 노드 안에서 드라이버 보정식과 같은 서보 값이 되도록 변환.
+    #   아래 조향 설명의 '보정 켬'은 이 변환으로 그대로 재현됨. 센서 보정을 다시 켜면 이 값을 false로.
+    cmd_emulate_calibration: true   # 06번도 필요(맨 위 설명)
+    # 자동 시작: slow/bump 미션 밖에서 노란 입구 꺾임 연속 확인 + 전방 장애물 2개.
+    # 11-17 174119 bag: 기존 흰 점선 조건은 라바콘에서도 성립하므로 04번에서는 끈다.
+    start_need_line: false
+    # 11-15: 갈림길 단순화(사용자) — A/B 결정 위치에서 fork_turn_after 더 간 뒤 그쪽으로 fork_turn_steer 로
+    #   fork_turn_dist 꺾고 DONE(lane에 넘김). 표지판 받침·섬 추정 안 씀. 세 값은 실차에서 맞출 것.
+    fork_turn: false
+    fork_shape: false  # 11-19: 섬 매칭은 구간 끝 선에서야 시작해 노란 선 막힘·후진 -> 표지판 받침 기준 L/R(11-15 stash 이식)
+    fork_sign_min: 1  # YOLO has already confirmed this direction
+    road_outline: false  # 11-19: 잘못 매칭 시 구간 중 좌표계가 밀려 차선 이탈 -> 끔(입구 1 m 안 lane_align만)
+    # 11-18: 노란 입구를 "같은 프레임에 2장 연속 + 장애물 2개"로 보던 방식은 입구가 0.3초만 보여 운에 좌우됨
+    #   (bag 2개에서 실제 입구를 2~3프레임 차이로 겨우 잡거나 놓침, 주차장·라바콘에서 오시작).
+    #   -> 누적 점수: 최근 1초 입구 support x 시간 합 >= 22 + 최근 1초 장애물 최대 >= 2, 판정 20 Hz.
+    #   bag 7개(11-17 5개, 11-18 2개): 실제 입구 5/5(점수 24.7~122), 라바콘 밖 다른 곳 최대 19.4.
+    #   라바콘 모서리는 33~52라 미션 상황으로 막음: lane 주행 중에만, 콘 미션 뒤 5초 차단, DONE 뒤 다시 안 켬.
+    start_entrance: false
+    start_score_min: 0.0  # 11-19: 끔(흰색 비율만 사용)
+    start_score_window: 1.0
+    start_score_support: 40
+    start_obs_hold: 1.0
+    start_gate_rate: 20.0
+    start_require_lane: false  # 11-19: 끔(mux 상태 무관)
+    start_cone_block: 0.0  # 11-19: 끔
+    # 11-19(사용자): 장애물 회피 시작 조건은 이것 하나 — deep 흰색 lane이 BEV 영상의 1.5% 이상(새 마스크 1회).
+    #   노란 입구 점수·횡단보도 기준·흰 점선·장애물 개수·lane/라바콘 조건 모두 끔. 남은 안전장치:
+    #   회피 중 판정 안 함, start_once(끝나면 다시 안 켬), 서행·방지턱 중 차단, 실패 재시작(같은 흰색 비율 기준).
+    start_white_ratio: 0.015
+    start_white_confirm: 1
+    # 11-19(사용자): 회피 중 리모컨 수동(control_mode 3)으로 바꿨다가 자율(1)로 돌아오면 0.5 s 정지 명령 후 그 자리 기준으로 재시작
+    manual_resume_restart: true
+    manual_resume_stop_sec: 0.5
+    start_once: true
+    # 11-19: 실패로 서 있는 동안(STOP 2 s 이상, 활성 5 s 이후) 시작 점수가 다시 충족되면 새 입구 기준으로 재시작
+    start_restart_on_fail: true
+    start_restart_stop: 2.0
+    start_restart_min_active: 5.0
+    # 갈림길 섬+표지판 앞에서 점수 22~26(11-19 bag 114932 143~147 s, 115608 60 s) -> 표지판 받은 뒤 3 s는 재시작 막음
+    start_restart_sign_block: 3.0
+    start_score_crosswalk: false  # 11-19: 끔
+    start_score_after_crosswalk_sec: 5.0   # 11-19(사용자): 횡단보도 해제 후 5 s 동안은
+    start_score_min_after_crosswalk: 0.0  # 11-19: 끔
+    start_entrance_confirm: 2  # (start_entrance: true일 때만) 노란 입구 꺾임을 새 영상 2장 연속 확인하면 시작 허용
+    start_legacy: false  # 흰 점선 방식 끔
+    # 11-15 10:05 시작 지점에서 오작동(점선 L0 R2 + 정면 물체): 점선 조각이 좌우 모두 있고 간격이 차로 폭(0.5 ± 0.12 m)일 때만
+    lane_rate: 10.0          # 시작 판정 주기: 5 → 10Hz
+    start_dash_both: true
+    start_obs_min: 2           # 시작 통로 안의 장애물 2개 이상
+    start_confirm: 1           # 점선·장애물 조건을 만족한 첫 판정에 시작
+    start_after_crosswalk: false  # 횡단보도 선행 조건 없음
+    # 04번 조향(2026-11-14 bag 3개): 센서 런치 기본(steering_command_calibration=false + offset 0.04 -> 서보 0.35 제한)
+    #   에서는 실제 곡률이 명령의 0.35배(반경 약 1.2 m). 센서를 steering_command_calibration:=true로 띄우는 것을 전제로
+    #   서보 모델 한계(안쪽 바퀴 0.44 -> 중심 약 0.37 rad, 반경 약 0.52 m)에 여유를 둔 값.
+    #   보정을 켜지 않으면: steer_gain 2.8, max_steering 0.44, plan_min_radius 1.25, escape/observe 1.2로 바꿔야 함.
+    # 11-14 21:46 bag(보정 켬): 오른쪽 최대가 드라이버에서 잘림(중립 보정 0.04를 서보 한계 0.35 안에서 더함):
+    #   명령 -0.37 -> 실제 -0.28(반경 0.70 m), +0.37 -> +0.40(0.50 m).
+    # 21:59 bag: 상수 쏠림 보정(steer_trim)은 역효과 — 드라이버 데드밴드 보정이 0 근처에서 서보 값을 ±0.12씩 건너뛰어
+    #   직진 명령 -0.045가 실제 오른쪽 -0.06~-0.08이 됨. steer_trim은 0으로 둘 것.
+    # 22:04 이후: 사용자 결정으로 sensor_ws 04번 중립 보정 0.04 -> 0.01(오른쪽 한계 약 -0.33 예상). 그 기준 반경.
+    #   다음 bag에서 오른쪽 최대가 여전히 -0.3보다 약하면 plan_min_radius 0.65, escape/observe 0.62로.
+    # 11-14 23:17~23:50 bag 5개 실측(보정 0.01): 명령 +0.37 -> 실제 +0.39(반경 0.49 m), -0.37 -> -0.30(0.66 m).
+    #   최악 배치(23:50 3단 슬라롬: 0.7 m 안에 차로 2개 전환)를 앞으로만 통과하려면 크게 꺾어야 함 ->
+    #   좌우 계획 반경을 따로(왼쪽 0.5, 오른쪽 0.62), 방향각 한계 0.9 -> 1.25 rad, 명령 상한 0.45(오른쪽 서보 끝까지).
+    #   시뮬(실차 좌우 한계·0.3 s 지연 모델)에서 slalom3·default7 통과, 회귀 20개 충돌 0.
+    # 11-15 01:01 수동 주행(리모컨): 후진 없이 3차선->1차선->3차선, 헤딩 76°(1.32 rad), 반경 좌 0.46 / 우 0.40 m.
+    #   ROS 명령은 드라이버 서보 상한(steering_command_limit)에서 잘림: 0.35 -> 우 0.74 m, 0.38 -> 우 0.61 m.
+    #   0.42면 리모컨과 같은 각(안쪽 0.42x1.92-0.23=0.58 rad -> 반경 약 0.40 m). 아래 값은 0.42 전제
+    #   (센서: steering_command_limit:=0.42). 0.38로 띄우면 우 0.65/0.63, 0.35면 우 0.75/0.74로 되돌릴 것.
+    #   시뮬 slalom_rlr(수동 배치)·slalom3·slalom_lr·default7 후진 없이 통과(좌우 0.45/0.43 rad·0.3 s 지연 모델).
+    # 11-15: 서보 상한 0.48 시험용. 명령 0.6이면 오른쪽 서보 값이 -(0.74+0.23)/1.92+0.01 = -0.49 -> 상한 -0.48까지 닿음
+    #   (0.5면 -0.43에서 멈춤). 왼쪽은 이미 기계 한계(+0.40 rad)라 더 꺾이지 않음.
+    # 11-15 01:31 bag: 센서 steering_command_limit:=0.48 + 아래 값으로 수동 개입 없이 3단 슬라롬 통과(정지 0, 계획 실패 0).
+    #   이 설정은 상한 0.48 전제. 명령 -0.47 -> 실제 -0.34, +0.52 -> +0.44.
+    max_steering: 0.7
+    steer_gain: 1.0
+    steer_trim: 0.0
+    plan_min_radius: 0.6        # 속도 감속 기준(좌우 반경은 아래)
+    # 11-15 01:21 bag(상한 0.42): 명령 -0.5 -> 실제 -0.34(반경 0.58 m), +0.5 -> +0.40(0.48 m). 리모컨(우 0.40 m)만큼은 안 나옴
+    plan_min_radius_left: 0.4   # 0.4는 실측(좌 0.48 / 우 0.58 m)보다 작아 못 따라감
+    plan_min_radius_right: 0.4
+    max_heading: 1.55
+    escape_min_radius: 0.5
+    escape_min_radius_left: 0.48
+    escape_min_radius_right: 0.58
+    observe_min_radius: 0.55
+    # 여유: 0.04/0.18이면 default7·3단 슬라롬이 후진 없이 막힘 -> 0.03/0.15(22:04의 0.025/0.12보다는 넓게)
+    margin_obstacle: 0.05  # 11-19: 0.03 -> 0.05(사용자, 실차 위치 오차 여유)
+    clearance_soft: 0.18        # 11-15 차에서 조정한 값 유지
+    # 뒷바퀴가 지난 콘에 스침: 지난 장애물을 더 오래 기억(0.08 -> 0.2, 차 뒤끝 판정도 가장 뒤 모서리 기준으로 수정)
+    pass_margin: 0.2
+    # 11-15 차에서 조정한 값(공통 objavoid_v3.yaml에서 04번 설정으로 옮김)
+    max_steering_rate: 1.3
+    v_min: 0.1
+    # 일반 장애물 후진은 끔. fork_shape의 노란 경계 전용 20cm 후진은 별도 조건으로 동작.
+    reverse_enable: false
+    k_psi: 1.4
+    fb_limit: 0.30
+    scan_timeout: 0.6           # 실차 LiDAR 6.5~10 Hz, 가끔 0.4 s 넘는 간격
+    reverse_dist: 0.20

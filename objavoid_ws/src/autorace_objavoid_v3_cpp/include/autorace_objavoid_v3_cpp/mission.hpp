@@ -64,15 +64,14 @@ public:
     return island_est_ ? *island_est_ : kInf;
   }
   // YOLO 표지판 박스(영상 가로 중심 u, 촬영 시각) -> 그 방향의 LiDAR 박스를 표지판 받침으로
-  void on_sign_detail(double stamp, bool right, double u);
+  // h: 박스 높이(px, 0이면 모름) -> 카메라 거리 추정. LiDAR 받침이 없으면 카메라 추정 위치를 받침으로(11-15 노트북 stash)
+  void on_sign_detail(double stamp, bool right, double u, double h = 0.0);
   std::optional<Box> sign_post() const;
   bool island_known() const {return std::isfinite(island_s());}
   Box island_box() const {return {island_s(), island_s() + p.fork_island_len, -p.fork_island_half, p.fork_island_half};}
   IslandShape navigation_island() const;
-  bool reset_mapping(double t,double shift=0,double yaw_offset=0,double d_shift=0);
   RoadOutline road_outline() const;
   std::optional<XY> fork_goal() const;
-  int mapping_restarts=0;
   unsigned long mapping_epoch=0;
   int fork_side() const {return fork_side_;}  // +1 왼쪽(A), -1 오른쪽(B), 0 미정
   IslandMapper island_mapper;
@@ -100,6 +99,7 @@ public:
   bool active() const {std::lock_guard<std::recursive_mutex> g(mtx_); return frame.has_value();}
   State get_state() const {std::lock_guard<std::recursive_mutex> g(mtx_); return state;}
   std::string get_done_reason() const {std::lock_guard<std::recursive_mutex> g(mtx_); return done_reason;}
+  std::string get_reason() const {std::lock_guard<std::recursive_mutex> g(mtx_); return reason;}
   double scan_timeout() const {return p.scan_timeout;}
 
   // 상태 조회(마커·노드용, mutex 잡고 호출)
@@ -156,12 +156,6 @@ private:
   IslandShape retained_island_;
   std::unique_ptr<IslandRoadBoundary> road_boundary_;
   double section_end0_;
-  bool obstacles_seen_=false, obstacle_gap_armed_=false;
-  std::optional<double> obstacle_absent_since_;
-  double obstacle_presence_stamp_=-1e9;
-  int obstacle_reappear_hits_=0;
-  bool restart_after_obstacle_gap(const std::vector<Box> & boxes, double stamp, double now, bool valid_scan);
-
   std::deque<std::array<double, 6>> odom_;
   static constexpr size_t kOdomMax = 200;
 
@@ -225,7 +219,8 @@ private:
   int post_id_ = -1;
   std::optional<Box> post_box_;
   int post_align_ = -1;
-  bool match_post(double stamp, double u);
+  bool match_post(double stamp, double u, double cam_dist);
+  void fork_target();
   std::chrono::steady_clock::time_point t0_wall_ = std::chrono::steady_clock::now();
 };
 

@@ -37,6 +37,7 @@ class SensorMonitor(Node):
             self.subscriptions_.append(self.create_subscription(
                 get_message(msg_type), topic,
                 lambda msg, topic=topic: self.received(topic), qos_profile_sensor_data,
+                raw=True,  # 11-19: 도착만 확인 -> 역직렬화 안 함(카메라 JPEG 30 Hz 등으로 CPU 약 20% 쓰던 것)
             ))
         self.timer = self.create_timer(1.0, self.check)
 

@@ -47,6 +47,7 @@ GroundProjection::GroundProjection(const std::string & cfg_path, double mr, doub
     for (int q = 0; q < 3; ++q) {Hx(r, q) = Hm.at<double>(r, q);}
   }
   G_ = M * Hx;
+  Hbev_ = Hx;
   bool any = false;
   for (double v : homography) {any = any || v != 0.0;}
   if (any && homography.size() == 9) {
@@ -97,6 +98,19 @@ bool GroundProjection::to_image(double x, double y, double & u, double & v) cons
   u = U / Z;
   v = V / Z;
   return std::isfinite(u) && std::isfinite(v);
+}
+
+double GroundProjection::class_ratio_bev(const cv::Mat & mask, int cls) const
+{
+  if (mask.empty() || w <= 1 || h <= 1) {return 0.0;}
+  // mask pixel -> camera image pixel (mask may be smaller), image -> BEV, evaluated on a half-size BEV.
+  const cv::Matx33d S(static_cast<double>(w) / mask.cols, 0, 0, 0, static_cast<double>(h) / mask.rows, 0, 0, 0, 1);
+  const cv::Matx33d D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 1);
+  const cv::Matx33d T = D * Hbev_ * S;
+  cv::Mat bev;
+  cv::warpPerspective(mask, bev, cv::Mat(T), cv::Size(std::max(1, w / 2), std::max(1, h / 2)),
+    cv::INTER_NEAREST, cv::BORDER_CONSTANT, cv::Scalar(0));
+  return static_cast<double>(cv::countNonZero(bev == cls)) / static_cast<double>(bev.total());
 }
 
 std::vector<XY> GroundProjection::class_points(const cv::Mat & mask, int cls,

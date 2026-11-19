@@ -1,0 +1,13 @@
+crosswalk_node:
+  ros__parameters:
+    # 시간은 autorace_crosswalk/node.py 맨 위의 STOP_DELAY_SEC, STOP_HOLD_SEC, COOLDOWN_SEC에서 조정.
+    white_roi_left: 0.050
+    white_roi_right: 0.950
+    white_roi_top: 0.961
+    white_roi_bottom: 1.000
+    white_roi_minimum_ratio: 0.08
+    white_image_topic: /camera/color/image_raw/compressed
+    white_image_timeout_sec: 0.30
+    white_image_hz: 10.0
+    lane_white_config: ''
+    lane_white_node: /lane_fusion_node

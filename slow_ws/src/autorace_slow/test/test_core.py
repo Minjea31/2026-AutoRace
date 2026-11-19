@@ -80,3 +80,14 @@ def test_stop_event_cancels_a_scheduled_slow_start():
     s.stop_slow()
     assert s.selected(2.) is None
     assert s.receive_white(True, 2.) == ()
+
+
+def test_slow_one_tenth_second_and_bump_half_second_keep_full_hold():
+    for kind, delay, hold in [('slow', .1, 15.), ('bump', .5, 10.)]:
+        s=SlowState(start_delay_sec=.1,bump_start_delay_sec=.5)
+        s.receive(kind,True,0.)
+        s.receive(kind,True,.1)
+        assert s.receive_white(True,1.)==(kind,)
+        assert s.selected(1.+delay-.001) is None
+        assert s.selected(1.+delay)==kind
+        assert s.missions[kind].deadline==1.+delay+hold

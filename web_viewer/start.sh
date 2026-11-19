@@ -5,12 +5,12 @@ mkdir -p "$task_viewer_root/.run"
 task_pidfile="$task_viewer_root/.run/viewer.pid"
 if [[ -f "$task_pidfile" ]]; then
   task_viewer_pid=$(cat "$task_pidfile")
-  if [[ "$task_viewer_pid" =~ ^[0-9]+$ ]] && kill -0 "$task_viewer_pid" 2>/dev/null && [[ "$(tr '\0' ' ' < "/proc/$task_viewer_pid/cmdline")" == *"$task_viewer_root/server.py"* ]]; then
+  if [[ "$task_viewer_pid" =~ ^[0-9]+$ ]] && kill -0 "$task_viewer_pid" 2>/dev/null && [[ "$(tr '\0' ' ' < "/proc/$task_viewer_pid/cmdline")" == *"$task_viewer_root/mission_server.py"* ]]; then
     echo "Web viewer already running (PID $task_viewer_pid)."
     exit 0
   fi
 fi
-nohup "$task_viewer_root/run.sh" > "$task_viewer_root/.run/viewer.log" 2>&1 < /dev/null &
+nohup "$task_viewer_root/run.sh" "$@" > "$task_viewer_root/.run/viewer.log" 2>&1 < /dev/null &
 task_viewer_pid=$!
 echo "$task_viewer_pid" > "$task_pidfile"
 sleep 1

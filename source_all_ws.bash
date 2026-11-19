@@ -51,3 +51,4 @@ else
   unset -f _autorace_source_selected_ws
   return 1
 fi
+
