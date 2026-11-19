@@ -6,6 +6,8 @@ SLOW_HOLD_SEC = 15.0        # slow: 감속 시작 후 유지 시간
 FIRST_SLOW_HOLD_SEC = 6.0   # 실제 시작한 첫 slow 미션만 고정 6초, 재감지로 연장하지 않음
 BUMP_HOLD_SEC = 10.0         # bump: 유지 시간, 표지판 재감지 시 갱신
 SIGNAL_GAP_TIMEOUT_SEC = 0.5  # 표지판 확인 횟수를 초기화하는 수신 간격
+ZIGZAG_EXIT_SEC = 2.0       # 지그재그 서행: 횡단보도 표지 전, 지그재그가 이 시간 동안 안 보이면 종료
+ZIGZAG_MAX_AFTER_SIGN_SEC = 15.0  # 지그재그 서행: 횡단보도 표지 후 /start_crosswalk가 안 오면 이 시간 뒤 종료
 
 
 import copy
@@ -29,11 +31,12 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, UInt8
 from sensor_msgs.msg import CompressedImage
 
 from .core import SlowState
 from .white_roi import WhiteROI, load_lane_white, validate_white
+from .zigzag import ZigzagSlow
 
 
 class SlowNode(Node):
@@ -74,6 +77,12 @@ class SlowNode(Node):
                                require_white_mark=self.white_roi_enabled, slow_hold_sec=self.slow_hold_sec,
                                start_delay_sec=self.start_delay_sec, first_slow_hold_sec=self.first_slow_hold_sec,
                                bump_start_delay_sec=self.bump_start_delay_sec)
+        # Zigzag slow zone: the slow sign after the curve is never in view (zigzag.py).
+        self.zigzag = ZigzagSlow(
+            int(self.declare_parameter('zigzag_confirm_frames', 2, descriptor).value),
+            float(self.declare_parameter('zigzag_exit_sec', ZIGZAG_EXIT_SEC, descriptor).value),
+            self.signal_gap_timeout_sec,
+            float(self.declare_parameter('zigzag_max_after_sign_sec', ZIGZAG_MAX_AFTER_SIGN_SEC, descriptor).value))
         self.lane = self.lane_received = self.last_ros_ns = None
         self.last_mode = None
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
@@ -86,6 +95,16 @@ class SlowNode(Node):
         self.sign_subs = [self.create_subscription(Bool, topic, partial(self.on_sign, kind), qos)
                           for kind, topic in (('slow', '/yolo/slow_sign'), ('bump', '/yolo/bump_sign'))]
         self.crosswalk_sub = self.create_subscription(Bool, '/start_crosswalk', self.on_crosswalk, qos)
+        self.zigzag_enabled = self.declare_parameter('zigzag_enabled', True, descriptor).value
+        if self.zigzag_enabled:
+            self.zigzag_sub = self.create_subscription(
+                UInt8, self.declare_parameter('zigzag_topic', '/lane_deep/zigzag', descriptor).value,
+                self.on_zigzag, qos)
+            self.crosswalk_sign_sub = self.create_subscription(
+                Bool, '/yolo/crosswalk_sign', self.on_crosswalk_sign, qos)
+            self.get_logger().info(
+                f'Zigzag slow: 양쪽 지그재그 {self.zigzag.confirm}회 -> 서행, /start_crosswalk에서 종료, '
+                f'/yolo/crosswalk_sign 이후 재시작 안 함, 표지 전 지그재그 {self.zigzag.exit_sec:.1f}초 없으면 종료')
         self.signal_stop_sub = self.create_subscription(Bool, '/start_signal', self.on_signal_stop, qos)
         self.white_query = None
         self.white_client = None
@@ -153,7 +172,7 @@ class SlowNode(Node):
         self.lane, self.lane_received = copy.deepcopy(message), now
 
     def publish_activity(self):
-        active=any(m.armed or m.deadline is not None for m in self.state.missions.values())
+        active=any(m.armed or m.deadline is not None for m in self.state.missions.values()) or self.zigzag.active
         self.mission_active_pub.publish(Bool(data=active))
 
     def stop_slow(self, reason):
@@ -168,10 +187,29 @@ class SlowNode(Node):
     def on_crosswalk(self, message):
         if message.data:
             self.stop_slow('횡단보도 시작')
+            disabled_now = not self.zigzag.disabled
+            if self.zigzag.stop(disable=True):
+                self.get_logger().info('지그재그 서행 종료: 횡단보도 시작 (이후 지그재그 서행 비활성)')
+            elif disabled_now:
+                self.get_logger().info('지그재그 서행 비활성: 횡단보도 시작')
+            self.publish_activity()
 
     def on_signal_stop(self, message):
         if message.data:
             self.stop_slow('빨간불 정지')
+            if self.zigzag.stop():
+                self.get_logger().info('지그재그 서행 종료: 빨간불 정지')
+                self.publish_activity()
+
+    def on_zigzag(self, message):
+        if self.zigzag.receive(int(message.data), time.monotonic()) == 'start':
+            self.get_logger().info(f'지그재그 양쪽 {self.zigzag.confirm}회 확인: 서행 시작')
+            self.publish_activity()
+
+    def on_crosswalk_sign(self, message):
+        if message.data and self.zigzag.disable(time.monotonic()):
+            self.get_logger().info('횡단보도 표지 확인: 이후 지그재그 서행 비활성'
+                                   + (' (진행 중인 서행은 /start_crosswalk까지 유지)' if self.zigzag.active else ''))
 
     def on_sign(self, kind, message):
         self.state.tick(time.monotonic())
@@ -240,7 +278,14 @@ class SlowNode(Node):
 
     def publish(self):
         now, ros_now = time.monotonic(), self.ros_now()
+        ended = self.zigzag.tick(now)
+        if ended == 'exit':
+            self.get_logger().info(f'지그재그 서행 종료: 횡단보도 표지 없이 지그재그 {self.zigzag.exit_sec:.1f}초 동안 없음')
+        elif ended == 'timeout':
+            self.get_logger().warning(f'지그재그 서행 종료: 횡단보도 표지 후 {self.zigzag.max_after_sign:.0f}초 동안 /start_crosswalk 없음')
         mode = self.state.selected(now)
+        if mode is None and self.zigzag.active:
+            mode = 'zigzag'
         self.publish_activity()
         if mode != self.last_mode:
             self.get_logger().info(f'Slow: {mode.upper() if mode else "PASS"}')

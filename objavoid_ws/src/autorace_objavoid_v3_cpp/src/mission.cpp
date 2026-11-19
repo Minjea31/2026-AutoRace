@@ -242,6 +242,7 @@ bool ObjAvoidCore::activate(double t, double s_shift, double yaw_offset, double 
   island_frame_at=-1e9;island_fit_stamp=-1e9;fresh_island_odom.clear();search_plan_at=-1e9;lane_command_at=-1e9;
   island_mapper.shape.length=p.fork_shape_length;island_mapper.shape.width=p.fork_shape_width;
   fork_votes_l = fork_votes_r = 0;
+  fork_flip_streak = 0;
   fork_locked = false;
   fork_replan_ = false;
   wait_since_.reset();
@@ -1433,7 +1434,8 @@ std::vector<Box> ObjAvoidCore::plan_boxes() const
     if (const auto pb = sign_post()) {
       // 표지판 받침 기준: A면 받침 오른쪽 전체, B면 왼쪽 전체를 받침부터 섬 길이만큼 막아 정한 쪽으로만 지나가게
       const double s0 = pb->s0, s1 = pb->s0 + p.fork_island_len;
-      b.push_back(fork_side_ > 0 ? Box{s0, s1, -3.0, pb->d1} : Box{s0, s1, pb->d0, 3.0});
+      const ForkGeom fg = fork_geometry(fork_side_, *pb, p);  // 11-20: 섬 폭 기준(fork_island_half_width)
+      b.push_back(Box{s0, s1, fg.wall_d0, fg.wall_d1});
     } else if (island_known()) {
       b.push_back(island_box());
     }
@@ -1497,12 +1499,36 @@ bool ObjAvoidCore::match_post(double stamp, double u, double cam_dist)
   return true;
 }
 
-// 목표 차로: 받침을 알면 받침 기준(A: 왼쪽 끝 + pass_offset, B: 오른쪽 끝 - pass_offset), 모르면 바깥 차로
+ForkGeom fork_geometry(int side, const Box & pb, const Params & p)
+{
+  ForkGeom g;
+  if (p.fork_island_half_width > 0) {
+    // 11-20(bag 114541): 받침 끝 + 0.3이면 차 옆면이 섬 노란 선 위(목표 0.11, 섬 선 0.0) -> 섬 선 기준
+    const double c = pb.cd(), h = p.fork_island_half_width;
+    const double off = h + 0.5 * p.body_width + p.fork_island_clear;
+    g.wall_d0 = side > 0 ? -3.0 : c - h;
+    g.wall_d1 = side > 0 ? c + h : 3.0;
+    g.target = side > 0 ? c + off : c - off;
+  } else {
+    g.wall_d0 = side > 0 ? -3.0 : pb.d0;
+    g.wall_d1 = side > 0 ? pb.d1 : 3.0;
+    g.target = side > 0 ? pb.d1 + p.fork_pass_offset : pb.d0 - p.fork_pass_offset;
+  }
+  if (p.fork_target_limit > 0) {
+    g.target = std::clamp(g.target, -p.fork_target_limit, p.fork_target_limit);
+  } else if (p.fork_target_clamp && !p.lane_centers.empty()) {
+    const auto [lo, hi] = std::minmax_element(p.lane_centers.begin(), p.lane_centers.end());
+    g.target = std::clamp(g.target, *lo, *hi);
+  }
+  return g;
+}
+
+// 목표 차로: 받침을 알면 받침 기준(fork_geometry), 모르면 바깥 차로
 void ObjAvoidCore::fork_target()
 {
   if (fork_side_ == 0) {return;}
   if (const auto pb = sign_post()) {
-    p.home_d = fork_side_ > 0 ? pb->d1 + p.fork_pass_offset : pb->d0 - p.fork_pass_offset;
+    p.home_d = fork_geometry(fork_side_, *pb, p).target;  // 받침이 밀려도 목표는 도로 안(11-19 bag 114208: -0.98 -> 경로 없음)
   } else {
     const auto [mn, mx] = std::minmax_element(p.lane_centers.begin(), p.lane_centers.end());
     p.home_d = fork_side_ > 0 ? *mx : *mn;
@@ -1539,6 +1565,19 @@ void ObjAvoidCore::on_sign(double t, bool right)
   if(p.fork_sign_min<=1) side=right?-1:1;
   else if (fork_votes_l >= p.fork_sign_min && fork_votes_l > fork_votes_r) {side = 1;}
   else if (fork_votes_r >= p.fork_sign_min && fork_votes_r > fork_votes_l) {side = -1;}
+  // 11-19: once decided, an opposite sign must repeat fork_flip_min times in a row and outvote the
+  // current side (11-18/19 bags: one stray LEFT flipped RIGHT with 22-50 votes -> wrong branch).
+  if (p.fork_flip_min > 0 && fork_side_ != 0) {
+    const int det = right ? -1 : 1;
+    if (det != fork_side_) {
+      ++fork_flip_streak;
+      const int opp = det > 0 ? fork_votes_l : fork_votes_r, cur = fork_side_ > 0 ? fork_votes_l : fork_votes_r;
+      if (fork_flip_streak < p.fork_flip_min || opp <= cur) {side = fork_side_;}
+    } else {
+      fork_flip_streak = 0;
+    }
+    if (side != fork_side_) {fork_flip_streak = 0;}
+  }
   if (side != 0 && side != fork_side_ && p.fork_turn) {
     // 단순 갈림길: 방향과 결정 위치만 기록(꺾기 시작 전이면 방향은 다수결로 바뀔 수 있음)
     fork_side_ = side;

@@ -203,12 +203,26 @@ objavoid_v3_node:
     fork_sign_size: 0.1   # 표지판 판 높이(m): YOLO 박스 높이로 카메라-표지판 거리 = fx * size / h
     fork_post_match: 0.5   # LiDAR 받침 후보 거리와 카메라 추정 거리 차 허용(m). 없으면 카메라 추정 위치를 받침으로
     fork_pass_offset: 0.3   # 목표 경로: A면 받침 왼쪽 끝 + 이 값, B면 오른쪽 끝 - 이 값
+    fork_target_clamp: false   # 갈림길 목표 d를 lane_centers 범위(±0.5) 안으로 자름
+    fork_island_half_width: 0.0   # >0: 가상 벽·목표를 받침 가운데 ± 이 값(섬 노란 선) 기준으로(0 = 받침 끝 + fork_pass_offset)
+    fork_island_clear: 0.10   # 섬 선과 차 옆면 사이 목표 여유(m)
+    fork_target_limit: 0.0   # >0: 갈림길 목표 d를 ±이 값으로 자름(fork_target_clamp보다 우선)
+    fork_flip_min: 0   # 방향을 정한 뒤 반대 표지가 이 횟수 연속 + 표 수 우세일 때만 바꿈(0 = 즉시)
     # --- 자동 시작(C++ 노드만): 흰 정지선 + 그 너머 흰 점선(3차선에만 있음) + 전방 장애물이 연속으로 보이면 활성화 ---
     start_auto: true
     start_white_ratio: 0.0   # >0: deep 흰색(클래스 2)이 차선 BEV 영상의 이 비율 이상이면 시작(다른 시작 조건 무시)
     manual_resume_restart: false   # 회피 중 수동(control_mode != 1) -> 자율(1) 복귀 시 정지 후 재시작
     manual_resume_stop_sec: 0.5   # 자율 복귀 후 정지 명령을 내는 시간(s)
     start_white_confirm: 1   # 새 마스크 기준 연속 횟수
+    start_white_align: false   # 시작 순간 흰 점선 두 줄(차로 폭)로 도로 중심·방향을 잡음
+    start_white_align_wait: 1.0   # 점선 쌍을 기다리는 최대 시간(s), 넘으면 차 위치로 시작
+    start_white_align_max_yaw: 0.8   # 점선으로 인정하는 최대 기울기(rad, 정지선·횡단보도 거부)
+    start_align_max_yaw_rate: 0.0   # >0: 점선 쌍 없이 차 기준 시작은 |IMU yaw rate| < 이 값(rad/s)일 때만
+    manual_resume_need_cue: false   # 수동 복귀 재시작은 흰 점선 쌍 또는 좌우 표지판이 보일 때만(없으면 끔)
+    manual_resume_cue_wait: 2.0     # 그 신호를 기다리는 시간(s)
+    sign_start: false               # 꺼져 있을 때(갈림길 통과 전) 좌우 표지판이 확정되면 켬
+    cone_lockout_sec: 0.0           # >0: 한 번 켜진 뒤 mux가 cone을 이 시간 이상 잡으면 다시 안 켬
+    start_align_front_stop: 0.0     # >0: 점선 대기 중 정면(±15°) LiDAR < 이 값(m)이면 바로 차 기준 시작
     start_need_line: false   # true: 흰 정지선도 있어야 시작(false = 점선 + 장애물만)
     start_line_x_min: 0.15   # 정지선을 찾는 차 앞 거리 범위(m, base_link 전방)
     start_line_x_max: 1.0

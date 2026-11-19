@@ -4,6 +4,7 @@
 // 입력  /scan, /odom, /objavoid_v3/activate (Bool)  출력 command_topic(AckermannDriveStamped),
 //       /objavoid_v3/state(String JSON), /objavoid_v3/done(Bool latched), /objavoid_v3/markers, /objavoid_v3/path
 #include <cstring>
+#include <array>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -154,7 +155,8 @@ public:
     owner_pub_=create_publisher<std_msgs::msg::Bool>("/objavoid_v3/has_control",rclcpp::QoS(1).transient_local());
     mux_sub_=create_subscription<std_msgs::msg::String>("/mux/active_source",rclcpp::QoS(1).transient_local(),
       [this](std_msgs::msg::String::SharedPtr m) {mux_objavoid_=m->data=="objavoid";mux_slow_=m->data=="slow" || m->data=="bump";
-        mux_lane_=m->data=="lane";mux_crosswalk_=m->data=="crosswalk";if(m->data=="crosswalk") mux_crosswalk_seen_=steady();mux_seen_=steady();if(m->data=="cone") mux_cone_seen_=steady();},so);
+        mux_lane_=m->data=="lane";mux_crosswalk_=m->data=="crosswalk";if(m->data=="crosswalk") mux_crosswalk_seen_=steady();mux_seen_=steady();if(m->data=="cone") mux_cone_seen_=steady();
+        if(m->data!="cone") cone_since_=-1.0; else if(cone_since_.load()<0) cone_since_=steady();},so);
     state_pub_ = create_publisher<std_msgs::msg::String>("/objavoid_v3/state", 10);
     done_pub_ = create_publisher<std_msgs::msg::Bool>("/objavoid_v3/done", rclcpp::QoS(1).transient_local());
     marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/objavoid_v3/markers", 2);
@@ -254,11 +256,13 @@ private:
       has_imu_ = true;
       imu_t_ = t;
       imu_w_ = wz;
+      gate_yaw_rate_.store(wz);gate_yaw_rate_wall_.store(steady());
       return;
     }
     imu_yaw_ += 0.5 * (imu_w_ + wz) * (t - imu_t_);
     imu_t_ = t;
     imu_w_ = wz;
+    gate_yaw_rate_.store(wz);gate_yaw_rate_wall_.store(steady());
   }
 
   void on_odom(const nav_msgs::msg::Odometry & m)
@@ -293,6 +297,15 @@ private:
 
   void on_scan(sensor_msgs::msg::LaserScan::SharedPtr m)
   {
+    // 11-20: 시작 정렬 대기 중 정면(±15°) 최소 거리(align_start의 front_m)
+    double front = objavoid::kInf;
+    for (size_t i = 0; i < m->ranges.size(); ++i) {
+      const double a = m->angle_min + i * m->angle_increment, r = m->ranges[i];
+      if (std::abs(std::remainder(a, 2 * M_PI)) <= 0.2618 && std::isfinite(r) && r > m->range_min && r < m->range_max) {
+        front = std::min(front, r);
+      }
+    }
+    gate_front_.store(front);gate_front_wall_.store(steady());
     {
       std::lock_guard<std::mutex> g(scan_mtx_);
       if (latest_scan_) {++dropped_scans_;}  // 처리 못한 이전 스캔은 버림
@@ -361,6 +374,8 @@ private:
   const char * start_context_block() const {
     const objavoid::Params & p = core_->p;
     const double t=steady();
+    if(locked_out_.load()) return "locked_out_cone";   // 11-20: 라바콘으로 넘어간 뒤에는 다시 안 켬
+    if(manual_skipped_.load()) return "manual_skipped"; // 11-20: 수동으로 구간을 넘김(표지판으로만 다시 켬)
     if(p.start_once && auto_done_once_.load()) return "done_once";
     if(p.start_cone_block>0 && t-mux_cone_seen_.load()<p.start_cone_block) return "wait_after_cone";
     if(p.start_require_lane && !(mux_lane_.load() && t-mux_seen_.load()<1.0)) return "wait_lane";
@@ -399,7 +414,7 @@ private:
     const auto pts = gp_->yellow_points(mask);
     const auto wpts = gp_->white_points(mask);
     gate_white_ratio_=core_->p.start_white_ratio>0?gp_->class_ratio_bev(mask,2):0.0;
-    gate_yellow_=pts;gate_white_=wpts;gate_yellow_stamp_=st;
+    {std::lock_guard<std::mutex> wl(white_mtx_);gate_yellow_=pts;gate_white_=wpts;gate_yellow_stamp_=st;}
     core_->on_lane(st, pts, gp_->view_points, &wpts);
   }
 
@@ -528,14 +543,28 @@ private:
         gate_json_=o.str();
         gate_status_="watching";
       }
+      if(!ready) {white_align_since_=-1.0;}
       if(!ready || hold_automatic_trigger()) return;
       const double gate_time=now_s();
+      objavoid::DashLane lane;
+      std::optional<std::array<double,3>> da;
+      if(p.start_white_align) {
+        da=dash_anchor(gate_time,lane);
+        if(!da && white_align_since_<0) white_align_since_=w;
+        const auto how=objavoid::align_start(da.has_value(),da?0.0:w-white_align_since_,gate_yaw_rate(),gate_front(),p);
+        if(how==objavoid::AlignStart::Wait) {
+          set_gate_status(w-white_align_since_<p.start_white_align_wait?"wait_dash_pair":"wait_dash_pair_turning");return;
+        }
+        if(!da) RCLCPP_INFO(get_logger(),"[OBJ 시작 정렬] 흰 점선 쌍 없음 -> 차 기준 (대기 %.1f s, yaw rate %.2f rad/s, 정면 %.2f m)",
+          w-white_align_since_,gate_yaw_rate(),gate_front());
+      }
+      white_align_since_=-1.0;
       if(restart) {
         if(!core_->pose_at(gate_time,1.0)) return;
         RCLCPP_WARN(get_logger(), "[OBJ 재시작] 실패 정지(%s) 중 BEV 흰색 비율 충족 -> 비활성화 후 재활성화", core_->get_reason().c_str());
         core_->deactivate();
       }
-      if (core_->activate(gate_time,0,0,0,true)) {
+      if (core_->activate(gate_time,da?(*da)[0]:0,da?(*da)[1]:0,da?(*da)[2]:0,true)) {
         activated_wall_ = steady();
         done_sent_ = false;
         {
@@ -545,9 +574,10 @@ private:
         }
         publish_done(false);
         std::ostringstream d;
-        d << "BEV 흰색 비율 " << ratio*100 << "% >= " << p.start_white_ratio*100 << "% (" << white_hits_ << "회 연속)";
+        d << "BEV 흰색 비율 " << ratio*100 << "% >= " << p.start_white_ratio*100 << "% (" << white_hits_ << "회 연속) | " << dash_text(da,lane);
         record_start_trigger(std::string(restart?"restart_":"")+"white_ratio",d.str());
-        RCLCPP_INFO(get_logger(), "AUTO START: BEV white ratio %.2f%% >= %.2f%% -> road origin at vehicle", ratio*100, p.start_white_ratio*100);
+        RCLCPP_INFO(get_logger(), "AUTO START: BEV white ratio %.2f%% >= %.2f%% -> road origin %s", ratio*100, p.start_white_ratio*100,
+          da ? "from white dashed lane lines" : "at vehicle");
       }
       white_hits_=0;
       return;
@@ -715,12 +745,42 @@ private:
   }
 
   // ---------------------------------------------------------------- 제어
+  // 11-19: road origin from the two white dashed lane lines at activation. Returns activate() arguments
+  // {shift, yaw_offset, d_shift}; nullopt = no fresh dash pair or no pose.
+  std::optional<std::array<double,3>> dash_anchor(double gate_time, objavoid::DashLane & lane)
+  {
+    std::vector<objavoid::XY> white;
+    double ist;
+    {std::lock_guard<std::mutex> wl(white_mtx_);white=gate_white_;ist=gate_yellow_stamp_;}
+    if(ist<0 || now_s()-ist>objavoid::kEntranceFreshness) return std::nullopt;
+    lane=objavoid::fit_dash_lane(white,core_->p);
+    if(!lane.ok) return std::nullopt;
+    const auto ip=core_->pose_at(ist,0.5);
+    const auto cp=core_->pose_at(gate_time,1.0);
+    if(!ip || !cp) return std::nullopt;
+    // Foot point of the road centre line nearest the vehicle (vehicle frame at image time) -> odom.
+    const double fx=-std::sin(lane.yaw)*lane.center, fy=std::cos(lane.yaw)*lane.center;
+    const double c=std::cos(ip->yaw), s=std::sin(ip->yaw);
+    const objavoid::RoadFrame anchor(ip->x+c*fx-s*fy, ip->y+s*fx+c*fy, ip->yaw+lane.yaw);
+    const double dx=anchor.x0-cp->x, dy=anchor.y0-cp->y;
+    return std::array<double,3>{anchor.c*dx+anchor.s*dy, objavoid::wrap(anchor.yaw0-cp->yaw), -anchor.s*dx+anchor.c*dy};
+  }
+
+  static std::string dash_text(const std::optional<std::array<double,3>> & da, const objavoid::DashLane & lane)
+  {
+    std::ostringstream o;
+    if(da) o << "흰 점선 정렬: 도로 중심 " << lane.center << " m, 방향 " << lane.yaw*57.2958 << "° (점선 L" << lane.left << " R" << lane.right << ", 간격 " << lane.width << " m)";
+    else o << "흰 점선 쌍 없음 -> 차 위치·방향을 원점으로 (L" << lane.left << " R" << lane.right << ", 간격 " << lane.width << " m)";
+    return o.str();
+  }
+
   // 11-19(사용자): 회피 중 수동(control_mode != 1) -> 자율(1) 복귀 = 미션 재시작 신호.
   void on_limo_status(int mode)
   {
     const objavoid::Params & p = core_->p;
     const int prev = last_control_mode_.exchange(mode);
     if (!p.manual_resume_restart) {return;}
+    if (locked_out_.load()) {resume_at_ = -1.0; manual_takeover_ = false; return;}  // 11-20: 라바콘 이후 수동은 무시
     if (mode != 1) {
       resume_at_ = -1.0;  // 정지 대기 중 다시 수동이면 취소(자율 복귀 때 다시 시작)
       if (!manual_takeover_.load() && core_->active() && core_->get_state() != State::DONE) {
@@ -741,7 +801,27 @@ private:
   {
     const double ra = resume_at_.load();
     if (ra < 0) {return false;}
-    if (w0 < ra) {
+    objavoid::DashLane lane;
+    std::optional<std::array<double,3>> da;
+    if (w0 >= ra && core_->p.start_white_align) {da = dash_anchor(now_s(), lane);}
+    // 11-20(사용자): 흰 점선 쌍 또는 좌우 표지판이 있어야 재시작, 없으면 장애물 미션 끔(라바콘 앞 등)
+    if (w0 >= ra) {
+      const auto cue = objavoid::resume_cue(da.has_value(), steady() - last_sign_wall_.load() < 1.0, w0 - ra, core_->p);
+      if (cue == objavoid::ResumeCue::Skip) {
+        core_->deactivate();
+        resume_at_ = -1.0;
+        manual_takeover_ = false;
+        manual_skipped_ = true;
+        RCLCPP_WARN(get_logger(), "[OBJ 수동 복귀] %.1f s 동안 흰 점선 쌍·좌우 표지판 없음 -> 장애물 미션 끔(구간 밖), "
+          "흰색 비율 자동 시작 막음, 좌우 표지판이 확정되면 다시 켬", core_->p.manual_resume_cue_wait);
+        return true;
+      }
+      if (cue == objavoid::ResumeCue::Wait) {ra_wait_stop();return true;}
+    }
+    // 11-20: 대기 시간 후에도 차가 돌고 있으면 계속 정지 명령으로 기다림(align_start)
+    const bool wait_pair = w0 >= ra && core_->p.start_white_align &&
+      objavoid::align_start(da.has_value(), w0 - ra, gate_yaw_rate(), gate_front(), core_->p) == objavoid::AlignStart::Wait;
+    if (w0 < ra || wait_pair) {
       ackermann_msgs::msg::AckermannDriveStamped msg;
       msg.header.stamp = now();
       msg.header.frame_id = "base_link";
@@ -751,9 +831,10 @@ private:
       return true;
     }
     core_->deactivate();
-    if (!core_->activate(now_s(), 0, 0, 0, false)) {return true;}  // 자세 없음: 다음 주기에 재시도(명령 없음)
+    if (!core_->activate(now_s(), da ? (*da)[0] : 0, da ? (*da)[1] : 0, da ? (*da)[2] : 0, false)) {return true;}
     resume_at_ = -1.0;
     manual_takeover_ = false;
+    manual_skipped_ = false;
     activated_wall_ = steady();
     done_sent_ = false;
     {
@@ -762,8 +843,54 @@ private:
       ctrl_ms_.clear();
     }
     publish_done(false);
-    record_start_trigger("manual_resume", "수동->자율 복귀: 정지 명령 후 현재 위치 기준으로 미션 재시작");
+    record_start_trigger("manual_resume", "수동->자율 복귀: 정지 명령 후 미션 재시작 | " + dash_text(da, lane));
     return true;
+  }
+
+  void ra_wait_stop()
+  {
+    ackermann_msgs::msg::AckermannDriveStamped msg;
+    msg.header.stamp = now();
+    msg.header.frame_id = "base_link";
+    msg.drive.speed = 0.0f;
+    msg.drive.steering_angle = static_cast<float>(objavoid::emulate_calibration(0.0, core_->p));
+    cmd_pub_->publish(msg);
+  }
+
+  // 11-20(사용자): 꺼져 있을 때(갈림길 통과 전) 좌우 표지판이 확정되면 그 자리에서 켬
+  void sign_start_tick()
+  {
+    if (!objavoid::sign_start_allowed(core_->active(), locked_out_.load(), auto_done_once_.load(),
+        steady() - last_sign_wall_.load(), core_->p) || pending_activate_) {return;}
+    if (!core_->pose_at(now_s(), 1.0)) {return;}
+    objavoid::DashLane lane;
+    std::optional<std::array<double,3>> da;
+    if (core_->p.start_white_align) {da = dash_anchor(now_s(), lane);}
+    if (!core_->activate(now_s(), da ? (*da)[0] : 0, da ? (*da)[1] : 0, da ? (*da)[2] : 0, false)) {return;}
+    manual_skipped_ = false;
+    activated_wall_ = steady();
+    done_sent_ = false;
+    {
+      std::lock_guard<std::mutex> g(stat_mtx_);
+      cmd_periods_.clear();
+      ctrl_ms_.clear();
+    }
+    publish_done(false);
+    record_start_trigger("lr_sign", "좌우 표지판 확정 -> 그 자리에서 장애물 미션 시작(갈림길) | " + dash_text(da, lane));
+  }
+
+  // 11-20(사용자): 한 번 켜진 뒤 라바콘이 cone_lockout_sec 이상 mux를 잡으면 이번 주행에서 다시 안 켬
+  void cone_lockout_tick(double w0)
+  {
+    if (core_->active()) {ever_active_ = true;}
+    if (locked_out_.load() || !objavoid::cone_lockout_due(ever_active_.load(), cone_since_.load(), w0,
+        w0 - mux_seen_.load(), core_->p)) {return;}
+    locked_out_ = true;
+    resume_at_ = -1.0;
+    manual_takeover_ = false;
+    if (core_->active() && core_->get_state() != State::DONE) {core_->deactivate();}
+    RCLCPP_WARN(get_logger(), "[OBJ 끔] 라바콘 미션이 %.1f s 이상 mux 점유 -> 이번 주행에서 장애물 미션 다시 안 켬"
+      "(수동 복귀·표지판·흰색 비율·실패 재시작 모두)", core_->p.cone_lockout_sec);
   }
 
   void on_control()
@@ -780,7 +907,9 @@ private:
     double dt = ctrl_period_;
     if (last_ctrl_wall_ > 0) {dt = w0 - last_ctrl_wall_;}
     last_ctrl_wall_ = w0;
+    cone_lockout_tick(w0);
     if (manual_resume_tick(w0)) {return;}
+    sign_start_tick();
     double v = 0, delta = 0;
     const bool out = core_->control(t, dt, v, delta);
     bool conflict;
@@ -946,6 +1075,12 @@ private:
   std::vector<objavoid::XY> gate_yellow_,gate_white_;
   double gate_yellow_stamp_=-1e9;
   std::atomic<double> gate_white_ratio_{0.0};
+  std::mutex white_mtx_;
+  double white_align_since_ = -1.0;
+  // 11-20: align_start 입력(센서 스레드 -> 제어 스레드). 0.5 s 넘게 안 들어오면 NaN(조건 무시)
+  std::atomic<double> gate_yaw_rate_{0.0}, gate_yaw_rate_wall_{-1e9}, gate_front_{objavoid::kInf}, gate_front_wall_{-1e9};
+  double gate_yaw_rate() const {return steady() - gate_yaw_rate_wall_.load() < 0.5 ? gate_yaw_rate_.load() : objavoid::kNaN;}
+  double gate_front() const {return steady() - gate_front_wall_.load() < 0.5 ? gate_front_.load() : objavoid::kNaN;}
   rclcpp::Subscription<limo_msgs::msg::LimoStatus>::SharedPtr limo_status_sub_;
   std::atomic<int> last_control_mode_{-1};
   std::atomic<bool> manual_takeover_{false};
@@ -990,6 +1125,9 @@ private:
   // 자동 시작(작업 스레드에서만 갱신, gate_json_/gate_status_는 stat_mtx_)
   double activated_wall_ = -1e9, fail_since_wall_ = -1e9;
   std::atomic<double> last_sign_wall_{-1e9};
+  // 11-20: 라바콘 잠금·수동 건너뜀
+  std::atomic<bool> locked_out_{false}, ever_active_{false}, manual_skipped_{false};
+  std::atomic<double> cone_since_{-1.0};
   double last_active_wall_ = -1e9, last_gate_wall_ = 0, last_gate_img_ = -1;
   int gate_hits_ = 0;
   std::atomic<bool> slow_bump_active_{false},mux_slow_{false};

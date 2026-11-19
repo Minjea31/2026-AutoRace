@@ -34,6 +34,10 @@ struct Stats
 struct Pose {double x, y, yaw, v, w;};
 struct Veh {double s, d, psi, v;};
 
+// 11-20: 받침 방식 갈림길(side 1 = A 왼쪽, -1 = B 오른쪽)의 가상 벽 d 범위와 목표 d (mission.cpp)
+struct ForkGeom {double wall_d0 = 0, wall_d1 = 0, target = 0;};
+ForkGeom fork_geometry(int side, const Box & post, const Params & p);
+
 class ObjAvoidCore
 {
 public:
@@ -93,6 +97,7 @@ public:
 
   void on_lane_command(double t) {std::lock_guard<std::recursive_mutex> g(mtx_); lane_command_at=t;}
   int fork_votes_l = 0, fork_votes_r = 0;
+  int fork_flip_streak = 0;  // 정한 방향과 반대인 표지 연속 횟수
   bool fork_locked = false;
   std::string status_json() const;
   void clear_path() {std::lock_guard<std::recursive_mutex> g(mtx_); path_.reset();}

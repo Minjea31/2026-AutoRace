@@ -14,7 +14,7 @@ method = next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name
 selected.append(ast.ClassDef(name='Classifier', bases=[], keywords=[], body=[method], decorator_list=[]))
 ns = {'np': np, 'LR_TOPIC': '/yolo/LR_sign'}
 exec(compile(ast.fix_missing_locations(ast.Module(body=selected, type_ignores=[])), str(SOURCE), 'exec'), ns)
-EXPECTED = {'slow': 1800, 'bump': 1800, 'parking': 2000, 'crosswalk': 2000, 'left': 500, 'right': 500}
+EXPECTED = {'slow': 1500, 'bump': 1800, 'parking': 2000, 'crosswalk': 2000, 'left': 2000, 'right': 2000}
 
 @pytest.mark.parametrize('name', EXPECTED)
 @pytest.mark.parametrize('offset', [-1, 0, 1])
@@ -31,13 +31,13 @@ def test_low_confidence_and_off_image_area_do_not_pass():
     assert not f([[-100, 0, 10, 100, .99, 0]], {0: 'slow'}, 640, 480)
 
 @pytest.mark.parametrize('name', ['left', 'right'])
-@pytest.mark.parametrize('area', [499, 500, 501])
+@pytest.mark.parametrize('area', [1999, 2000, 2001])
 def test_direction_is_the_yolo_class_with_pixel_threshold(name, area):
     classifier = ns['Classifier']()
     classifier.names = {0: name}
     detected, _ = classifier.classify_detections([[0, 0, area / 50., 50, .9, 0]], np.zeros((100, 100, 3), dtype=np.uint8))
-    assert (name in detected) == (area >= 500)
-    assert classifier.box_details[0]['eligible'] == (area >= 500)
+    assert (name in detected) == (area >= 2000)
+    assert classifier.box_details[0]['eligible'] == (area >= 2000)
 
 
 def test_default_input_uses_compressed_camera_messages():

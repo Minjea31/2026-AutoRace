@@ -1754,3 +1754,185 @@ TEST(Mission, OneCachedIslandFrameCannotBeCountedAsThreeIndependentObservations)
   ASSERT_TRUE(core.island_mapper.shape.pose.valid);EXPECT_EQ(core.island_mapper.shape.pose.stable,1);
   EXPECT_FALSE(core.navigation_island().pose.confirmed);EXPECT_FALSE(core.fork_goal());
 }
+
+// 11-19: dashed lane lines at +-0.25 m, road rotated 0.3 rad and shifted 0.1 m left of the vehicle.
+TEST(StartGate, FitDashLaneRecoversCentreAndDirection) {
+  Params p;
+  const double yaw = 0.3, centre = 0.1;
+  std::vector<XY> white;
+  for (double side : {0.25, -0.25}) {
+    for (double s0 : {0.30, 0.70, 1.10}) {
+      for (double u = 0; u <= 0.2; u += 0.02) {
+        for (double w : {-0.015, 0.0, 0.015}) {
+          const double along = s0 + u, lat = centre + side + w;
+          white.push_back({std::cos(yaw) * along - std::sin(yaw) * lat, std::sin(yaw) * along + std::cos(yaw) * lat});
+        }
+      }
+    }
+  }
+  const auto lane = fit_dash_lane(white, p);
+  ASSERT_TRUE(lane.ok);
+  EXPECT_NEAR(lane.yaw, yaw, 0.03);
+  EXPECT_NEAR(lane.center, centre, 0.03);
+  EXPECT_NEAR(lane.width, 0.5, 0.03);
+  std::vector<XY> one_side;
+  for (const auto & q : white) {if (-std::sin(yaw) * q.x + std::cos(yaw) * q.y > centre) one_side.push_back(q);}
+  EXPECT_FALSE(fit_dash_lane(one_side, p).ok);
+}
+
+// 11-19: one stray opposite sign must not flip a decided fork side (fork_flip_min = 3).
+TEST(Fork, StrayOppositeSignDoesNotFlipDecidedSide) {
+  Params p;
+  p.use_lane = false;
+  p.section_end = 2.0;
+  p.fork_island_s = 2.0;
+  p.fork_sign_min = 1;
+  p.fork_flip_min = 3;
+  p.boundary_s = {-1.0, 6.5};
+  p.boundary_left = {0.75, 0.75};
+  p.boundary_right = {-0.75, -0.75};
+  p.lane_centers = {-0.5, 0.0, 0.5};
+  ObjAvoidCore core(p);
+  const int N = 400;
+  std::vector<float> scan(N, 8.0f);
+  core.on_odom(0.0, 0, 0, 0, 0, 0);
+  ASSERT_TRUE(core.activate(0.0));
+  core.process_scan(0.0, scan, -1.9, 3.8 / (N - 1), 0.0);
+  double t = 0.1;
+  for (int i = 0; i < 5; ++i) {core.on_sign(t += 0.1, true);}   // RIGHT x5
+  EXPECT_EQ(core.fork_side(), -1);
+  core.on_sign(t += 0.1, false);                                  // one stray LEFT
+  EXPECT_EQ(core.fork_side(), -1);
+  core.on_sign(t += 0.1, true);                                   // streak reset by RIGHT
+  for (int i = 0; i < 3; ++i) {core.on_sign(t += 0.1, false);}  // 3 LEFT in a row but L4 <= R6
+  EXPECT_EQ(core.fork_side(), -1);
+  for (int i = 0; i < 3; ++i) {core.on_sign(t += 0.1, false);}  // L7 > R6 and streak >= 3
+  EXPECT_EQ(core.fork_side(), 1);
+}
+
+// 11-19: a sign post pushed off the road must not put the fork target outside the lane centres.
+TEST(Fork, TargetClampedToLaneCentres) {
+  Params p;
+  p.fork_target_clamp = true;
+  p.lane_centers = {-0.5, 0.0, 0.5};
+  const double raw = -0.68 - p.fork_pass_offset;  // bag 114208: post d0 -0.68 -> -0.98
+  EXPECT_LT(raw, -0.5);
+  EXPECT_DOUBLE_EQ(std::clamp(raw, -0.5, 0.5), -0.5);
+}
+
+// 11-20: 시작 정렬 판단(bag 184015 125.4 s: 오른쪽 커브 -0.93 rad/s 중 차 기준 시작 -> 왼쪽 벽)
+TEST(AlignStart, DashPairStartsAtOnce)
+{
+  Params p;
+  p.start_white_align = true; p.start_white_align_wait = 1.0;
+  p.start_align_max_yaw_rate = 0.2; p.start_align_front_stop = 0.6;
+  EXPECT_EQ(align_start(true, 0.0, -0.93, 2.0, p), AlignStart::Dash);
+}
+
+TEST(AlignStart, NoPairWaitsThenNeedsStraightDriving)
+{
+  Params p;
+  p.start_white_align = true; p.start_white_align_wait = 1.0;
+  p.start_align_max_yaw_rate = 0.2; p.start_align_front_stop = 0.6;
+  EXPECT_EQ(align_start(false, 0.5, 0.0, 2.0, p), AlignStart::Wait);     // 대기 시간 안
+  EXPECT_EQ(align_start(false, 1.2, -0.93, 1.25, p), AlignStart::Wait);  // 커브 도는 중(bag 184015)
+  EXPECT_EQ(align_start(false, 1.2, 0.19, 1.25, p), AlignStart::Vehicle);
+  EXPECT_EQ(align_start(false, 5.0, -0.2, 2.0, p), AlignStart::Wait);    // 경계값: 0.2 이상은 회전 중
+}
+
+TEST(AlignStart, CloseObstacleStartsImmediately)
+{
+  Params p;
+  p.start_white_align = true; p.start_white_align_wait = 1.0;
+  p.start_align_max_yaw_rate = 0.2; p.start_align_front_stop = 0.6;
+  EXPECT_EQ(align_start(false, 0.0, -0.93, 0.55, p), AlignStart::Vehicle);
+  EXPECT_EQ(align_start(false, 0.0, -0.93, 0.65, p), AlignStart::Wait);
+}
+
+TEST(AlignStart, MissingSensorsAndDefaultsKeepOldBehaviour)
+{
+  Params p;
+  p.start_white_align = true; p.start_white_align_wait = 1.0;
+  // 기본값 0 = 새 조건 꺼짐: 1 s 후 차 기준(11-19 동작)
+  EXPECT_EQ(align_start(false, 0.5, -0.93, 0.1, p), AlignStart::Wait);
+  EXPECT_EQ(align_start(false, 1.0, -0.93, 0.1, p), AlignStart::Vehicle);
+  p.start_align_max_yaw_rate = 0.2; p.start_align_front_stop = 0.6;
+  EXPECT_EQ(align_start(false, 1.0, kNaN, kNaN, p), AlignStart::Vehicle);  // IMU·LiDAR 없음 -> 조건 무시
+  p.start_white_align = false;
+  EXPECT_EQ(align_start(false, 0.0, -0.93, 2.0, p), AlignStart::Vehicle);
+  EXPECT_STREQ(align_start_name(AlignStart::Wait), "wait");
+}
+
+// 11-20: 받침 방식 갈림길 벽·목표(bag 114541 t 49.3: 받침 d -0.41..-0.19, 목표 0.11이면 차 옆면이 섬 선 위)
+TEST(ForkGeometry, LegacyUsesPostEdgePlusOffset)
+{
+  Params p;
+  p.fork_pass_offset = 0.3;
+  const Box post{4.78, 5.10, -0.41, -0.19};
+  const auto g = fork_geometry(1, post, p);
+  EXPECT_NEAR(g.target, 0.11, 1e-9);
+  EXPECT_NEAR(g.wall_d1, -0.19, 1e-9);
+}
+
+TEST(ForkGeometry, IslandHalfWidthKeepsCarOffTheIslandLine)
+{
+  Params p;
+  p.fork_island_half_width = 0.3; p.fork_island_clear = 0.10; p.fork_target_limit = 0.62;
+  p.body_width = 0.22;
+  const Box post{4.78, 5.10, -0.41, -0.19};   // 가운데 -0.30 -> 섬 선 0.0 / -0.6
+  const auto a = fork_geometry(1, post, p);
+  EXPECT_NEAR(a.wall_d0, -3.0, 1e-9);
+  EXPECT_NEAR(a.wall_d1, 0.0, 1e-9);
+  EXPECT_NEAR(a.target, 0.21, 1e-9);           // 차 오른쪽 옆면 0.10 = 섬 선 + 여유 0.10
+  EXPECT_GE(a.target - 0.5 * p.body_width - a.wall_d1, p.fork_island_clear - 1e-9);
+  const auto b = fork_geometry(-1, post, p);
+  EXPECT_NEAR(b.wall_d0, -0.6, 1e-9);
+  EXPECT_NEAR(b.wall_d1, 3.0, 1e-9);
+  EXPECT_NEAR(b.target, -0.62, 1e-9);          // -0.81 -> 도로 안 ±0.62로
+}
+
+TEST(ForkGeometry, CentredPostBothSidesSymmetric)
+{
+  Params p;
+  p.fork_island_half_width = 0.3; p.fork_island_clear = 0.10; p.fork_target_limit = 0.62;
+  p.body_width = 0.22;
+  const Box post{5.66, 5.98, -0.11, 0.11};
+  EXPECT_NEAR(fork_geometry(1, post, p).target, 0.51, 1e-9);
+  EXPECT_NEAR(fork_geometry(-1, post, p).target, -0.51, 1e-9);
+}
+
+// 11-20: 수동 복귀·표지판 시작·라바콘 잠금 판단
+TEST(ResumeCue, NeedsDashOrSignElseSkipsAfterWait)
+{
+  Params p;
+  EXPECT_EQ(resume_cue(false, false, 10.0, p), ResumeCue::Restart);   // 기본: 11-19 동작(항상 재시작)
+  p.manual_resume_need_cue = true; p.manual_resume_cue_wait = 2.0;
+  EXPECT_EQ(resume_cue(true, false, 0.0, p), ResumeCue::Restart);     // 장애물 구간: 흰 점선 쌍
+  EXPECT_EQ(resume_cue(false, true, 0.0, p), ResumeCue::Restart);     // 갈림길: 좌우 표지판
+  EXPECT_EQ(resume_cue(false, false, 1.9, p), ResumeCue::Wait);
+  EXPECT_EQ(resume_cue(false, false, 2.0, p), ResumeCue::Skip);       // 라바콘 앞: 끔
+}
+
+TEST(SignStart, OnlyWhileOffBeforeForkDoneAndNotLocked)
+{
+  Params p;
+  EXPECT_FALSE(sign_start_allowed(false, false, false, 0.1, p));      // 기본 꺼짐
+  p.sign_start = true;
+  EXPECT_TRUE(sign_start_allowed(false, false, false, 0.1, p));
+  EXPECT_FALSE(sign_start_allowed(true, false, false, 0.1, p));       // 이미 켜짐
+  EXPECT_FALSE(sign_start_allowed(false, true, false, 0.1, p));       // 라바콘 잠금
+  EXPECT_FALSE(sign_start_allowed(false, false, true, 0.1, p));       // 갈림길 통과(DONE) 후
+  EXPECT_FALSE(sign_start_allowed(false, false, false, 0.8, p));      // 오래된 표지판
+}
+
+TEST(ConeLockout, ThreeSecondsOfConeAfterObjavoidWasOn)
+{
+  Params p;
+  EXPECT_FALSE(cone_lockout_due(true, 0.0, 10.0, 0.0, p));            // 기본 꺼짐
+  p.cone_lockout_sec = 3.0;
+  EXPECT_FALSE(cone_lockout_due(false, 0.0, 10.0, 0.0, p));           // 장애물 전 라바콘(bag 185620 28 s) 무시
+  EXPECT_FALSE(cone_lockout_due(true, 8.0, 10.0, 0.0, p));            // 2 s
+  EXPECT_TRUE(cone_lockout_due(true, 7.0, 10.0, 0.0, p));             // 3 s
+  EXPECT_FALSE(cone_lockout_due(true, -1.0, 10.0, 0.0, p));           // 지금 cone 아님
+  EXPECT_FALSE(cone_lockout_due(true, 0.0, 10.0, 2.0, p));            // mux 소식 끊김
+}

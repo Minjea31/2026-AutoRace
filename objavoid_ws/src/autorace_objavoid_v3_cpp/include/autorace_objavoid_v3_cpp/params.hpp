@@ -204,6 +204,16 @@ using DVec = std::vector<double>;
   X(D, fork_sign_size, 0.10)                                       \
   X(D, fork_post_match, 0.5)                                       \
   X(D, fork_pass_offset, 0.3)                                      \
+  /* 11-19: 갈림길 목표 d를 lane_centers 범위(±0.5) 안으로 자름 — 받침이 밀려도 목표가 도로 밖에 찍히지 않게 */ \
+  X(B, fork_target_clamp, false) \
+  /* 11-20: >0이면 받침 방식 가상 벽·목표를 받침 박스 끝이 아니라 받침 가운데 ± 이 값(섬 노란 선, 섬 폭 절반)으로. */ \
+  /*   벽 = 정하지 않은 쪽 ~ 섬 선, 목표 = 섬 선 + 차 폭 절반 + fork_island_clear. 0 = 기존(받침 끝, fork_pass_offset) */ \
+  X(D, fork_island_half_width, 0.0) \
+  X(D, fork_island_clear, 0.10) \
+  /* 11-20: >0이면 갈림길 목표 d를 ±이 값으로 자름(fork_target_clamp의 차로 중심 ±0.5 대신, 도로 경계 - 차 폭 절반) */ \
+  X(D, fork_target_limit, 0.0) \
+  /* 11-19: 방향을 정한 뒤 반대 표지가 이 횟수 연속 + 표 수도 더 많을 때만 바꿈(0 = 기존: 최근 표지로 즉시) */ \
+  X(I, fork_flip_min, 0) \
   X(D, fork_sign_cache_sec, 30.0) \
   X(D, fork_goal_tolerance, 0.15) \
   X(D, preferred_obstacle_clearance, 0.10) \
@@ -256,7 +266,25 @@ using DVec = std::vector<double>;
   /* manual_resume_stop_sec 동안 정지 명령 후 현재 위치 기준으로 미션 재시작 */ \
   X(B, manual_resume_restart, false) \
   X(D, manual_resume_stop_sec, 0.5) \
+  /* 11-20(사용자): 수동 복귀 재시작은 manual_resume_cue_wait 안에 흰 점선 쌍 또는 좌우 표지판이 보일 때만. */ \
+  /*   둘 다 없으면 장애물 미션을 끄고(구간 밖, 예: 라바콘 앞) 흰색 비율 자동 시작도 막음. 표지판이 오면 sign_start로 다시 켬 */ \
+  X(B, manual_resume_need_cue, false) \
+  X(D, manual_resume_cue_wait, 2.0) \
+  /* 11-20(사용자): 꺼져 있을 때(갈림길 통과 전) 좌우 표지판이 확정되면 그 자리에서 켬(갈림길부터 다시 시작) */ \
+  X(B, sign_start, false) \
+  /* 11-20(사용자): >0이면 한 번이라도 켜진 뒤 mux가 cone을 이 시간(s) 이상 잡으면 이번 주행에서 다시 안 켬 */ \
+  X(D, cone_lockout_sec, 0.0) \
   X(I, start_white_confirm, 1) \
+  /* 11-19: 시작(흰색 비율·수동 복귀·실패 재시작) 순간 흰 점선 두 줄(차로 폭 간격)로 도로 중심·방향을 잡음. */ \
+  /* 쌍이 없으면 start_white_align_wait 초까지 기다린 뒤 차 위치로 시작. max_yaw: 점선으로 인정할 최대 기울기(rad) */ \
+  X(B, start_white_align, false) \
+  X(D, start_white_align_wait, 1.0) \
+  X(D, start_white_align_max_yaw, 0.8) \
+  /* 11-20: 점선 쌍 없이 차 위치·방향으로 시작하는 것은 |IMU yaw rate| < 이 값(rad/s)일 때만(0 = 끔). */ \
+  /* 커브 도는 중 시작하면 차 방향이 도로와 어긋남(bag 184015 125.4 s: -0.93 rad/s 중 시작 -> 왼쪽 벽으로) */ \
+  X(D, start_align_max_yaw_rate, 0.0) \
+  /* 11-20: 점선 쌍을 기다리는 중 정면(±15°) LiDAR 최소 거리가 이 값(m) 미만이면 바로 차 기준으로 시작(0 = 끔) */ \
+  X(D, start_align_front_stop, 0.0) \
   X(B, start_need_line, false)                                     \
   X(D, start_line_x_min, 0.15)                                     \
   X(D, start_line_x_max, 1.0)                                      \

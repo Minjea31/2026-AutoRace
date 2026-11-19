@@ -52,10 +52,10 @@ CLASS_THRESHOLDS = {
     # the island, too late for a lane change. The YOLO class decides A/B (no OCR); in the
     # 2026-11-10 car-06 bag it was 'left' with confidence >= 0.85 from ~20 px boxes.
     # 2026-11-16: 500 px² for early direction caching; confidence/confirmation unchanged.
-    'left': {'confidence': 0.65, 'min_area_pixels': 500},
+    'left': {'confidence': 0.65, 'min_area_pixels': 2000},  # 500 -> 2000 (2026-11-20)
     'parking': {'confidence': 0.60, 'min_area_pixels': 2000},
-    'right': {'confidence': 0.65, 'min_area_pixels': 500},
-    'slow': {'confidence': 0.55, 'min_area_pixels': 1800},
+    'right': {'confidence': 0.65, 'min_area_pixels': 2000},  # 500 -> 2000 (2026-11-20)
+    'slow': {'confidence': 0.55, 'min_area_pixels': 1500},  # 1800 -> 1500 (2026-11-20): 표지 확정을 앞당겨 흰 정지선 전에 서행 대기
     'red': {'confidence': 0.60, 'min_area_pixels': 3000},
     'green': {'confidence': 0.60, 'min_area_pixels': 3000},
 }

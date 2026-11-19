@@ -38,6 +38,16 @@ EntranceResult eval_entrance_gate(const std::vector<XY> & yellow, bool dash_pair
 
 constexpr double kEntranceFreshness = 0.30;
 
+// 11-19: road centre and direction from the two white dashed lane lines (3-lane section, +-0.25 m).
+// Input: white floor points in the vehicle frame (x forward, y left). center = lateral offset of the
+// road centre line from the vehicle (left +), yaw = road direction relative to the vehicle heading.
+struct DashLane {
+  bool ok = false;
+  double center = 0, yaw = 0, width = 0;
+  int left = 0, right = 0;
+};
+DashLane fit_dash_lane(const std::vector<XY> & white, const Params & p);
+
 // A fixed observation window also requires current confirmation. A lost/stale
 // sighting cannot lend its remaining deadline to unrelated later obstacles.
 class EntranceWindow {
@@ -93,6 +103,23 @@ private:
 inline bool entrance_ahead(double x,double y,double vehicle_x,double vehicle_y,double yaw) {
   return (x-vehicle_x)*std::cos(yaw)+(y-vehicle_y)*std::sin(yaw)>0.10;
 }
+
+// 11-20: 시작 순간 도로 기준 정하기. Dash = 흰 점선 쌍으로, Vehicle = 차 위치·방향으로, Wait = 이번엔 시작 안 함.
+//   점선 쌍이 있으면 Dash. 없으면 정면 장애물이 start_align_front_stop 안이면 바로 Vehicle,
+//   start_white_align_wait 동안 기다린 뒤에도 차가 돌고 있으면(|yaw_rate| >= start_align_max_yaw_rate) 계속 Wait.
+//   yaw_rate / front_m 이 NaN(센서 없음)이면 그 조건은 보지 않음. start_white_align이 꺼져 있으면 항상 Vehicle.
+enum class AlignStart { Wait, Dash, Vehicle };
+AlignStart align_start(bool dash_pair, double waited_s, double yaw_rate, double front_m, const Params & p);
+const char * align_start_name(AlignStart a);
+
+// 11-20: 수동 -> 자율 복귀 판단. Restart = 재시작, Wait = 정지 명령으로 계속 기다림, Skip = 장애물 미션 끔.
+//   manual_resume_need_cue가 꺼져 있으면 항상 Restart(11-19 동작).
+enum class ResumeCue { Wait, Restart, Skip };
+ResumeCue resume_cue(bool dash_pair, bool sign_seen, double waited_s, const Params & p);
+// 11-20: 꺼진 상태에서 좌우 표지판으로 켜도 되는지(sign_age_s: 마지막 /yolo/LR_sign 이후 시간)
+bool sign_start_allowed(bool active, bool locked_out, bool done_once, double sign_age_s, const Params & p);
+// 11-20: 라바콘 잠금. cone_since_s < 0 = 지금 cone 아님, mux_age_s = 마지막 /mux/active_source 이후 시간
+bool cone_lockout_due(bool ever_active, double cone_since_s, double now_s, double mux_age_s, const Params & p);
 
 // cmd_emulate_calibration: 센서 드라이버 보정이 꺼져 있어도 보정 켰을 때와 같은 서보 값이 되도록 중심 조향각 변환
 double emulate_calibration(double delta, const Params & p);

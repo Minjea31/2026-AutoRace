@@ -244,6 +244,11 @@ class Params:
     fork_sign_size: float = 0.10  # 표지판 판 높이(m): 카메라-표지판 거리 = fx * size / 박스 높이
     fork_post_match: float = 0.5  # LiDAR 받침 후보 거리와 카메라 추정 거리 차 허용(m)
     fork_pass_offset: float = 0.3  # 목표 경로: A면 받침 왼쪽 끝 + 이 값, B면 오른쪽 끝 - 이 값
+    fork_target_clamp: bool = False  # 갈림길 목표를 lane_centers 범위 안으로
+    fork_island_half_width: float = 0.0  # 11-20(C++): >0이면 가상 벽·목표를 받침 가운데 ± 이 값(섬 선) 기준으로
+    fork_island_clear: float = 0.10  # 11-20(C++): 섬 선과 차 옆면 사이 목표 여유
+    fork_target_limit: float = 0.0  # 11-20(C++): >0이면 갈림길 목표 d를 ±이 값으로 자름
+    fork_flip_min: int = 0  # 정한 뒤 반대 표지 연속 횟수(+표 수 우세) 조건, 0 = 즉시
 
     # --- 자동 시작(C++ 노드만): 흰 정지선 + 그 너머 흰 점선(3차선에만 있음) + 전방 장애물이 연속으로 보이면 활성화 ---
     start_auto: bool = True
@@ -251,6 +256,15 @@ class Params:
     manual_resume_restart: bool = False  # 회피 중 수동->자율 복귀 시 정지 후 재시작(C++ 노드)
     manual_resume_stop_sec: float = 0.5
     start_white_confirm: int = 1
+    start_white_align: bool = False  # 시작 순간 흰 점선 두 줄로 도로 중심·방향(C++)
+    start_white_align_wait: float = 1.0
+    start_white_align_max_yaw: float = 0.8
+    start_align_max_yaw_rate: float = 0.0  # 11-20: 점선 쌍 없이 차 기준 시작은 |IMU wz| < 이 값일 때만(C++, 0=끔)
+    manual_resume_need_cue: bool = False  # 11-20(C++): 수동 복귀 재시작은 흰 점선 쌍 또는 좌우 표지판이 있을 때만
+    manual_resume_cue_wait: float = 2.0  # 11-20(C++)
+    sign_start: bool = False  # 11-20(C++): 꺼져 있을 때 좌우 표지판 확정 시 켬
+    cone_lockout_sec: float = 0.0  # 11-20(C++): 켜진 뒤 cone이 이 시간 이상 mux 점유 -> 다시 안 켬
+    start_align_front_stop: float = 0.0  # 11-20: 점선 대기 중 정면 LiDAR < 이 값(m)이면 바로 시작(C++, 0=끔)
     start_need_line: bool = False    # true: 흰 정지선도 있어야 시작(false = 점선 + 장애물만)
     start_line_x_min: float = 0.15   # 정지선을 찾는 차 앞 거리 범위(m, base_link 전방)
     start_line_x_max: float = 1.0

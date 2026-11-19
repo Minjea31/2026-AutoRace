@@ -56,6 +56,15 @@ objavoid_v3_node:
     fork_turn: false
     fork_shape: false  # 11-19: 섬 매칭은 구간 끝 선에서야 시작해 노란 선 막힘·후진 -> 표지판 받침 기준 L/R(11-15 stash 이식)
     fork_sign_min: 1  # YOLO has already confirmed this direction
+    # 11-19: 목표를 도로 안(±0.5)으로 제한(bag 114208: 받침 0.6 m 밀림 -> 목표 -0.98 경로 없음)
+    fork_target_clamp: true
+    # 11-20: 받침 끝 + 0.3 목표면 차 옆면이 섬 노란 선 위(bag 114541 목표 0.11, 섬 선 0.0) -> 섬 폭 절반 0.3 기준 벽·목표,
+    #   목표는 차로 중심 ±0.5 대신 도로 경계 0.75 - 차 폭 절반 - 여유 = ±0.62로 자름(±0.5면 넓힌 벽 안에 목표가 찍힘)
+    fork_island_half_width: 0.3
+    fork_island_clear: 0.10
+    fork_target_limit: 0.62
+    # 11-19: 반대 표지 1번에 뒤집힘(11-18 대회장 5/6회, 11-19 18:56 R50 -> L1) -> 3번 연속 + 표 수 우세일 때만
+    fork_flip_min: 3
     road_outline: false  # 11-19: 잘못 매칭 시 구간 중 좌표계가 밀려 차선 이탈 -> 끔(입구 1 m 안 lane_align만)
     # 11-18: 노란 입구를 "같은 프레임에 2장 연속 + 장애물 2개"로 보던 방식은 입구가 0.3초만 보여 운에 좌우됨
     #   (bag 2개에서 실제 입구를 2~3프레임 차이로 겨우 잡거나 놓침, 주차장·라바콘에서 오시작).
@@ -75,8 +84,22 @@ objavoid_v3_node:
     #   회피 중 판정 안 함, start_once(끝나면 다시 안 켬), 서행·방지턱 중 차단, 실패 재시작(같은 흰색 비율 기준).
     start_white_ratio: 0.015
     start_white_confirm: 1
+    # 11-19: 시작·재시작 순간 흰 점선 두 줄로 도로 중심·방향을 잡음(차 위치 원점은 갈림길에서 1~1.5 m 어긋났음, bag 114208)
+    start_white_align: true
+    start_white_align_wait: 1.0
+    # 11-20: 점선 쌍을 못 찾으면 차가 거의 안 돌 때(|IMU wz| < 0.2 rad/s)만 차 기준으로 시작(bag 184015 125.4 s:
+    #   오른쪽 커브 -0.93 rad/s 중 차 기준 시작 -> 도로 방향이 왼쪽으로 어긋나 왼쪽 벽으로). 정면 0.6 m 안에 뭔가 있으면 바로 시작.
+    start_align_max_yaw_rate: 0.2
+    start_align_front_stop: 0.6
     # 11-19(사용자): 회피 중 리모컨 수동(control_mode 3)으로 바꿨다가 자율(1)로 돌아오면 0.5 s 정지 명령 후 그 자리 기준으로 재시작
     manual_resume_restart: true
+    # 11-20(사용자): 재시작은 흰 점선 쌍(장애물 구간) 또는 좌우 표지판(갈림길)이 2 s 안에 보일 때만. 없으면 끔(라바콘 앞 등).
+    #   꺼진 뒤 갈림길 통과 전에 표지판이 확정되면 그 자리에서 켬. 켜진 적 있고 라바콘이 3 s 이상 mux를 잡으면 이후 안 켬.
+    #   bag 184015 라바콘 구간 점선 쌍 0/146 프레임.
+    manual_resume_need_cue: true
+    manual_resume_cue_wait: 2.0
+    sign_start: true
+    cone_lockout_sec: 3.0
     manual_resume_stop_sec: 0.5
     start_once: true
     # 11-19: 실패로 서 있는 동안(STOP 2 s 이상, 활성 5 s 이후) 시작 점수가 다시 충족되면 새 입구 기준으로 재시작
@@ -124,16 +147,18 @@ objavoid_v3_node:
     steer_trim: 0.0
     plan_min_radius: 0.6        # 속도 감속 기준(좌우 반경은 아래)
     # 11-15 01:21 bag(상한 0.42): 명령 -0.5 -> 실제 -0.34(반경 0.58 m), +0.5 -> +0.40(0.48 m). 리모컨(우 0.40 m)만큼은 안 나옴
-    plan_min_radius_left: 0.4   # 0.4는 실측(좌 0.48 / 우 0.58 m)보다 작아 못 따라감
-    plan_min_radius_right: 0.4
+    # 11-20: 06번 실측 최소 반경 약 0.66 m(bag 184015, 서보 약 0.35에서 포화)에 맞춤. 0.4(04번 값)로 계획하면
+    #   차가 경로를 못 따라가 장애물 앞 0.16 m까지 밀려 들어가 앞으로 가는 경로가 없어짐(no_path). 이전 0.4/0.4
+    plan_min_radius_left: 0.66
+    plan_min_radius_right: 0.66
     max_heading: 1.55
     escape_min_radius: 0.5
-    escape_min_radius_left: 0.48
-    escape_min_radius_right: 0.58
+    escape_min_radius_left: 0.66   # 11-20: 06번 실측 반경(이전 0.48, 04번 값)
+    escape_min_radius_right: 0.66  # 11-20: 이전 0.58(04번 값)
     observe_min_radius: 0.55
     # 여유: 0.04/0.18이면 default7·3단 슬라롬이 후진 없이 막힘 -> 0.03/0.15(22:04의 0.025/0.12보다는 넓게)
-    margin_obstacle: 0.05  # 11-19: 0.03 -> 0.05(사용자, 실차 위치 오차 여유)
-    clearance_soft: 0.18        # 11-15 차에서 조정한 값 유지
+    margin_obstacle: 0.03  # 11-20(사용자): 0.05 -> 0.03, 갈 수 있는 틈을 막힘으로 판단해 중간 정지(11-19: 0.03 -> 0.05)
+    clearance_soft: 0.15        # 11-20(사용자): 0.18 -> 0.15(04번 3단 슬라롬 통과 값)
     # 뒷바퀴가 지난 콘에 스침: 지난 장애물을 더 오래 기억(0.08 -> 0.2, 차 뒤끝 판정도 가장 뒤 모서리 기준으로 수정)
     pass_margin: 0.2
     # 11-15 차에서 조정한 값(공통 objavoid_v3.yaml에서 04번 설정으로 옮김)

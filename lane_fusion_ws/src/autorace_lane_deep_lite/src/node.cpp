@@ -7,13 +7,18 @@
 // [valid, lateral_m, heading_rad, lookahead_m, curvature_1pm, confidence,
 //  left_state, right_state, near_lateral_m, near_heading_rad, near_m]
 // state: 0=lost 1=held 2=detected.
+//
+// /lane_deep/zigzag (std_msgs/UInt8, every mask): zigzag lane marking in the BEV
+// (zigzag.hpp) 0 none, 1 one side, 2 both sides. slow_node starts the zigzag slow on it.
 #include "autorace_lane_deep_lite/deep_lane.hpp"
+#include "autorace_lane_deep_lite/zigzag.hpp"
 #include <cv_bridge/cv_bridge.h>
 #include <mutex>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 
 class DeepLiteNode : public rclcpp::Node {
 public:
@@ -29,6 +34,15 @@ public:
     const auto mask_topic = declare_parameter<std::string>("mask_topic", "/lane_fusion/deep_mask");
     const auto target_topic = declare_parameter<std::string>("target_topic", "/lane_deep/target");
     target_ = create_publisher<std_msgs::msg::Float32MultiArray>(target_topic, rclcpp::QoS(1));
+    if (declare_parameter<bool>("zigzag_enabled", true)) {
+      zig_.notch_min_px = declare_parameter<double>("zigzag_notch_min_px", zig_.notch_min_px);
+      zig_.notches = int(declare_parameter<int>("zigzag_notches", zig_.notches));
+      zig_.side_sep_px = declare_parameter<double>("zigzag_side_sep_px", zig_.side_sep_px);
+      zigzag_ = create_publisher<std_msgs::msg::UInt8>(
+          declare_parameter<std::string>("zigzag_topic", "/lane_deep/zigzag"), rclcpp::QoS(1));
+      RCLCPP_INFO(get_logger(), "zigzag: notch >= %.0f px x %d per line, both sides >= %.0f px apart",
+                  zig_.notch_min_px, zig_.notches, zig_.side_sep_px);
+    }
     if (declare_parameter<bool>("debug", false))
       debug_ = create_publisher<sensor_msgs::msg::Image>("/lane_deep/debug",
                                                          rclcpp::SensorDataQoS().keep_last(1));
@@ -87,6 +101,21 @@ private:
                   r ? float(int(r->right.state)) : 0.f, 0, 0, 0};
     target_->publish(msg);
   }
+  void publishZigzag(const cv::Mat &classes) {
+    if (!zigzag_)
+      return;
+    std_msgs::msg::UInt8 msg;
+    try {
+      const auto z = deep_lite::detectZigzag(classes, pipeline_.config(), zig_);
+      msg.data = uint8_t(z.level);
+      if (z.level != zigzag_level_)
+        RCLCPP_INFO(get_logger(), "zigzag level %d -> %d (%zu lines)", zigzag_level_, z.level, z.line_x.size());
+      zigzag_level_ = z.level;
+    } catch (const std::exception &e) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "zigzag: %s", e.what());
+    }
+    zigzag_->publish(msg);
+  }
   void onMask(const sensor_msgs::msg::Image &m) {
     if (m.encoding != "mono8" || m.step < m.width || m.data.size() < size_t(m.step) * m.height) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "lane_deep_lite: mask must be mono8");
@@ -104,6 +133,7 @@ private:
       forward_ = yaw_ = 0;
       const auto r = pipeline_.process(classes, stamp, views);
       publish(&r);
+      publishZigzag(classes);
       processed_ = steady();
       ++count_;
       ms_ += r.processing_ms;
@@ -135,6 +165,9 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr mask_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr target_;
+  rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr zigzag_;
+  deep_lite::ZigzagConfig zig_;
+  int zigzag_level_ = 0;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_;
   rclcpp::TimerBase::SharedPtr watchdog_;
   OnSetParametersCallbackHandle::SharedPtr parameters_;
