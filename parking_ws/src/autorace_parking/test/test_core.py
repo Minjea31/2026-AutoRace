@@ -216,13 +216,21 @@ def test_departure_corridor_covers_only_the_travelled_area_and_live_obstacles_wi
     assert not CollisionChecker(unknown, cfg, route).free((-.5, 0., 0.))
 
 
-def test_occluded_bay_approach_starts_straight_then_turns_right():
+@pytest.mark.parametrize('partial_entry', [False, True])
+def test_occluded_bay_requires_a_full_entry_unless_partial_approach_is_explicit(partial_entry):
     from limo_parking_sim.config import load_config
     from limo_parking_sim.model import Simulation
     sim = Simulation(load_config())
-    cfg = Settings(clearance=.04)
+    cfg = Settings(clearance=.04, require_complete_entry_path=not partial_entry)
     scan = Scan(sim.scan(), sim.angles[0], sim.angles[1]-sim.angles[0], .01, 64.)
-    goal, path, final = build_plan(scan, cfg)
+    diagnostics = {}
+    goal, path, final = build_plan(scan, cfg, diagnostics=diagnostics)
+    if not partial_entry:
+        assert not path and not final
+        assert diagnostics['partial_path_rejected']
+        assert diagnostics['candidates'] > 0 and diagnostics['target']['y'] < 0
+        assert diagnostics['reason_code'] in ('no_observed_path', 'budget_exceeded')
+        return
     assert goal.y < 0 and path and not final
     first_turn = next(p for p in path if abs(p[2]) > .01)
     assert first_turn[0] > .4
@@ -309,7 +317,9 @@ def test_simulator_straight_right_entry_and_turn_reverse_without_collision():
     from limo_parking_sim.config import load_config
     from limo_parking_sim.model import Simulation
     sim = Simulation(load_config())
-    cfg = Settings(clearance=.04)
+    # This Follower-only harness intentionally exercises legacy partial entry.
+    # ParkingNode's full-entry default and forward search use the node simulator.
+    cfg = Settings(clearance=.04, require_complete_entry_path=False)
     tracker, follower = ScanTracker(), Follower(cfg)
     start = sim.x, sim.y, sim.yaw
     parked_at = exiting_at = None

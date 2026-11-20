@@ -85,6 +85,7 @@ def test_two_signs_then_new_white_starts_and_old_white_is_not_cached(h):
     assert not h.node.activation.active and not h.node.floor_gate.armed
     h.sign()
     assert h.node.floor_gate.armed and not h.node.activation.active
+    assert h.node.floor_gate.confirmation.count == h.node.required_detections
     # sign() pumps for 40 ms; the status timer runs every 50 ms. Wait for
     # the actual callback instead of depending on their relative phase.
     deadline=time.monotonic()+.25
@@ -128,28 +129,39 @@ def test_sign_disappearing_after_confirmation_keeps_floor_gate_armed(h):
     assert h.node.activation.active
 
 
-def test_false_preserves_count_and_long_gap_starts_new_set(h):
-    h.sign();h.sign(False);h.sign()
-    assert h.node.floor_gate.armed and not h.node.activation.active
-    h.node.on_reset(None,Trigger.Response())
+def test_false_and_long_gap_reset_sign_count_and_reset_clears_armed_gate(h):
+    h.sign()
+    h.sign(False)
+    h.sign()
     h.image()
-    assert not h.node.floor_gate.armed and not h.node.activation.active
-    h.pump(1.05)
-    h.sign();assert not h.node.floor_gate.armed
-    h.sign();assert h.node.floor_gate.armed
+    assert not h.node.activation.active and not h.node.floor_gate.armed
+    h.pump(.6)
+    h.sign()
+    assert not h.node.floor_gate.armed
+    h.sign()
+    assert h.node.floor_gate.armed
+    h.node.on_reset(None, Trigger.Response())
+    h.image()
+    assert not h.node.activation.active and not h.node.floor_gate.armed
 
 
-def test_active_mission_ignores_new_sets_and_reset_requires_fresh_set(h):
-    h.sign();h.sign();h.image()
-    assert h.node.attempt==1
-    h.pump(1.05);h.sign();h.sign();h.image()
-    assert h.node.attempt==1 and not h.node.floor_gate.armed
-    h.node.on_reset(None,Trigger.Response())
-    h.sign();h.sign()
-    assert not h.node.floor_gate.armed  # Still the already consumed set.
-    h.pump(1.05);h.sign();assert not h.node.floor_gate.armed
-    h.sign();assert h.node.floor_gate.armed
-    before=h.node.attempt;h.image();assert h.node.attempt==before+1
+def test_restart_also_requires_two_new_signs_and_new_white_after_cooldown(h):
+    h.sign()
+    h.sign()
+    h.image()
+    assert h.node.attempt == 1
+    h.sign()
+    h.sign()
+    h.image()
+    assert h.node.attempt == 1 and not h.node.floor_gate.armed
+    h.node.sign_ignore_until = time.monotonic() - 1.
+    h.sign()
+    h.image()
+    assert h.node.attempt == 1 and not h.node.floor_gate.armed
+    h.sign()
+    assert h.node.floor_gate.armed and h.node.attempt == 1
+    h.image()
+    assert h.node.attempt == 2
 
 
 def test_roi_uses_live_lane_hsv_thresholds(h):

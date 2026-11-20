@@ -22,6 +22,7 @@ def test_ros_activation_markers_path_control_and_stale_stop():
     from limo_parking_sim.model import Simulation
     rclpy.init()
     node = ParkingNode(parameter_overrides=[Parameter('localization_source', value='scan'), Parameter('plan_period', value=.1),
+                                            Parameter('require_complete_entry_path', value=False),
                                             Parameter('recognition_frames', value=3),
                                             Parameter('exit_heading_tolerance', value=.04)])
     assert node.follower.exit_heading_tolerance == .04
@@ -131,7 +132,8 @@ def test_fresh_scan_ahead_of_clock_does_not_discard_entry_path(future_seconds):
     from limo_parking_sim.model import Simulation
 
     rclpy.init()
-    node = ParkingNode(parameter_overrides=[Parameter('localization_source', value='scan'), Parameter('clearance', value=.04)])
+    node = ParkingNode(parameter_overrides=[Parameter('localization_source', value='scan'), Parameter('clearance', value=.04),
+                                           Parameter('require_complete_entry_path', value=False)])
     node.now_seconds = lambda: 20.
     sim = Simulation(load_config())
     try:

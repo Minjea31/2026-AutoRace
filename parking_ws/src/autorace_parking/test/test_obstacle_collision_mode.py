@@ -7,6 +7,7 @@ from autorace_parking.control import build_plan_report
 from autorace_parking.obstacle_memory import MemoryScan
 from autorace_parking.regions import with_occupied_slots
 from autorace_parking.tracking import compose,inverse
+from recorded_profiles import fixed_empty_recording
 
 
 def clear():return Scan([math.inf]*361,-math.pi,math.pi/180,.01,12.)
@@ -17,9 +18,18 @@ def profile():
     return Settings(**{f.name:values[f.name] for f in fields(Settings) if f.name in values})
 
 
-def test_default_and_real_profile_use_obstacles_without_whole_cell_exclusions():
+def test_real_profile_uses_points_and_retains_boxes_for_visualization():
     assert not Settings().block_occupied_slots
-    assert not profile().block_occupied_slots
+    config=profile()
+    assert not config.block_occupied_slots and config.single_empty_slot
+    assert config.slot_object_box_enabled
+    layout={'origin':(1.,0.),'yaw':0.,'cell_width':.5,'cell_depth':.6,'border':.02,
+            'cells':[{'id':3,'center':(1.,0.),'occupied':True}]}
+    observed=with_occupied_slots(clear(),layout,(0.,0.,0.),config)
+    assert not observed.occupied_slots
+    observed=with_occupied_slots(clear(),layout,(0.,0.,0.),replace(config,block_occupied_slots=True))
+    assert observed.occupied_slots[0]['half_size']==pytest.approx(
+        (config.slot_object_width/2,config.slot_object_length/2))
 
 
 @pytest.mark.parametrize('yaw',[0.,math.pi/2])
@@ -34,7 +44,7 @@ def test_stale_region_metadata_is_ignored_but_real_points_and_body_margin_still_
 
 
 def test_manual_bag_start_now_generates_a_complete_path_around_observed_obstacles():
-    cfg=profile();data=json.loads((Path(__file__).parent/'data/manual_start_20261108.json').read_text());pose=tuple(data['pose'])
+    cfg=fixed_empty_recording(profile());data=json.loads((Path(__file__).parent/'data/manual_start_20261108.json').read_text());pose=tuple(data['pose'])
     scan=MemoryScan.__new__(MemoryScan);scan.__dict__=clear().__dict__.copy();scan.points=[];scan.point_owners={}
     for x,y,owner in data['memory_cells']:
         p=compose(inverse(pose),(x,y,0.))[:2];scan.points.append(p);scan.point_owners[p]=owner
@@ -50,7 +60,7 @@ def test_manual_bag_start_now_generates_a_complete_path_around_observed_obstacle
 
 
 def test_remembered_obstacle_behind_vehicle_remains_a_collision():
-    cfg=profile();scan=clear();scan.points=[(-.28,0.)]
+    cfg=replace(profile(),block_occupied_slots=False);scan=clear();scan.points=[(-.28,0.)]
     scan.occupied_slots=[{'id':3,'pose':(0.,0.,0.),'half_size':(.26,.31)}]
     checker=CollisionChecker(scan,cfg)
     assert checker.free((0.,0.,0.))

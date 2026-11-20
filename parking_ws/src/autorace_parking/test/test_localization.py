@@ -48,6 +48,29 @@ def test_stationary_scan_noise_does_not_accumulate_or_record_fake_motion():
     assert tracker.key_stamp == 0.
 
 
+@pytest.mark.parametrize('speed,yaw_rate', [(.03, 0.), (0., .04)])
+def test_motion_between_scans_is_retained_when_scan_arrives_after_stopping(speed, yaw_rate):
+    history = PoseHistory()
+    tracker = FusedTracker(history)
+    points = scene()
+    assert history.add(sample(0.))
+    assert tracker.update(points, 0.)
+    for i in range(1, 6):
+        previous = history.samples[-1].pose
+        assert history.add(sample(i*.1-.05, previous, speed, yaw_rate))
+        delta = (.05*speed, 0., .05*yaw_rate)
+        pose = compose(previous, delta)
+        assert history.add(sample(i*.1, pose))
+        observed = [compose(inverse(pose), (*p, 0.))[:2] for p in points]
+        assert tracker.update(observed, i*.1)
+        assert not tracker.stationary
+        assert tracker.pose == pytest.approx(pose, abs=1e-6)
+    assert history.add(sample(.6, pose))
+    assert tracker.update(observed, .6)
+    assert tracker.stationary
+    assert tracker.pose == pytest.approx(pose, abs=1e-6)
+
+
 def test_lidar_corrects_biased_wheel_prediction_during_forward_and_reverse():
     for direction in (1., -1.):
         points = scene()

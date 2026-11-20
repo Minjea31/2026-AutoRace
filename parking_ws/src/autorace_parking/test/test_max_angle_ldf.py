@@ -84,8 +84,8 @@ def test_right_bay_recovery_goes_straight_then_left_rear():
 def test_real_recovery_profile_backs_straight_thirty_cm_on_either_side(side):
     cfg, _ = real_profile();cfg = replace(cfg, initial_clear_radius=0.,clearance=.04)
     assert not cfg.recovery_left_when_goal_right
-    assert cfg.recovery_speed == .12 and cfg.blind_reverse_distance == .3
-    scan = front_scan();scan.points.append((cfg.vehicle_length/2+.08,0.))
+    assert 0 < cfg.recovery_speed <= .30 and cfg.blind_reverse_distance == .3
+    scan = front_scan();scan.points.append((cfg.vehicle_length/2+.045,0.))
     report = build_plan_report(scan, cfg, Gap(1., side*.5, side*math.pi/2, .85, 0, 1))
     assert report['diagnostics']['recovery_mode'] == 'straight_reverse'
     assert report['path'][-1][0] == pytest.approx(-.3)

@@ -200,7 +200,14 @@ class FusedTracker:
             return False
         self.sample = sample
         predicted = compose(self.offset, sample.pose)
-        self.stationary = abs(sample.speed) < .012 and abs(sample.yaw_rate) < .012
+        # A zero velocity at scan acquisition does not erase motion between
+        # scans (for example, short forward pulses while confirming arrival).
+        interval = [sample]
+        if self.last_stamp is not None:
+            interval.extend(s for s in self.history.samples
+                            if self.last_stamp <= s.stamp <= stamp)
+        self.stationary = all(abs(s.speed) < .012 and abs(s.yaw_rate) < .012
+                              for s in interval)
         if self.origin is None:
             self.origin = predicted
             self.global_pose = predicted

@@ -9,7 +9,7 @@ from .core import (CollisionChecker, RecoveryCollisionChecker, Gap, cluster_poin
 from .tracking import compose, inverse
 from .enclosed import enclosed_goals
 from .targets import automatic_goals,update_geometry_goal,SEMANTIC_GOALS
-from .regions import with_occupied_slots,outside_grid
+from .regions import with_occupied_slots,outside_grid,first_path_collision
 from .departure import lane_targets,single_reverse_route,curve_only_route
 from .roi import candidate_view,contains as roi_contains
 
@@ -18,6 +18,57 @@ def local_goal(goal, pose):
     x, y, yaw = compose(inverse(pose), (goal.x, goal.y, goal.yaw))
     return replace(goal, x=x, y=y, yaw=yaw,
                    heading_options=tuple(wrap(a-pose[2]) for a in goal.heading_options))
+
+
+def entry_plan_settings(cfg,target,timeout=None):
+    """One footprint and entry policy for control planning and RViz planning."""
+    tolerance=target.stop_tolerance*.5 if target.stop_tolerance>0 else cfg.goal_tolerance
+    return replace(cfg,planning_timeout=cfg.planning_timeout if timeout is None else timeout,
+        require_goal_heading=True,clearance=cfg.clearance+cfg.path_tracking_margin,
+        goal_tolerance=min(cfg.goal_tolerance,tolerance),
+        resolution=min(cfg.resolution,.04),yaw_resolution=min(cfg.yaw_resolution,cfg.target_heading_step),
+        goal_yaw_tolerance=(math.pi if not cfg.require_goal_heading else min(cfg.goal_yaw_tolerance,cfg.target_heading_step*.5)),
+        allow_reverse=cfg.allow_reverse and not cfg.recovery_on_front_obstacle_only)
+
+
+def entry_motion_settings(cfg,goal=None):
+    reverse_checked=(cfg.validate_reverse_entry and cfg.auto_exit_after_parking
+                     and not cfg.max_steering_paths_only and (goal is None or goal.confirmed))
+    if reverse_checked:
+        reverse_radius=cfg.turn_radius/cfg.reverse_steering_response_scale
+        cfg=replace(cfg,min_turn_radius=max(cfg.min_turn_radius,reverse_radius),
+            path_tracking_margin=max(cfg.path_tracking_margin,cfg.exit_path_tracking_margin+cfg.entry_departure_reserve))
+    return cfg,reverse_checked
+
+
+def safe_progress_step(scan,cfg,goal,distance):
+    """A short collision-checked move while the complete route is recalculated."""
+    cfg,_=entry_motion_settings(cfg,goal)
+    checker=CollisionChecker(scan,cfg,known_free_poses=[(0.,0.,0.)])
+    curvatures=[0.]
+    if goal is not None:
+        desired=max(-1/cfg.turn_radius,min(1/cfg.turn_radius,
+            2*goal.y/max(goal.x**2+goal.y**2,.01)))
+        curvatures=[desired,0.,-1/cfg.turn_radius,1/cfg.turn_radius]
+        distance=min(distance,max(cfg.collision_step,math.hypot(goal.x,goal.y)))
+    best=None;blocked=None
+    for curvature in dict.fromkeys(curvatures):
+        if abs(curvature)>1e-8 and cfg.max_planning_turn_radius>0 and 1/abs(curvature)>cfg.max_planning_turn_radius+1e-8:
+            continue
+        if cfg.max_steering_paths_only and abs(curvature)>1e-8 and abs(abs(curvature)-1/cfg.turn_radius)>1e-8:
+            continue
+        path,valid=sample_candidate(checker,[(distance,curvature)],cfg)
+        if not valid:
+            if blocked is None:blocked=checker.last_block_detail or {'kind':checker.last_block}
+            continue
+        score=abs(curvature)
+        if goal is not None:
+            end=path[-1];remaining=math.hypot(goal.x-end[0],goal.y-end[1])
+            if remaining>=math.hypot(goal.x,goal.y)-.001:continue
+            score=remaining+.001*abs(curvature)
+        if best is None or score<best[0]:best=(score,path,curvature)
+    if best:return best[1],best[2],None
+    return [],0.,blocked or {'kind':'no_safe_progress'}
 
 
 def same_gap(goal, candidate, row_yaw):
@@ -107,44 +158,9 @@ def refine_goal(goal, candidates, cfg, checker):
     return goal, False
 
 
-def candidate_approach(scan, targets, cfg, known_free_poses, clear_center):
-    """A short, collision-checked approach to the same detected parking space."""
-    best=None
-    for target in targets:
-        if not target.heading_options:
-            continue
-        distance=math.hypot(target.x,target.y)
-        if distance <= (target.stop_tolerance or cfg.goal_tolerance):
-            continue
-        checker=CollisionChecker(scan,cfg,known_free_poses,clear_center)
-        radius=max(cfg.turn_radius,cfg.preferred_turn_radius)
-        parts=[[(.3,curvature)] for curvature in (0.,-1/radius,1/radius)]
-        parts.extend(value for _,value in parking_candidates(target,cfg)[:12])
-        seen=set()
-        for route in parts:
-            short=[];remaining=min(.3,distance)
-            for length,curvature in route:
-                step=min(length,remaining)
-                if step>1e-8:short.append((step,curvature));remaining-=step
-                if remaining<=1e-8:break
-            key=tuple((round(a,4),round(b,4)) for a,b in short)
-            if not short or key in seen:continue
-            seen.add(key)
-            path,_=sample_candidate(checker,short,cfg)
-            length=sum(math.dist(a[:2],b[:2]) for a,b in zip(path,path[1:]))
-            if length<.10:continue
-            end=path[-1]
-            progress=distance-math.hypot(target.x-end[0],target.y-end[1])
-            if progress<.03:continue
-            heading=abs(wrap(math.atan2(target.y-end[1],target.x-end[0])-end[2]))
-            score=progress-.03*heading
-            if best is None or score>best[0]:best=score,target,path
-    return (best[1],best[2]) if best else (None,[])
-
-
 def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, known_free_poses=(),
                recovery_allowed=True, blind_reverse_remaining=None, validate_goal=False, front_scan=None,
-               failed_plans=0,stalled_route=False,layout_hint=None,excluded_targets=()):
+               failed_plans=0,stalled_route=False,layout_hint=None):
     """Return (final goal, path, final approach).
 
     Prefer driving straight along the row before turning into the bay. If
@@ -210,13 +226,6 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
         goal,details['goal_updated']=update_geometry_goal(goal,visible_goals)
     terminal_goal=bool(goal is not None and goal.confirmed and math.hypot(goal.x,goal.y)<=.15
                        and space_checker.free((goal.x,goal.y,goal.yaw),allow_unknown=True))
-    def excluded(candidate):
-        point=compose(origin,(candidate.x,candidate.y,0.))
-        return any(math.hypot(point[0]-x,point[1]-y)<=radius for x,y,radius in excluded_targets)
-    visible_goals=[g for g in visible_goals if not excluded(g)]
-    if goal is not None and excluded(goal):
-        details['goal_invalidated_by_exclusion']=True
-        goal=None
     reachable_goal,reachable_path=None,[]
     if not cfg.automatic_target_selection and cfg.enclosed_space_detection and cfg.continuous_replanning and len(visible_goals)>1 and not terminal_goal:
         # Clearance alone can favor an empty pocket that the measured turning
@@ -454,25 +463,15 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
                 continue
             remaining=deadline-time.monotonic()
             if remaining<=0:break
-            pair_approach=cfg.candidate_approach_enabled and target.kind=='pair_midpoint'
-            search_cfg=replace(cfg,planning_timeout=remaining/max(1,len(goals)-target_index),require_goal_heading=True,
-                clearance=cfg.clearance+(0. if pair_approach else cfg.path_tracking_margin),
-                goal_tolerance=min(cfg.goal_tolerance,target.stop_tolerance*.5),
-                resolution=min(cfg.resolution,.04),yaw_resolution=min(cfg.yaw_resolution,cfg.target_heading_step),
-                goal_yaw_tolerance=(math.pi if not cfg.require_goal_heading else min(cfg.goal_yaw_tolerance,cfg.target_heading_step*.5)),
-                allow_reverse=cfg.allow_reverse and (pair_approach or not cfg.recovery_on_front_obstacle_only))
+            search_cfg=entry_plan_settings(cfg,target,remaining/max(1,len(goals)-target_index))
             details['entry_reserve_blocked']=any(abs(x)<=cfg.vehicle_length/2+search_cfg.clearance
                 and abs(y)<=cfg.vehicle_width/2+search_cfg.clearance for x,y in scan.points)
-            path=plan_path(scan,target,search_cfg,known_free_poses,clear_center)
+            entry_scan=with_occupied_slots(scan,details.get('slot_map') or layout_hint,origin,cfg,target.slot_id)
+            path=plan_path(entry_scan,target,search_cfg,known_free_poses,clear_center)
             if path:
                 heading=min(target.heading_options,key=lambda a:abs(wrap(a-path[-1][2])))
                 return finish(replace(target,yaw=heading),path,True,'path_ready')
         code='budget_exceeded' if time.monotonic()>=deadline else 'no_observed_path'
-        if cfg.candidate_approach_enabled:
-            target,path=candidate_approach(scan,goals,cfg,known_free_poses,clear_center)
-            if path:
-                details['complete_path_pending']=True
-                return finish(target,path,False,'candidate_approach_ready')
         return recover(code)
     for target in goals:
         if (reachable_goal is not None and reachable_path
@@ -499,7 +498,8 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        path = plan_path(scan, target, replace(cfg, planning_timeout=remaining,
+        entry_scan=with_occupied_slots(scan,details.get('slot_map') or layout_hint,origin,cfg,target.slot_id)
+        path = plan_path(entry_scan, target, replace(cfg, planning_timeout=remaining,
                          allow_reverse=cfg.allow_reverse and not cfg.recovery_on_front_obstacle_only),
                          known_free_poses, clear_center)
         if path:
@@ -509,22 +509,17 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
 
 
 def build_plan_report(scan, cfg, goal=None, origin=(0., 0., 0.), known_free_poses=(), recovery_allowed=True,
-                      blind_reverse_remaining=None, validate_goal=False, front_scan=None, failed_plans=0,stalled_route=False,layout_hint=None,excluded_targets=()):
+                      blind_reverse_remaining=None, validate_goal=False, front_scan=None, failed_plans=0,stalled_route=False,layout_hint=None):
     """Process-worker interface with operator diagnostics and the normal plan."""
     report_started=time.monotonic()
     details = {}
-    reverse_checked = cfg.validate_reverse_entry and cfg.auto_exit_after_parking and not cfg.max_steering_paths_only and (goal is None or goal.confirmed)
-    if reverse_checked:
-        # The entry must fit the measured reverse steering authority too.
-        reverse_radius = cfg.turn_radius/cfg.reverse_steering_response_scale
-        cfg = replace(cfg,min_turn_radius=max(cfg.min_turn_radius,reverse_radius),
-            path_tracking_margin=max(cfg.path_tracking_margin,cfg.exit_path_tracking_margin+cfg.entry_departure_reserve))
+    # The entry must fit the measured reverse steering authority too.
+    cfg,reverse_checked=entry_motion_settings(cfg,goal)
     primary_cfg=replace(cfg,planning_timeout=cfg.planning_timeout*.7) if reverse_checked else cfg
     target, path, final = build_plan(scan, primary_cfg, goal, origin, diagnostics=details,
                                    known_free_poses=known_free_poses, recovery_allowed=recovery_allowed,
                                    blind_reverse_remaining=blind_reverse_remaining, validate_goal=validate_goal, front_scan=front_scan,
-                                   failed_plans=failed_plans,stalled_route=stalled_route,layout_hint=layout_hint,
-                                   excluded_targets=excluded_targets)
+                                   failed_plans=failed_plans,stalled_route=stalled_route,layout_hint=layout_hint)
     if reverse_checked and not path and target is None and details.get('goal_confirmed') and details.get('target'):
         d=details['target']
         target=Gap(d['x'],d['y'],d['yaw'],.5,0,1,confirmed=True,
@@ -923,6 +918,7 @@ class Follower:
             horizon = max(.25,self.measured_speed*.3+self.measured_speed**2/(2*self.deceleration))
             distance = 0.
             previous = (0.,0.,0.)
+            previous_checked=previous
             for point in self.path[self.index:]:
                 local = compose(transform,point)
                 length = math.hypot(local[0]-previous[0],local[1]-previous[1])
@@ -934,10 +930,11 @@ class Follower:
                         sample = (previous[0]+fraction*(local[0]-previous[0]),
                                   previous[1]+fraction*(local[1]-previous[1]),
                                   wrap(previous[2]+fraction*wrap(local[2]-previous[2])))
-                        if not checker.free(sample):
+                        if not checker.free(sample) or not checker.transition_free(previous_checked,sample):
                             self.last_collision=checker.last_block_detail
                             return self.stop('ROUTE_BLOCKED',now)
-                elif not checker.free(local):
+                        previous_checked=sample
+                elif not checker.free(local) or not checker.transition_free(previous_checked,local):
                     self.last_collision=checker.last_block_detail
                     return self.stop('ROUTE_BLOCKED',now)
                 distance += length
@@ -1188,8 +1185,6 @@ class Follower:
             distance += segment
         # Apply the floor to steering-related slowdown, preserving final braking.
         cruise_limit = min(self.speed, self.cfg.recovery_speed) if direction < 0 and not self.exiting else self.speed
-        if self.cfg.candidate_approach_enabled and not self.final_approach and not self.recovering and not self.exiting:
-            cruise_limit=min(cruise_limit,.2)
         yaw_limit = self.max_yaw_rate * self.cfg.wheelbase / max(abs(math.tan(steering))*response_scale, 1e-6)
         speed = min(cruise_limit, braking, yaw_limit,
                     steering_speed_limit if self.cfg.respect_steering_settle_speed else math.inf,
@@ -1221,8 +1216,9 @@ class Follower:
                     horizon=min(horizon,max(0.,math.hypot(goal.x,goal.y)-position_tolerance)+
                                 self.measured_speed*.2+self.cfg.collision_step/4)
                 count=max(1,math.ceil(horizon/self.cfg.collision_step))
-                blocked=any(not checker.free(advance((0.,0.,0.),direction*horizon*i/count,curvature))
-                            for curvature in (measured,requested,(measured+requested)/2) for i in range(count+1))
+                blocked=any(first_path_collision(checker,
+                    [advance((0.,0.,0.),direction*horizon*i/count,curvature) for i in range(count+1)],
+                    self.cfg.collision_step) for curvature in (measured,requested,(measured+requested)/2))
                 if not blocked:break
                 # A reverse departure retraces the measured entry but the
                 # steering still needs time to respond. Shorten the stopping

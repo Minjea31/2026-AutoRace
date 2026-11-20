@@ -28,7 +28,7 @@ class WhiteROI:
     right: float = .95
     top: float = .961
     bottom: float = 1.0
-    minimum_ratio: float = .40
+    minimum_ratio: float = .08
 
     def __post_init__(self):
         if (not all(math.isfinite(v) for v in (self.left, self.right, self.top, self.bottom, self.minimum_ratio))

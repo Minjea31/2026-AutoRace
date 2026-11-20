@@ -51,8 +51,6 @@ class StartSequence:
         return bool(exhausted and not self.follower.path)
 
     def request_parking_start(self):
-        if self.start_phase != 'IDLE':
-            return
         if not self.accepts_parking_start():
             return
         if time.monotonic() < self.sign_ignore_until:
@@ -85,7 +83,7 @@ class StartSequence:
         self.start_deadline = time.monotonic()+10.
         self.publish_command(0., 0.)
         self.start_pub.publish(Bool(data=True))
-        self.get_logger().info('주차 시작: 정지·EKF 초기화')
+        self.get_logger().debug('주차 시작: 정지·EKF 초기화')
 
     def retry_start(self, reason):
         if self.start_future is not None:
@@ -109,8 +107,9 @@ class StartSequence:
         if not self.vehicle_automatic(): self.reason = self.vehicle_wait_reason()
         self.publish_guard()
         if wall-self.start_status_wall >= .2:
-            self.status_pub.publish(String(data=json.dumps(dict(active=True,state=self.state,
-                attempt=self.attempt,reason=self.reason,start_phase=self.start_phase))))
+            self.report_operation()
+            self.status_pub.publish(String(data=json.dumps(dict(self.operation,active=True,
+                attempt=self.attempt,start_phase=self.start_phase))))
             self.start_status_wall = wall
         if not self.vehicle_automatic():
             # Waiting for vehicle status is not an EKF initialization failure.
@@ -127,7 +126,7 @@ class StartSequence:
         if self.start_phase == 'WAIT_AUTO':
             self.start_phase = 'STOP'
             self.start_deadline = wall+10.
-            self.get_logger().info('자동 모드 확인: 정지·초기화 재개')
+            self.get_logger().debug('자동 모드 확인: 정지·초기화 재개')
         if self.start_phase == 'RETRY':
             if wall < self.start_retry_at: return True
             self.start_phase = 'STOP'
@@ -219,7 +218,7 @@ class StartSequence:
                 self.last_localization_rejection = None
                 self.start_phase = 'POSE_WAIT'
                 self.start_deadline = wall+10.
-                self.get_logger().info('EKF 좌표·지도 기준 초기화 완료')
+                self.get_logger().debug('EKF 좌표·지도 기준 초기화 완료')
             except Exception:
                 self.retry_start('EKF 초기화 요청 실패')
             return True
@@ -237,7 +236,7 @@ class StartSequence:
                 self.ready_until = wall+1.
                 self.state, self.reason = 'PLANNING', ''
                 self.ready_pub.publish(Header(stamp=self.get_clock().now().to_msg(), frame_id=str(self.attempt)))
-                self.get_logger().info('EKF 초기화 완료: 주차 진행')
+                self.get_logger().debug('EKF 초기화 완료: 주차 진행')
             return True
         return True
 
@@ -256,8 +255,6 @@ class StartSequence:
                 or abs(v)>1.5 or abs(w)>3. or msg.child_frame_id != self.base_frame): return
         if self.wheel_sample is not None and stamp <= self.wheel_sample[0]: return
         self.wheel_sample = stamp,v,w,time.monotonic()
-        self.sync_sign_retry()
-        self.sign_motion.update(stamp, v, self.wheel_sample[3])
         if not self.departure_active() or self.localization_source != 'fused': return
         self.lock_departure_localization()
         if not self.departure_wheel or not self.odometry.samples: return

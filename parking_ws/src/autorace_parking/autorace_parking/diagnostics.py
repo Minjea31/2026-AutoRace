@@ -1,44 +1,25 @@
-"""Korean operator messages; internal state/reason identifiers remain stable."""
+"""Five operator states with separate, specific error reasons."""
 import re
 
 
-STATES = {
-    'MISSION_FAILED':'주차 진행 실패·재시도 대기',
-    'SEARCHING': '저속 전진하며 주차 후보 탐색',
-    'SEARCH_STOPPING': '주차 후보 발견·정지 확인 중',
-    'SEARCH_PLANNING': '정지 위치에서 주차 진입 경로 계산 중',
-    'SEARCH_BLOCKED': '주차 탐색 정지',
-    'SEARCH_LIMIT': '주차 탐색 한도 도달·인식 확인 필요',
-    'WAITING_CALIBRATION': '주차 접근 전 정지·자이로 보정 대기',
-    'CALIBRATION_FAILED': '주차 접근 보정 실패·수동 초기화 대기',
-    'WAITING_STEERING':'주차 전용 조향 보정 준비 대기',
-    'WAITING_WHITE_LINE': '주차 흰선을 확인하며 저속 접근 중',
-    'MANUAL_INTERRUPTED':'수동 개입·초기화 대기',
-    'APPROACH_LIMIT':'주차 시작선 탐색 한도 도달',
-    'WAITING_SIGN': '주차 시작 신호 대기', 'WAITING_SCAN': '라이다 수신 대기',
-    'WAITING_LOCALIZATION': '위치 추정 준비 대기', 'TRACKING_LOST': '위치 추정 실패',
-    'ROUTE_BLOCKED': '추종 경로 장애물로 정지·재계획 중',
-    'PATH_HELD': '진입 경로 유지·정지 중',
-    'RECOVERY_STOPPING':'후진 종료·정지 확인 중',
-    'LANE_REPLAN':'주차 제어 해제·재탐색 중',
-    'PLANNING': '주차 경로 계산 중', 'APPROACHING': '주차 구역 접근 중',
-    'FRONT_BLOCKED': '정면 장애물 근접으로 정지',
-    'PARKING': '주차 진입 중', 'CONFIRMING': '주차 위치와 정지 확인 중',
-    'REVERSING': '후진을 포함한 주차 진입 중', 'RECOVERING': '후진 복구 후 재탐색 중',
-    'CHANGING_DIRECTION': '전진·후진 전환을 위한 정지 확인 중',
-    'RECOVERY_BLOCKED': '후진 복구 경로의 새 장애물로 정지',
-    'PARKED': '주차 완료 후 대기', 'EXITING': '기록한 진입 경로를 되짚어 출차 중',
-    'EXIT_CONFIRMING': '출차 위치와 정지 확인 중', 'EXITED': '출차 완료',
-    'EXIT_LANE_STOPPING': '곡선 후진 완료 후 lane 이양을 위해 정지 중',
-    'REOBSERVE': '접근 구간 끝 도착·재관측 중', 'REPLAN': '추종 경로 재계산 중',
-    'EXIT_PATH_ERROR': '후진 출차 경로 오류',
-}
+STATES = {'WAITING_EKF':'EKF 대기','PLANNING':'path 계산',
+          'FORWARD':'전진중','REVERSE':'후진중','PARKED':'주차 완료'}
+
+
+def public_state(phase,speed=None):
+    if phase in ('PARKED','EXITED'):return 'PARKED'
+    if phase.startswith('WAITING_') or phase in ('TRACKING_LOST','CALIBRATION_FAILED'):
+        return 'WAITING_EKF'
+    if speed is not None:
+        return 'FORWARD' if speed>1e-6 else 'REVERSE' if speed< -1e-6 else 'PLANNING'
+    if phase in ('SEARCHING','APPROACHING','PARKING'):return 'FORWARD'
+    if phase in ('RECOVERING','REVERSING','EXITING'):return 'REVERSE'
+    return phase if phase in STATES else 'PLANNING'
 
 REASONS = {
     'Parking made no progress for 20 s; reset required':'20초간 이동이 없어 정지했습니다. 새 주차 감지로 재시도할 수 있습니다.',
     'Manual control or stale vehicle mode; reset required after takeover':'수동 개입 또는 차량 상태 지연: 새 주차 감지 대기',
     'Looking for parking candidates along a measured clear corridor': '관측된 전방 통로를 저속으로 전진하며 주차 후보를 찾습니다.',
-    'Looking for parking candidates along a clear corridor': '전방 장애물을 확인하며 저속으로 전진해 주차 후보를 찾습니다.',
     'Parking search corridor is blocked or unobserved': '탐색 전방에 장애물이 있거나 이동할 차체 구간을 관측하지 못했습니다.',
     'Waiting for fresh observed search corridor': '탐색 전방을 확인할 최신 라이다를 기다립니다.',
     'Waiting for stable observed search corridor': '새 라이다 관측에서 안전한 탐색 통로가 연속 확인되기를 기다립니다.',
@@ -88,7 +69,7 @@ REASONS = {
 
 
 def state_text(state):
-    return STATES.get(state, '확인되지 않은 상태')
+    return STATES[public_state(state)]
 
 
 def reason_text(reason):
@@ -121,7 +102,7 @@ def reason_text(reason):
         return '경로 계산 작업 프로세스가 종료됐습니다. 주차 노드를 다시 실행하세요.'
     if re.search('[가-힣]', reason):
         return reason
-    return '분류되지 않은 오류가 발생했습니다. 센서와 설정을 확인하고 주차 미션을 초기화하세요.'
+    return '오류: '+reason
 
 
 def planning_text(details):
@@ -177,6 +158,14 @@ def planning_text(details):
                 f'관측 점 {details.get("input_points", 0)}개, 장애물 군집 {details.get("clusters", 0)}개. '
                 '장애물 크기·간격·주차 열 방향을 확인하세요.'+recovery_note)
     if code == 'start_blocked':
+        if details.get('blocked_by') == 'slot_wrong_side_entry':
+            return '경로가 빈 주차칸의 반대쪽으로 들어갑니다. 주차 시작 차량 쪽의 왼쪽 입구를 사용해야 합니다.'
+        if details.get('blocked_by') == 'slot_long_side_entry':
+            return '경로가 빈 주차칸의 긴 변으로 들어갑니다. 해당 칸의 짧은 변으로 진입해야 합니다.'
+        if details.get('blocked_by') == 'yellow_boundary':
+            return '현재 차량 외곽이 노란선 경계에 걸려 경로를 만들지 못했습니다.'
+        if details.get('blocked_by') == 'occupied_slot':
+            return '현재 차량 외곽 또는 여유 공간이 점유된 주차 물체와 겹칩니다.'
         if details.get('blocked_by') == 'obstacle':
             return '출발 위치의 차량 외곽 또는 여유 공간에 라이다 장애물이 검출돼 경로를 만들지 못했습니다.'
         return '출발 위치의 차량 외곽에 관측되지 않은 공간이 있어 경로를 만들지 못했습니다.'
@@ -191,68 +180,69 @@ def planning_text(details):
     return ''
 
 
-def operator_reason(state, reason='', planning=None, detections=0, required=3):
-    if state == 'WAITING_WHITE_LINE':
-        return reason or '주차 표지를 확인했습니다. 저속 접근하며 차량 앞 바닥 흰선을 확인합니다.'
+def operator_reason(state,reason='',planning=None,detections=0,required=3):
+    info=planning or {}
     if state=='EXIT_PATH_ERROR':
-        code=(planning or {}).get('exit_route_reason','')
         detail={
-            'stopping':'후진 출차 경로를 다시 연결하기 전에 차량이 멈추기를 기다립니다.',
-            'observation_unavailable':'현재 위치와 장애물 지도가 준비되기를 기다립니다.',
-            'planning':'진입 기록을 종합한 하나의 후진 출차 경로를 계산하고 있습니다.',
-            'missing_lane_history':'주차칸 밖 원래 차선까지 연결되는 진입 기록이 부족합니다.',
-            'retry_limit':'출차 재계획 한도에 도달했습니다. 정지 상태에서 원인을 확인하고 초기화하세요.',
-            'no_reverse_route':'현재 지도와 회전 반경을 만족하는 연속 후진 경로를 아직 찾지 못했습니다.',
-            'endpoint_alignment':'출차 경로 끝에서 차선 방향·위치 오차가 남았습니다.',
             'lookahead_wrong_side':'출차 추종점이 후진 방향과 맞지 않습니다.',
-            'single_arc_unavailable':'곡선·직선 탈출 경로 생성 불가',
-            'unobserved_departure':'탈출 경로 관측 부족',
-            'yellow_boundary':'노란선 침범: 재계획 대기',
-            'path_obstacle':'출차 중 차체·제동 구간에 장애물이 검출됐습니다.',
-            'map_changed':'계산 중 지도에 새 장애물이 반영되어 출차 경로를 다시 확인합니다.',
-            'pose_changed':'계산 중 차량 위치가 바뀌어 출차 경로를 다시 연결합니다.',
+            'missing_lane_history':'차선까지 이어지는 진입 기록이 부족합니다.',
+            'retry_limit':'출차 재계획 한도에 도달했습니다.',
+            'no_reverse_route':'충돌 없는 후진 출차 경로가 없습니다.',
+            'path_obstacle':'출차 경로 박스 안에 라이다 점이 있습니다.',
+            'pose_changed':'출차 경로 계산 중 차량 위치가 바뀌었습니다.',
+            'map_changed':'출차 경로 계산 중 새 장애물이 들어왔습니다.',
             'planner_failure':'출차 경로 계산 중 오류가 발생했습니다.',
-        }.get(code,'연속 후진 출차 경로를 확인하고 있습니다.')
-        return detail+' 정지 상태에서 출차 경로를 재계산합니다.'
-    if state=='PARKED'  and (planning or {}).get('auto_exit_after_parking') is False:
-        return '목표 위치에 주차를 완료했습니다. 자동 출차 없이 정지를 유지합니다.'
-    if state == 'WAITING_SIGN':
-        if reason == 'Clock moved backwards':
-            return reason_text(reason)
-        return f'주차 시작 신호를 기다리고 있습니다. 연속 감지 {detections}/{required}회.'
-    if state == 'PATH_HELD' and (planning or {}).get('continuous_replanning'):
-        info=planning or {};text='정지 상태에서 연결 가능한 새 경로를 계산하고 있습니다.'
-        blocked=info.get('recovery_stop')
-        if blocked:
-            text+=' 후진 중 기억 지도와 차체·제동 구간의 겹침으로 중단했습니다.'
-            if blocked.get('kind')=='occupied_slot':text+=f" 점유 칸 {blocked['slot_id']+1}번."
-            elif blocked.get('point'):text+=f" 검사 시 차체 좌표 장애물 점 ({blocked['point'][0]:.2f}, {blocked['point'][1]:.2f})m."
-        if info.get('path_hidden_by_slot'):text+=' 점유 칸과 겹치는 기존 경로는 표시하지 않습니다.'
-        if 'recovery_remaining_m' in info:text+=f" 남은 복구 후진 {info['recovery_remaining_m']*100:.0f}cm, 사용 {info.get('recovery_attempts',0)}/{info.get('max_recovery_attempts',0)}회."
-        return text
-    if state == 'RECOVERING' and (planning or {}).get('recovery_mode') == 'straight_then_left_reverse':
-        return '주차 칸이 차량 오른쪽에 있어 직선 후진 후 좌측 후방 곡선으로 재배치합니다.'
+        }.get(info.get('exit_route_reason'),'출차 경로를 아직 연결하지 못했습니다.')
+        return detail+' 정지 상태에서 경로를 재계산합니다.'
     if reason:
-        if reason == 'No visible reachable gap/path':
-            return planning_text(planning or {}) or reason_text(reason)
+        if reason=='No visible reachable gap/path':return planning_text(info) or reason_text(reason)
         return reason_text(reason)
+    if state=='WAITING_SIGN':return f'주차 시작 신호 대기: {detections}/{required}회.'
     return {
-        'WAITING_SCAN': REASONS['Waiting for a fresh scan'],
-        'WAITING_LOCALIZATION': REASONS['Waiting for EKF and scan'],
-        'PLANNING': '라이다 데이터로 주차 경로를 계산하고 있습니다.',
-        'REOBSERVE': '관측된 접근 구간 끝에 도착했습니다. 새 스캔으로 안쪽 경로를 다시 계산합니다.',
-        'ROUTE_BLOCKED': '현재 경로의 가까운 구간에 장애물이 검출되어 경로를 유지한 채 새 경로를 계산합니다.',
-        'RECOVERY_STOPPING':'후진을 마친 뒤 차량의 정지를 확인합니다. 정지 확인 후 주차 명령 송신을 중단합니다.',
-        'LANE_REPLAN':'주차 명령 송신을 중단했습니다. mux의 다른 입력이 제어하며, 연결 가능한 새 진입 경로가 생기면 주차 제어를 재개합니다.',
-        'PATH_HELD': '채택한 직선·곡선 경로를 유지한 채 정지했습니다. 경로를 자동 교체하지 않으며 정면 장애물 근접 시 허용된 후진 복구를 확인합니다.',
-        'REPLAN': '추종할 경로가 차량 진행 방향과 맞지 않아 정지 후 다시 계산합니다.',
-        'CHANGING_DIRECTION': '차량이 멈췄는지 연속 3회 확인한 뒤 전진·후진 방향을 바꿉니다.',
-        'RECOVERING': '관측되었거나 사전에 비어 있다고 확인한 허용 범위에서 후진한 뒤 주차 칸과 진입 경로를 다시 탐색합니다.',
-        'RECOVERY_BLOCKED': '후진 경로의 차체·제동 구간이 기억 지도 장애물과 겹쳐 정지했습니다. 현재 지도에서 경로를 다시 계산합니다.',
-        'EXIT_PATH_ERROR': '기록된 후진 경로를 정상적으로 추종할 수 없습니다. 주변을 확인하고 미션을 초기화하세요.',
-        'CONFIRMING': '목표 부근에서 차량이 멈췄는지 연속 관측으로 확인하고 있습니다.',
-        'EXIT_CONFIRMING': '후진 출차 끝점에서 차량의 정지와 방향을 확인하고 있습니다.',
-        'PARKED': '주차를 완료했습니다. 설정된 대기 시간이 지나면 기록한 경로로 후진합니다.',
-        'EXITED': '출차를 완료했습니다. 주차 경로와 제어 출력을 종료합니다.',
-        'EXIT_LANE_STOPPING': '곡선 후진과 차선 방향 정렬을 완료했습니다. 정지와 최신 차선 입력을 확인한 뒤 제어권을 넘깁니다.',
-    }.get(state, '')
+        'WAITING_WHITE_LINE':'주차 표지를 확인했습니다. 바닥 흰선 감지를 기다립니다.',
+        'WAITING_SCAN':REASONS['Waiting for a fresh scan'],
+        'WAITING_LOCALIZATION':REASONS['Waiting for EKF and scan'],
+        'PLANNING':'충돌 없는 진입 경로를 계산합니다.',
+        'REOBSERVE':'새 라이다로 진입 경로를 다시 계산합니다.',
+        'ROUTE_BLOCKED':'경로의 검사 박스 안에 라이다 점이 있습니다.',
+        'RECOVERY_BLOCKED':'후진 경로의 검사 박스 안에 라이다 점이 있습니다.',
+        'FRONT_BLOCKED':'차량 앞 검사 박스 안에 라이다 점이 있습니다.',
+        'RECOVERY_STOPPING':'후진 후 정지를 확인합니다.',
+        'LANE_REPLAN':'안전한 이동 구간과 진입 경로를 다시 계산합니다.',
+        'PATH_HELD':'다음 이동 구간을 계산합니다.',
+        'REPLAN':'진행 방향에 맞는 경로를 다시 계산합니다.',
+        'CHANGING_DIRECTION':'정지 확인 후 전진·후진 방향을 전환합니다.',
+        'CONFIRMING':'주차 위치와 정지를 확인합니다.',
+        'EXIT_CONFIRMING':'출차 위치와 정지를 확인합니다.',
+        'PARKED':'주차를 완료했습니다. 대기 후 자동 출차합니다.' if info.get('auto_exit_after_parking',True) else '주차를 완료했습니다.',
+        'EXITED':'출차를 완료했습니다.',
+        'EXIT_LANE_STOPPING':'출차 후 정지와 차선 입력을 확인합니다.',
+    }.get(state,'')
+
+
+def operator_report(phase,speed,reason='',planning=None,detections=0,required=3):
+    """Keep progress states independent of faults and controller procedures."""
+    info=planning or {};state=public_state(phase,speed)
+    explanation=operator_reason(phase,reason,info,detections,required)
+    code='';error='';fatal=False
+    if state not in ('FORWARD','REVERSE','PARKED'):
+        fatal=phase in ('MISSION_FAILED','CALIBRATION_FAILED','EXIT_PATH_ERROR','MANUAL_INTERRUPTED','APPROACH_LIMIT','SEARCH_LIMIT')
+        collision=({'SEARCH_BLOCKED':info.get('search_block'),'ROUTE_BLOCKED':info.get('route_collision'),
+                    'RECOVERY_BLOCKED':info.get('recovery_stop')}.get(phase))
+        if collision:
+            kind=collision.get('kind','obstacle')
+            code=kind.upper()
+            error={'obstacle':'검사 박스 안에 라이다 점이 있습니다.',
+                   'unknown_space':'경로의 라이다 관측이 부족합니다.',
+                   'slot_long_side_entry':'선택한 주차칸의 짧은 입구로 진입해야 합니다.',
+                   'slot_wrong_side_entry':'선택한 주차칸의 왼쪽 입구로 진입해야 합니다.'}.get(kind,explanation)
+            if collision.get('point') is not None:
+                x,y=collision['point'];error+=f' 점 위치: ({x:.2f}, {y:.2f})m.'
+        elif fatal or phase in ('TRACKING_LOST','WAITING_LOCALIZATION','WAITING_SCAN','FRONT_BLOCKED','RECOVERY_BLOCKED','ROUTE_BLOCKED'):
+            code=phase;error=explanation
+        elif phase not in ('CHANGING_DIRECTION','RECOVERY_STOPPING','CONFIRMING','EXIT_CONFIRMING','EXIT_LANE_STOPPING'):
+            failure=info.get('reason_code')
+            if failure in ('budget_exceeded','no_observed_path','center_pose_blocked','start_blocked','entry_departure_unavailable'):
+                code=failure.upper();error=planning_text(info) or explanation
+    return {'state':state,'state_text':STATES[state],'reason':explanation,
+            'error_code':code,'error_reason':error,'fatal':fatal}

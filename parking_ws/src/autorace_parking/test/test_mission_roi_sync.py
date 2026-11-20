@@ -98,7 +98,7 @@ def test_wait_log_reports_individual_ages_instead_of_hiding_input_loss(node):
     log=Mock();node.get_logger=lambda:log
     node.tick()
     assert node.state=='WAITING_LOCALIZATION'
-    assert 'health_age_s=1.00s' in log.info.call_args.args[0]
+    assert 'health_age_s=1.00s' in log.warning.call_args.args[0]
     assert node.synchronization_status(21.)['scan_queue_capacity']==1
 
 

@@ -164,7 +164,7 @@ def test_recorded_narrow_sign_is_an_obstacle_before_it_grows_to_twelve_cm(frame)
     package=Path(__file__).resolve().parents[1]
     params=yaml.safe_load((package/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     config=Settings(**{f.name:params[f.name]for f in fields(Settings)if f.name in params})
-    assert config.obstacle_min_cluster_size==.05
+    assert config.obstacle_min_cluster_size==0.
     data=json.loads((package/'test/data/parking_104627_front_obstacle.json').read_text())
     scan=Scan(**data['scans'][frame]);old=scan.filtered_obstacles(replace(config,obstacle_min_cluster_size=.12))
     current=scan.filtered_obstacles(config);before=set(old.points);after=set(current.points)
@@ -176,18 +176,22 @@ def test_recorded_narrow_sign_is_an_obstacle_before_it_grows_to_twelve_cm(frame)
 
 
 def test_fixed_known_empty_bay_does_not_wait_for_occluded_center_rays_and_can_gain_entry_margin():
+    from recorded_profiles import fixed_empty_recording
     from autorace_parking.control import build_plan_report
     from autorace_parking.obstacle_memory import MemoryScan
     from autorace_parking.tracking import compose,inverse
     from autorace_parking.core import CollisionChecker
     package=Path(__file__).resolve().parents[1]
     params=yaml.safe_load((package/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
-    config=Settings(**{f.name:params[f.name]for f in fields(Settings)if f.name in params})
+    config=fixed_empty_recording(Settings(**{f.name:params[f.name]for f in fields(Settings)if f.name in params}))
     data=json.loads((package/'test/data/parking_104627_conservative_map.json').read_text())['frames'][0]
     pose=data['pose'];pairs=[(compose(inverse(pose),(x,y,0.))[:2],owner)for x,y,owner in data['memory_cells']]
     scan=MemoryScan.__new__(MemoryScan);scan.__dict__=Scan([0.]*361,-math.pi,math.pi/180,.01,3.).__dict__.copy()
     scan.points=[p for p,_ in pairs];scan.point_owners=dict(pairs)
-    config=replace(config,row_yaw=-pose[2])
+    # Preserve this recording's 10 cm margin and 3 cm departure reserve.
+    # The live point/box profile now has a single 5 cm margin.
+    config=replace(config,row_yaw=-pose[2],clearance=.1,path_tracking_margin=.02,
+        entry_departure_reserve=.03,recovery_front_clearance=.1,recovery_margin_escape_enabled=True)
     first=build_plan_report(scan,config,origin=pose,failed_plans=0)
     assert first['diagnostics']['fixed_empty_prior']
     assert first['diagnostics']['entry_reserve_blocked'] and not first['path']

@@ -141,10 +141,11 @@ def test_short_forward_goal_is_not_lost_in_start_hash_cell():
 def test_real_profile_enables_selection_rear_arrival_and_three_second_departure():
     params=yaml.safe_load((Path(__file__).resolve().parents[1]/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     assert params['automatic_target_selection'] and not params['pair_fallback_enabled']
-    assert params['fixed_parking_slot_id']==4 and params['obstacle_min_cluster_size']==.05
+    assert params['single_empty_slot'] and params['fixed_parking_slot_id']==-1
+    assert not params['fixed_slot_empty_known'] and params['obstacle_min_cluster_size']==0.
     assert params['auto_exit_after_parking'] and params['parking_hold_seconds']==3.
     assert params['arrival_use_rear_axle'] and params['rear_axle_offset_x']==-.1
-    assert not params['block_occupied_slots']
+    assert not params['block_occupied_slots'] and params['slot_object_box_enabled']
     assert params['steering_gain']==1.2 and params['curvature_feedforward'] and params['recovery_total_distance']==1.5 and params['max_recovery_attempts']==5
 
 

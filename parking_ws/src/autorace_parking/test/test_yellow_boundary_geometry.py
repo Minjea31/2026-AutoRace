@@ -8,6 +8,7 @@ import yaml
 from autorace_parking.yellow_boundary import YellowBoundary
 from autorace_parking.core import CollisionChecker, Settings, Scan
 from autorace_parking.control import build_plan_report
+from recorded_profiles import fixed_empty_recording
 
 
 def reference(pose,hl,hw,segments):
@@ -68,7 +69,8 @@ def recorded_scene():
     root=Path(__file__).resolve().parents[4]
     params=yaml.safe_load((root/'parking_ws/src/autorace_parking/config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     cfg=Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params})
-    cfg=replace(cfg,slot_object_box_enabled=False)  # recorded cone surfaces, not LIMO bodies
+    cfg=replace(fixed_empty_recording(cfg),slot_object_box_enabled=False,clearance=.10,path_tracking_margin=.02,
+                yellow_boundary_enabled=True,entry_via_short_edge=False)  # legacy yellow-check fixture
     data=json.loads((Path(__file__).parent/'data/parking_yellow_finite_20261115.json').read_text())
     s=data['scan']
     source=Scan(s['ranges'],s['angle_min'],s['angle_increment'],s['range_min'],s['range_max'],(.103,0.,0.),cfg.max_range)

@@ -4,16 +4,17 @@ import math
 from pathlib import Path
 from dataclasses import fields,replace
 import yaml
-from autorace_parking.core import Settings,Scan,Cluster,CollisionChecker
+from autorace_parking.core import Settings,Scan,Cluster
 from autorace_parking.control import build_plan_report
 from autorace_parking.slot_map import fit_slot_map,reference_centers
+from recorded_profiles import fixed_empty_recording
 
 
 def fixture():
     root=Path(__file__).resolve().parents[4]
     params=yaml.safe_load((root/'parking_ws/src/autorace_parking/config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     cfg=Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params})
-    cfg=replace(cfg,slot_object_box_enabled=False)  # recorded cone surfaces, not LIMO bodies
+    cfg=replace(fixed_empty_recording(cfg),slot_object_box_enabled=False)  # recorded cone surfaces, not LIMO bodies
     s=json.loads((Path(__file__).parent/'data/parking_three_object_20261115.json').read_text())
     return Scan(s['ranges'],s['angle_min'],s['angle_increment'],s['range_min'],s['range_max'],(.103,0.,0.),cfg.max_range),cfg
 
@@ -32,13 +33,10 @@ def test_real_three_objects_uniquely_register_known_empty_target():
     assert result['path'] and result['final']
 
 
-def test_unmatched_grid_uses_geometric_gap_even_with_four_object_threshold():
+def test_same_scan_was_rejected_by_old_four_object_threshold():
     source,cfg=fixture();result=report(source,replace(cfg,enclosure_confirm_objects=4))
     assert result['diagnostics']['enclosure_objects']==3
-    assert result['diagnostics']['slot_map'] is None
-    assert result['diagnostics']['slot_map_fallback']
-    assert result['goal'] is not None and result['path']
-    assert all(CollisionChecker(source,cfg).free(p) for p in result['path'])
+    assert result['diagnostics']['slot_map'] is None and not result['path']
 
 
 def test_collinear_three_objects_do_not_lock_a_two_dimensional_map():

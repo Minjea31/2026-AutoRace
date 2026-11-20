@@ -103,11 +103,11 @@ def test_release_ignores_signs_for_exactly_ten_seconds(node,monkeypatch):
     n.follower.exited=n.follower.parked=True
     n.release_parking_commands()
     assert n.sign_ignore_until==110.
-    n.floor_gate=Mock(armed=False,failure='')
+    n.floor_gate=Mock()
     n.accepts_parking_start=Mock(return_value=True)
     wall[0]=109.999
     n.on_sign(Bool(data=True))
-    n.floor_gate.on_confirmed_sign.assert_not_called()
+    n.floor_gate.on_sign.assert_not_called()
     wall[0]=110.
     n.on_sign(Bool(data=True))
-    n.floor_gate.on_confirmed_sign.assert_called_once()
+    n.floor_gate.on_sign.assert_called_once()

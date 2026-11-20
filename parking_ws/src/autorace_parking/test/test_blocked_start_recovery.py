@@ -5,8 +5,14 @@ from unittest.mock import patch
 import pytest
 from autorace_parking.core import Scan,Gap,CollisionChecker,RecoveryCollisionChecker,advance
 from autorace_parking.control import Follower,build_plan_report
-from test_obstacle_collision_mode import profile
+from test_obstacle_collision_mode import profile as current_profile
 from test_operator_ros import node,activate
+
+
+def profile():
+ # These recorded escape scenarios predate the strict 5 cm point-box policy.
+ return replace(current_profile(),clearance=.1,path_tracking_margin=.02,
+                recovery_front_clearance=.1,recovery_margin_escape_enabled=True)
 
 
 def scan(points=()):
@@ -57,7 +63,7 @@ def test_actual_twenty_cm_retreat_from_front_margin_overlap_is_followable():
   current=scan([(x-pose[0],y) for x,y in world_points])
   v,a,state=f.command(current,pose,new_scan=i%2==0,now=i*.05,obstacle_scan=current)
   assert state!='RECOVERY_BLOCKED',(i,pose,f.last_collision)
-  assert -.2-1e-8<=v<=0.
+  assert -min(f.speed,cfg.recovery_speed)-1e-8<=v<=0.
   pose=advance(pose,v*.05,math.tan(a)/cfg.wheelbase)
   if f.recovery_finished:break
  assert f.recovery_finished and .2<=abs(pose[0])<=.3

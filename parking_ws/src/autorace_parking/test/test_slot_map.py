@@ -10,11 +10,8 @@ from autorace_parking.obstacle_memory import MemoryScan
 from autorace_parking.tracking import compose,inverse
 
 
-def cfg(**kw):
-    values=dict(slot_map_enabled=True,automatic_target_selection=True,enclosed_space_detection=True,
-                assume_unobserved_free=True,min_cluster_size=.14,max_gap=.8,pair_fallback_enabled=False)
-    values.update(kw)
-    return replace(Settings(),**values)
+def cfg(**kw):return replace(Settings(),slot_map_enabled=True,automatic_target_selection=True,
+    enclosed_space_detection=True,assume_unobserved_free=True,min_cluster_size=.14,max_gap=.8,**kw)
 
 
 def objects(centers):

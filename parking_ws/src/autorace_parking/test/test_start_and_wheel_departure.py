@@ -87,7 +87,7 @@ def test_start_resets_latched_failure_and_retries_until_fresh_ekf(node):
     assert n.start_phase=='IDLE' and n.ready_until>time.monotonic()
 
 
-def test_duplicate_start_is_idempotent_then_manual_failure_can_restart(node):
+def test_cooldown_drops_events_then_active_manual_failure_can_restart(node):
     n,clock=node
     n.request_parking_start()
     n.request_parking_start()
@@ -263,10 +263,7 @@ def test_set_pose_ack_discards_old_map_and_waits_for_new_coordinate_epoch(node):
     assert n.tracker.valid and n.memory.cells  # only the new frame can seed the map
 
 
-def test_normal_progress_ignores_new_sign_but_failure_allows_restart(node,monkeypatch):
-    import autorace_parking.node as parking_module
-    wall=[100.]
-    monkeypatch.setattr(parking_module.time,'monotonic',lambda:wall[0])
+def test_normal_progress_ignores_new_sign_but_failure_allows_restart(node):
     n,clock=node
     n.prevent_active_retrigger=True
     n.request_parking_start()
@@ -278,7 +275,6 @@ def test_normal_progress_ignores_new_sign_but_failure_allows_restart(node,monkey
     n.follower.parked=True
     assert not n.accepts_parking_start()  # hold and reverse departure are normal progress
     n.manual_interrupted=True
-    wall[0]+=1.01  # Set grouping uses monotonic receipt time, not ROS time.
     n.on_sign(Bool(data=True));n.on_sign(Bool(data=True))
     n.floor_gate.observe(n.floor_gate.armed_stamp+1,.09,0.,0.)
     assert n.attempt==2 and n.start_phase=='STOP'

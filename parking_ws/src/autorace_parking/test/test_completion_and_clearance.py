@@ -13,24 +13,24 @@ from test_obstacle_collision_mode import profile
 
 
 @pytest.mark.parametrize('yaw', [0., math.pi/4, math.pi/2])
-def test_ten_cm_margin_expands_same_rectangular_body(yaw):
+def test_five_cm_margin_expands_same_rectangular_body(yaw):
     cfg = profile()
-    assert cfg.clearance == Settings().clearance == .10
+    assert cfg.clearance == .05
     assert (cfg.vehicle_length, cfg.vehicle_width) == (.322, .22)
     scan = Scan([math.inf]*361, -math.pi, math.pi/180, .01, 12.)
     checker = CollisionChecker(scan, cfg)
-    assert checker.half_length == pytest.approx(.261)
-    assert checker.half_width == pytest.approx(.210)
-    # Eight cm from each physical body face: previously free, now blocked.
-    for x, y in ((cfg.vehicle_length/2+.08, 0.),
-                 (-cfg.vehicle_length/2-.08, 0.),
-                 (0., cfg.vehicle_width/2+.08),
-                 (0., -cfg.vehicle_width/2-.08)):
+    assert checker.half_length == pytest.approx(.211)
+    assert checker.half_width == pytest.approx(.160)
+    # A point between 4 and 5 cm from a body face enters the new box.
+    for x, y in ((cfg.vehicle_length/2+.045, 0.),
+                 (-cfg.vehicle_length/2-.045, 0.),
+                 (0., cfg.vehicle_width/2+.045),
+                 (0., -cfg.vehicle_width/2-.045)):
         scan.points = [(x*math.cos(yaw)-y*math.sin(yaw),
                         x*math.sin(yaw)+y*math.cos(yaw))]
         assert CollisionChecker(scan, replace(cfg, clearance=.04)).free((0., 0., yaw))
         assert not CollisionChecker(scan, cfg).free((0., 0., yaw))
-    scan.points = [(.272*math.cos(yaw), .272*math.sin(yaw))]
+    scan.points = [(.212*math.cos(yaw), .212*math.sin(yaw))]
     assert CollisionChecker(scan, cfg).free((0., 0., yaw))
 
 

@@ -36,6 +36,8 @@ def transformed_scan(scan,transform):
     result.yellow_segments=[(compose(transform,(*a,0.))[:2],compose(transform,(*b,0.))[:2],side)
         for a,b,side in getattr(scan,'yellow_segments',())]
     result.occupied_slots=[dict(r,pose=compose(transform,r['pose'])) for r in getattr(scan,'occupied_slots',())]
+    # The short-edge rule selects entry; departure retains its own route policy.
+    result.entry_slot=None
     return result
 
 

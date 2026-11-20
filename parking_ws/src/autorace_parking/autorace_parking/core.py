@@ -2,7 +2,7 @@
 
 This is a local path preview, not a controller or a persistent obstacle tracker.
 Optional compact-cluster filtering affects obstacles, not raw visibility rays.
-All retained returns participate in collision checks, even isolated/noisy points.
+Obstacle collision checks are independent of the retained recognition points.
 """
 from dataclasses import dataclass, replace
 from copy import copy
@@ -10,7 +10,7 @@ import heapq
 import math
 import time
 from collections import defaultdict
-from .regions import rectangles_intersect
+from .regions import rectangles_intersect,invalid_slot_entry
 
 
 def wrap(angle):
@@ -64,6 +64,7 @@ class Settings:
     steering_preview_time: float = 0.0
     visualization_period: float = 0.10
     block_occupied_slots: bool = False
+    obstacle_collision_check_enabled: bool = True
     exit_to_grid_edge: bool = True
     exit_grid_margin: float = 0.10
     exit_lane_tolerance: float = 0.10
@@ -93,7 +94,6 @@ class Settings:
     slot_ambiguity_margin: float = 0.02
     automatic_target_selection: bool = False
     pair_fallback_enabled: bool = True
-    pair_min_cluster_size: float = 0.0  # 0 uses the normal object threshold.
     path_tracking_margin: float = 0.0
     path_preferred_clearance: float = 0.0
     path_clearance_weight: float = 0.0
@@ -124,9 +124,6 @@ class Settings:
     enclosed_space_detection: bool = False
     continuous_replanning: bool = False
     require_complete_entry_path: bool = False
-    candidate_approach_enabled: bool = False
-    candidate_plan_attempts: int = 3
-    candidate_plan_timeout: float = 3.0
     control_preview_time: float = 0.4
     enclosure_min_objects: int = 3
     enclosure_confirm_objects: int = 5
@@ -141,7 +138,10 @@ class Settings:
     steering_track: float = 0.172
     goal_from_observed_front: bool = False
     clearance: float = 0.10
+    yellow_boundary_enabled: bool = True
     yellow_boundary_clearance: float = 0.02  # Painted lane boundary; obstacle margin stays independent.
+    entry_via_short_edge: bool = False
+    entry_from_left_only: bool = False
     initial_clear_radius: float = 0.30
     assume_unobserved_free: bool = False
     resolution: float = 0.06
@@ -154,6 +154,7 @@ class Settings:
     max_expansions: int = 10000
     allow_reverse: bool = False
     recovery_uses_memory_map: bool = False
+    recovery_margin_escape_enabled: bool = True
     recovery_min_distance: float = 0.0
     recovery_reverse_distance: float = 0.25
     recovery_on_front_obstacle_only: bool = False
@@ -442,8 +443,9 @@ class CollisionChecker:
         # Sample the whole footprint, including interior: a hidden hole/occlusion
         # inside the body must not be treated as free merely because corners fit.
         self.samples = footprint_samples(self.half_length,self.half_width)
-        segments = getattr(scan,'yellow_segments',())
+        segments = getattr(scan,'yellow_segments',()) if cfg.yellow_boundary_enabled else ()
         self.yellow = YellowBoundary(segments) if segments else None
+        self.entry_slot=getattr(scan,'entry_slot',None) if cfg.entry_via_short_edge else None
         self.yellow_half_length = cfg.vehicle_length/2 + cfg.yellow_boundary_clearance
         self.yellow_half_width = cfg.vehicle_width/2 + cfg.yellow_boundary_clearance
 
@@ -458,6 +460,8 @@ class CollisionChecker:
         return False
 
     def occupied_free(self,pose):
+        if not self.cfg.obstacle_collision_check_enabled:
+            return True
         for region in self.occupied_slots:
             if rectangles_intersect(pose,(self.half_length,self.half_width),region['pose'],region['half_size']):
                 self.last_block='occupied_slot'
@@ -465,6 +469,16 @@ class CollisionChecker:
                     'checked_pose':list(pose),'cell_center':list(region['pose'][:2])}
                 return False
         return True
+
+    def points_inside(self,pose):
+        """Measured points inside the vehicle rectangle, including its one margin."""
+        x,y,yaw=pose;c,s=math.cos(yaw),math.sin(yaw)
+        for ix in range(math.floor((x-self.radius)/.2),math.floor((x+self.radius)/.2)+1):
+            for iy in range(math.floor((y-self.radius)/.2),math.floor((y+self.radius)/.2)+1):
+                for px,py in self.cells.get((ix,iy),()):
+                    dx,dy=px-x,py-y
+                    if abs(c*dx+s*dy)<=self.half_length and abs(-s*dx+c*dy)<=self.half_width:
+                        yield px,py
 
     def free(self, pose, allow_unknown=False):
         self.last_block = ''
@@ -479,14 +493,12 @@ class CollisionChecker:
             self.last_block='yellow_boundary'
             self.last_block_detail={'kind':'yellow_boundary','checked_pose':list(pose)}
             return False
-        for ix in range(math.floor((x - self.radius) / 0.2), math.floor((x + self.radius) / 0.2) + 1):
-            for iy in range(math.floor((y - self.radius) / 0.2), math.floor((y + self.radius) / 0.2) + 1):
-                for px, py in self.cells.get((ix, iy), ()):
-                    dx, dy = px - x, py - y
-                    if abs(c * dx + s * dy) <= self.half_length and abs(-s * dx + c * dy) <= self.half_width:
-                        self.last_block = 'obstacle'
-                        self.last_block_detail={'kind':'obstacle','point':[px,py],'checked_pose':list(pose)}
-                        return False
+        point=(next(self.points_inside(pose),None)
+               if self.cfg.obstacle_collision_check_enabled else None)
+        if point is not None:
+            self.last_block='obstacle'
+            self.last_block_detail={'kind':'obstacle','point':list(point),'checked_pose':list(pose)}
+            return False
         if allow_unknown or self.cfg.assume_unobserved_free:
             return True  # measured obstacle checks above always take priority
         for bx, by in self.samples:
@@ -498,6 +510,13 @@ class CollisionChecker:
             if not self.scan.visible(px, py) and not self.previously_free(px, py):
                 self.last_block = 'unknown_space'
                 return False
+        return True
+
+    def transition_free(self,start,end):
+        detail=invalid_slot_entry(self.entry_slot,start,end)
+        if detail is not None:
+            self.last_block,self.last_block_detail=detail['kind'],detail
+            return False
         return True
 
 
@@ -513,7 +532,8 @@ class RecoveryCollisionChecker(CollisionChecker):
         self.original=CollisionChecker(scan,cfg,*args)
         self.physical=CollisionChecker(scan,replace(cfg,clearance=0.),*args)
         self.escape_points=[]
-        if cfg.recovery_uses_memory_map and not cfg.recovery_left_when_goal_right and self.physical.free((0.,0.,0.),allow_unknown=True):
+        if (cfg.obstacle_collision_check_enabled and cfg.recovery_margin_escape_enabled and cfg.recovery_uses_memory_map
+                and not cfg.recovery_left_when_goal_right and self.physical.free((0.,0.,0.),allow_unknown=True)):
             self.escape_points=[p for p in scan.points if p[0]>=0 and
                 abs(p[0])<=cfg.vehicle_length/2+cfg.clearance and abs(p[1])<=cfg.vehicle_width/2+cfg.clearance]
         source=copy(scan);ignored=set(self.escape_points)
@@ -544,6 +564,8 @@ class RecoveryCollisionChecker(CollisionChecker):
 
 def front_clearance(scan, cfg):
     """Nearest retained return ahead of the front bumper in the vehicle corridor."""
+    if not cfg.obstacle_collision_check_enabled:
+        return None
     scan = scan.filtered_obstacles(cfg)
     half_width = cfg.vehicle_width/2+cfg.clearance
     return min((max(0., x-cfg.vehicle_length/2) for x, y in scan.points
@@ -689,7 +711,7 @@ def sample_candidate(checker, parts, cfg):
         count = max(1, math.ceil(length / cfg.collision_step))
         for i in range(1, count + 1):
             point = advance(pose, length * i / count, curvature)
-            if not checker.free(point):
+            if not checker.free(point) or not checker.transition_free(path[-1],point):
                 return path, False
             path.append(point)
         pose = path[-1]
@@ -910,7 +932,7 @@ def plan_path(scan, goal, cfg, known_free_poses=(), initial_clear_center=(0., 0.
                 segment = []
                 for i in range(1, samples + 1):
                     new_pose = advance(pose, direction * step * i / samples, curvature)
-                    if not checker.free(new_pose):
+                    if not checker.free(new_pose) or not checker.transition_free(segment[-1] if segment else pose,new_pose):
                         break
                     segment.append(new_pose)
                 if len(segment) != samples:

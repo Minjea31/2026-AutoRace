@@ -28,7 +28,7 @@ ex=SingleThreadedExecutor()
 for n in (probe,fusion,parking,mux):ex.add_node(n)
 children=[];commands=[];events=[];releases=[];trace=[];outputs=[]
 start=time.monotonic();phase='';failed_at=ready_at=retry_at=None;reset_future=None;position=0.;last_publish=last_sign=0.;signs=0
-pub_odom=probe.create_publisher(Odometry,'/odom',1);pub_imu=probe.create_publisher(Imu,'/imu',1);pub_target=probe.create_publisher(Float32MultiArray,'/lane_fusion/target',1);pub_sign=probe.create_publisher(Bool,'/yolo/parking_sign',1);pub_oldready=probe.create_publisher(Header,'/parking/approach_ready',1);pub_other=probe.create_publisher(AckermannDriveStamped,'/mission/slow/command_08',1)
+pub_odom=probe.create_publisher(Odometry,'/odom',1);pub_imu=probe.create_publisher(Imu,'/imu',1);pub_target=probe.create_publisher(Float32MultiArray,'/lane_fusion/target',1);pub_sign=probe.create_publisher(Bool,'/yolo/parking_sign',1);pub_oldready=probe.create_publisher(Header,'/parking/approach_ready',1);pub_other=probe.create_publisher(AckermannDriveStamped,'/mission/slow/command_04',1)
 subscriptions=[probe.create_subscription(AckermannDriveStamped,'/lane_fusion_pid/command',lambda m:commands.append((time.monotonic()-start,m.drive.speed)),10),probe.create_subscription(Header,'/parking/approach_start',events.append,10),probe.create_subscription(Header,'/parking/approach_ready',releases.append,10)]
 subscriptions.append(probe.create_subscription(Twist,'/approach_validation/cmd_vel',lambda m:outputs.append((time.monotonic()-start,m.linear.x)),10))
 reset=probe.create_client(Trigger,'/parking/reset')
