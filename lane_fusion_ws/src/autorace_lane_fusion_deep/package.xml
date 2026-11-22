@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>autorace_lane_fusion_deep</name><version>0.1.0</version>
+  <description>lanedeep U-Net (MobileNetV3-Small) segmentation-only node: camera -> /lane_fusion/deep_mask for autorace_lane_fusion. Inference code taken from lanedeep_ws (autorace_lane_deep).</description>
+  <maintainer email="alstjd5571@cbnu.ac.kr">ms-c-h</maintainer><license>Apache-2.0</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>rclpy</exec_depend><exec_depend>ament_index_python</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend><exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-opencv</exec_depend><exec_depend>python3-numpy</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

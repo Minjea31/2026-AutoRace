@@ -1,5 +1,0 @@
-"""Allow scripts to run from lanedeep_ws/train before colcon installation."""
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'autorace_lane_deep'))

@@ -1,0 +1,35 @@
+# Deep lane geometry for the simulator lane camera (pitch 0.35 rad).
+lane_deep_lite:
+  width: 640
+  height: 480
+  yellow_enabled: 1
+  white_enabled: 1
+  roi_top: 0.2203507640848185
+  roi_bottom: 1.0
+  roi_left: 0.0
+  roi_right: 1.0
+  bev_top_y: 0.24035076408481848
+  bev_bottom_y: 0.8714622014241137
+  bev_top_left: 0.0938709386048714
+  bev_top_right: 0.8542068481923955
+  bev_bottom_left: -1.2107396905277048
+  bev_bottom_right: 1.9920274648110186
+  line_width_max: 30
+  windows: 12
+  margin: 45
+  min_pixels: 25
+  max_misses: 3
+  min_windows: 3
+  max_residual: 10
+  histogram_start: 0.5
+  lane_width_px: 240
+  width_tolerance: 0.35
+  role_by_color: 0
+  vehicle_center_u: 0.5
+  lookahead_row: 0.55
+  smoothing: 0.6
+  track_jump_px: 50
+  track_memory: 0.5
+  lane_width_m: 0.55
+  bev_near_m: 0.4
+  bev_far_m: 1.4977083

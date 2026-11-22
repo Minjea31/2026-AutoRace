@@ -1,0 +1,37 @@
+# REAL CAR (06). Deep-only lane keeping with the lane_ws logic (autorace_lane_deep_lite).
+# 2026-11-12: values = lane_ws autorace_lane_lite config/real/lane.yaml (main 00e18a1) without the
+# HSV-only keys (the deep class mask replaces the colour features). Keep BEV/width in sync with lane_ws.
+lane_deep_lite:
+  width: 640
+  height: 480
+  yellow_enabled: 1
+  white_enabled: 1
+  roi_top: 0.55
+  roi_bottom: 1.0
+  roi_left: 0.0
+  roi_right: 1.0
+  bev_top_y: 0.567
+  bev_bottom_y: 0.962
+  bev_top_left: 0.111   # 11-18: 0.126 -> 0.111, top_right도 -0.015. 직선 bag 2개에서 BEV 기울기 약 0.024 rad(왼쪽) 보정
+  bev_top_right: 0.877
+  bev_bottom_left: -1.001
+  bev_bottom_right: 1.959
+  line_width_max: 24
+  windows: 12
+  margin: 30
+  min_pixels: 18
+  max_misses: 3
+  min_windows: 3
+  max_residual: 6
+  histogram_start: 0.5
+  lane_width_px: 277
+  width_tolerance: 0.35
+  role_by_color: 0
+  vehicle_center_u: 0.5
+  lookahead_row: 0.55
+  smoothing: 0.6
+  track_jump_px: 35
+  track_memory: 0.5
+  lane_width_m: 0.5
+  bev_near_m: 0.49
+  bev_far_m: 1.39
