@@ -7,11 +7,11 @@ from autorace_crosswalk.white_roi import WhiteROI, validate_white
 def test_white_ratio_uses_only_configured_roi():
     roi = WhiteROI()
     frame = np.full((200, 400, 3), 255, dtype=np.uint8)
-    frame[172:184, 80:320] = 0
+    frame[192:200, 20:380] = 0
     ratio, bounds, mask = roi.measure(frame, 70, 120)
-    assert bounds == (80, 172, 320, 184)
-    assert ratio == 0 and mask.size == 240 * 12
-    frame[172:184, 80:200] = 255
+    assert bounds == (20, 192, 380, 200)
+    assert ratio == 0 and mask.size == 360 * 8
+    frame[192:200, 20:200] = 255
     ratio, _, _ = roi.measure(frame, 70, 120)
     assert ratio == pytest.approx(.5, abs=.02)
 
