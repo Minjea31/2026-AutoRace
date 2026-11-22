@@ -2,6 +2,7 @@
 
 기준: 현재 main 소스와 `tensor_bringup`의 `lane_mode:=deep lane_speed:=0.8`, 기본 car06 설정입니다. 센서는 별도 `sensors.launch.py`로 실행합니다. 실제 실행 인자·설정 파일을 바꾸면 연결과 동작도 달라집니다.
 
+- [알고리즘 그림 모음](algorithms.md)
 - [편집 가능한 Draw.io](2026_AutoRace.drawio)
 - [PNG](2026_AutoRace.png) / [SVG](2026_AutoRace.svg)
 - [도식 연결 명세 JSON](architecture-topics.json)

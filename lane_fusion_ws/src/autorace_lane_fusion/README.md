@@ -32,15 +32,9 @@ cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane
 | `src/roi_view.cpp`, `src/bag.cpp` | 튜너용 ROI/BEV 드래그 화면, rosbag2 영상 리더 |
 | `src/eval.cpp` | bag 일괄 평가 / 단일 이미지 확인 |
 
-## 처리 단계 (2026-11-10 재설계: 비동기 후보 퓨전, 자세한 설명은 [워크스페이스 README](../../README.md))
+## 알고리즘
 
-1. ROI ∩ BEV 사다리꼴 → BEV(호모그래피·유효 영역은 설정이 바뀔 때만 계산)
-2. **HSV 검출(매 프레임, 주 검출기)**: Top-hat 흰색, `white_max_width`(횡단보도·글자), `white_max_length`(흰 실선), 색상별 두께 띠, 최소 면적 → `lane_ws`와 같은 검출(추적 시작점 또는 히스토그램 차로 쌍 → 방향 추종 슬라이딩 윈도우 → 3차 피팅 → 정지선·역할 교정). 추적 시작점에서 못 찾으면(`margin`보다 크게 이동) 가장 가까운 히스토그램 봉우리로 한 번 더 찾음
-3. **딥 검출(비동기 마스크가 있을 때)**: 촬영 시각 차 ≤ `deep_max_age`인 최신 마스크를 odom 이동량으로 **현재 프레임 BEV에 정합**(한 번의 warp)해 2와 같은 검출. odom이 없으면 0.04 s(약 1프레임) 이내 마스크만 사용
-4. **후보 선택**: 두 검출기의 좌/우 후보(최대 4개)를 기하로만 비교 — 추적 연속성, 차량 기준 안쪽, 차로 폭, 좌우 방향(노랑+노랑 제외), 피팅 품질. 딥·HSV가 같은 선(`merge_px`)이면 겹치는 구간을 평균한 하나의 후보(서로 확인, 약간 유리). **출처 가중치 없음**: 어느 한쪽만 맞게 잡아도 그 후보를 씀
-5. **추적(좌우 하나의 트래커)**: 평활(`smoothing`), 급격한 이동·클래스 변경 3프레임 확인, `track_memory` 동안 유지
-6. **센터패스**: 기준 경계 하나(보이는 동안 유지)에서 반대쪽 대응점(법선 교차)과의 중점, 없으면 폭 절반 오프셋. 한쪽만 보이면 역할이 확실할 때만(`role_frames`). 다항식 재피팅 없음(커브가 펴지지 않음). 이전 경로(odom으로 이동)와 `smoothing`으로 섞되 `track_jump_px`보다 큰 변화는 바로 반영
-7. **유실**: 검출이 끊기면 odom으로 옮긴 직전 경로를 `track_memory` 동안 유지(`held`), 그 뒤 무효 → PID가 정지. 곡률은 원 맞춤(`curvature_span_m`, `max_curvature`)
+![Deep 차선과 Fusion 차선](../../../docs/logic/lane_fusion_ws.svg)
 
 ## 토픽
 
@@ -50,16 +44,8 @@ cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane
 | 발행 | `/lane_fusion/target` | `Float32MultiArray` `[valid, lateral_m, heading_rad, lookahead_m, curvature, confidence, left_state, right_state, near_lateral_m, near_heading_rad, near_m]` (좌측 +, state 0=LOST 1=HELD 2=DETECTED). 앞 6개는 목표점(lookahead), `near_*`는 중앙 경로의 가장 가까운 점(BEV 맨 아래 쪽) 값 |
 | 발행 | `/lane_fusion/debug` | BEV 경계·경로 영상 (구독자가 있을 때만 생성) |
 
-## 설정 파일 — 시뮬과 실차를 폴더로 분리
+## 설정
 
-```
-config/
-├── sim/                      시뮬 전용 (폐루프 검증된 값, 기본 카메라 기준)
-│   ├── lane.yaml             ./simul.sh 기본 카메라. 3차선 흰 점선 때문에 흰색 사용
-│   └── lane_camera.yaml      급커브용 카메라(pitch 0.35) 시뮬 옵션용. 현재 main 시뮬에는 해당 옵션 없음
-└── real/                     실차 전용
-    └── lane.yaml             2026-11-04 bag(lane_20261104_192410) BEV, lane_width_px 470
-```
 
 - launch와 튜너 모두 `profile`(sim / real)로 폴더를 고릅니다. 한쪽을 튜닝해도 다른 쪽은 바뀌지 않습니다. launch 기본값은 `profile:=sim`이고, `use_sim_time`은 profile에 따라 자동(sim=true, real=false)입니다. 제어 패키지 `autorace_lane_fusion_pid`도 같은 `profile` 인자를 씁니다.
 - 튜너를 `--profile`로 열면 **Save YAML의 기본 저장 위치가 해당 프로필의 소스 파일**(`src/autorace_lane_fusion/config/<profile>/lane.yaml`)입니다. install 폴더로 열어도 소스 경로로 저장합니다. 창 제목에 현재 파일이 표시됩니다. 저장 후 다시 빌드해야 launch(설치 경로)에 반영됩니다. 실행 중인 노드에는 **Apply to running lane_fusion_node**로 바로 적용할 수 있습니다.

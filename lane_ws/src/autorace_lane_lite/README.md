@@ -30,16 +30,9 @@ cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane
 | `src/roi_view.cpp`, `src/bag.cpp` | 튜너용 ROI/BEV 드래그 화면, rosbag2 영상 리더 |
 | `src/eval.cpp` | bag 일괄 평가 / 단일 이미지 확인 |
 
-## 처리 단계
+## 알고리즘
 
-1. ROI ∩ BEV 사다리꼴 → BEV 투영 (경계는 `BORDER_REPLICATE`로 가짜 에지 방지)
-2. BEV에서 HSV 노랑 / 흰색. 흰색은 **Top-hat**(주변 노면보다 밝은 얇은 띠)만 인정 → 넓은 반사광·조명 변화 제거. `white_max_width`(>0)보다 두꺼운 흰 덩어리(횡단보도 블록·노면 글자)는 지움 → 블록의 긴 세로 가장자리가 차선과 평행한 가짜 경계로 잡히는 것 방지
-3. 색상별 **띠 두께 필터**(행 또는 열 방향 run ≤ `line_width_max`×1.45) + 최소 면적 → 유광 바닥 반사 덩어리 제거
-4. 시작점: 이전 추적 경계의 가까운 끝, 없으면 하단 히스토그램 피크 중 **차로 폭에 맞는 좌우 쌍**
-5. **차선 방향을 따라가는 슬라이딩 윈도우**(세로/가로 무관, 시작점에서 양방향). 관측된 윈도우 중심만 사용. 빈 윈도우가 `max_misses`개 미만이면 예측 방향으로 계속 진행하므로 **흰 점선**(시뮬 3차선: 칠 0.20 m / 빈칸 0.15 m ≈ 윈도우 1.5개)도 한 경계로 이어집니다. 피팅 후 경로는 항상 **가까운 쪽 → 먼 쪽** 순서로 맞춥니다(뒤집히면 heading이 ±π가 되고 중앙 오프셋이 반대편으로 감)
-6. 현의 회전 좌표계에서 3차 곡선 피팅(짧은 관측일수록 굽힘 억제), 안 맞으면 이상치 1개 제거 → 먼 쪽부터 잘라냄
-7. **흰 가로선**(가까운 1/3이 진행 방향에서 60° 넘게 누운 경계로, 그 가까운 1/3의 색이 흰색: 정지선·횡단보도 테두리)은 새로 잡든 추적 중에 서서히 옮겨 갔든 경계로 채택하지 않고 그 트랙을 바로 버려 다음 프레임에 히스토그램에서 다시 시작. 예외는 반대편 경계도 같이 누운 경우(양쪽이 함께 꺾이는 커브)뿐이며, 노란 경계의 커브는 그대로 따라감. 좌우 쌍 **방향 검사**(겹치는 구간의 방향 차이 중앙값 > `max_angle_deg`면 가로 흰 선 → 짧은 쪽 순으로 제외: 횡단보도 블록 조각) + 폭 검사(불일치 시 가로 흰 선을 먼저, 아니면 추적과 더 어긋난 쪽 제외; 차로 폭 학습은 `lane_width_px`의 ±10% 안에서, 설정값에 가까운 쌍으로만 → 노면 글자·화살표와 짝지어져 폭이 줄어드는 것 방지), 차량 반대편 경계 역할 교정, 추적(평활·3프레임 확인·색상 일관성·`track_memory` 동안 유지)
-8. 중앙 경로: 양쪽이면 중점, 한쪽이면 법선 방향 `lane_width_px/2` 오프셋(항상 가까운 쪽 → 먼 쪽으로 정렬, 뒤집히면 heading이 ±π) → 목표점은 **차량에서 같은 거리만큼 떨어진 경로 위 점**(직선에선 `lookahead_row`, 곡선에선 자동으로 안쪽)
+![차선 주행 · PID 제어](../../../docs/logic/lane_ws.svg)
 
 ## 토픽
 
@@ -49,16 +42,8 @@ cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane
 | 발행 | `/lane_lite/target` | `Float32MultiArray` `[valid, lateral_m, heading_rad, lookahead_m, curvature, confidence, left_state, right_state, near_lateral_m, near_heading_rad, near_m]` (좌측 +, state 0=LOST 1=HELD 2=DETECTED). 앞 6개는 목표점(lookahead), `near_*`는 중앙 경로의 가장 가까운 점(BEV 맨 아래 쪽) 값 |
 | 발행 | `/lane_lite/debug` | BEV 경계·경로 영상 (구독자가 있을 때만 생성) |
 
-## 설정 파일 — 시뮬과 실차를 폴더로 분리
+## 설정
 
-```
-config/
-├── sim/                      시뮬 전용 (폐루프 검증된 값, 기본 카메라 기준)
-│   ├── lane.yaml             ./simul.sh 기본 카메라. 3차선 흰 점선 때문에 흰색 사용
-│   └── lane_camera.yaml      급커브용 카메라(pitch 0.35) 시뮬 옵션용. 현재 main 시뮬에는 해당 옵션 없음
-└── real/                     실차 전용
-    └── lane.yaml             2026-11-04 bag(lane_20261104_192410) BEV, lane_width_px 470
-```
 
 - launch와 튜너 모두 `profile`(sim / real)로 폴더를 고릅니다. 한쪽을 튜닝해도 다른 쪽은 바뀌지 않습니다. launch 기본값은 `profile:=sim`이고, `use_sim_time`은 profile에 따라 자동(sim=true, real=false)입니다. 제어 패키지 `autorace_lane_pid`도 같은 `profile` 인자를 씁니다.
 - 튜너를 `--profile`로 열면 **Save YAML의 기본 저장 위치가 해당 프로필의 소스 파일**(`src/autorace_lane_lite/config/<profile>/lane.yaml`)입니다. install 폴더로 열어도 소스 경로로 저장합니다. 창 제목에 현재 파일이 표시됩니다. 저장 후 다시 빌드해야 launch(설치 경로)에 반영됩니다. 실행 중인 노드에는 **Apply to running lane_lite_node**로 바로 적용할 수 있습니다.
