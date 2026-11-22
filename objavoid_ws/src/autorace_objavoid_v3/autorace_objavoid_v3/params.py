@@ -6,6 +6,42 @@ from typing import List
 @dataclass
 class Params:
     # --- 차량 (simul/config/limo_pro.yaml) ---
+    start_entrance_window: float = 5.0
+    start_entrance_obstacles: int = 2
+    start_legacy: bool = True
+    start_entrance: bool = False
+    start_entrance_confirm: int = 3
+    start_score_min: float = 0.0
+    start_score_window: float = 1.0
+    start_score_support: int = 40
+    start_obs_hold: float = 1.0
+    start_gate_rate: float = 0.0
+    start_require_lane: bool = False
+    start_cone_block: float = 0.0
+    start_once: bool = False
+    start_restart_on_fail: bool = False  # 실패 정지 중 시작 점수 충족 시 재활성화(C++ 노드)
+    start_restart_stop: float = 2.0
+    start_restart_min_active: float = 5.0
+    start_restart_sign_block: float = 3.0
+    start_score_crosswalk: bool = False
+    start_score_after_crosswalk_sec: float = 0.0
+    start_score_min_after_crosswalk: float = 0.0
+    fork_sign_cache_sec: float = 30.0
+    fork_goal_tolerance: float = 0.15
+    preferred_obstacle_clearance: float = 0.10
+    road_outline: bool = False
+    road_outline_length: float = 6.665
+    road_outline_straight: float = 5.529
+    fork_shape: bool = False
+    fork_shape_length: float = 1.687
+    fork_shape_width: float = 0.5
+    fork_shape_margin: float = 0.05
+    fork_search_speed: float = 0.2
+    fork_search_distance: float = 1.2
+    fork_search_timeout: float = 6.0
+    fork_search_step: float = 0.4
+    fork_road_width: float = 1.54
+
     wheelbase: float = 0.200
     body_front: float = 0.161        # base_link -> 차체 앞끝
     body_rear: float = 0.161         # base_link -> 차체 뒤끝
@@ -26,7 +62,7 @@ class Params:
     home_d: float = 0.0              # 복귀할 가운데 차로 중심
     lane_centers: List[float] = field(default_factory=lambda: [-0.52, 0.0, 0.52])
 
-    # --- 카메라 노란 실선(퓨전 차선 결과 재사용: /lane_fusion/deep_mask + 원본 HSV, BEV는 퓨전 lane.yaml) ---
+    # --- 카메라 노란 실선(퓨전 차선 결과 재사용: /lane_fusion/deep_mask, BEV는 퓨전 lane.yaml) ---
     use_lane: bool = True
     lane_cell: float = 0.03          # odom 노란선 격자 칸
     lane_confirm: int = 2            # 노란 확정 최소 관측 횟수
@@ -67,6 +103,13 @@ class Params:
     roi_margin: float = 0.06         # 경계 밖으로 허용하는 점 여유
     cluster_jump: float = 0.12
     cluster_min_points: int = 3
+    obstacle_fixed_size: bool = False  # 검출·추적 박스를 지정 크기로 고정
+    obstacle_shape_filter: bool = True  # 고정 크기 보정 전 원본 점군의 벽/부적합 형상 분리(C++)
+    obstacle_wall_min_length: float = 0.55
+    obstacle_wall_max_ratio: float = 0.02
+    obstacle_wall_max_rmse: float = 0.025
+    obstacle_fit_max_rmse: float = 0.08
+    obstacle_shape_extent_margin: float = 0.08
     obstacle_min_length: float = 0.33  # LIMO 0.322 x 0.22, 과소평가 방지
     obstacle_min_width: float = 0.23
     obstacle_max_length: float = 0.70  # 이보다 커지면 누적 박스 대신 최신 관측 사용
@@ -152,10 +195,10 @@ class Params:
     fb_limit: float = 0.30
     steer_gain: float = 1.0          # 명령 곡률 배율(실차가 덜 돌면 >1). 상태의 turn_ratio로 판단
     # --- 후진 탈출: 앞으로 갈 경로가 없어 멈춰 있으면 지나온 쪽으로 조금 물러나며 앞머리를 빈 차로 쪽으로 돌린다 ---
-    reverse_enable: bool = True
+    reverse_enable: bool = False
     reverse_wait: float = 1.0        # 막혀서 정지한 뒤 이만큼 지나도 경로가 없으면 후진
     reverse_speed: float = 0.10
-    reverse_dist: float = 0.35       # 한 번에 물러나는 최대 거리(LiDAR가 뒤를 못 봄: 지나온 길 안에서만)
+    reverse_dist: float = 0.20       # 한 번에 물러나는 최대 거리(LiDAR가 뒤를 못 봄: 지나온 길 안에서만)
     reverse_psi: float = 0.5         # 앞머리를 빈 차로 쪽으로 이 각도까지 돌리고, 그 뒤는 조향을 펴고 물러남
     reverse_max: int = 3             # 같은 자리에서 최대 횟수(0.5 m 이상 전진하면 다시 셈)
     reverse_timeout: float = 6.0
@@ -195,12 +238,33 @@ class Params:
     fork_cam_cx: float = 321.5
     fork_cam_x: float = 0.133        # base_link 기준 카메라 위치(전방, 왼쪽)
     fork_cam_y: float = -0.05
-    fork_bearing_tol: float = 0.10   # YOLO 박스 방향과 LiDAR 박스 방향 차이 허용(rad)
+    fork_bearing_tol: float = 0.15   # YOLO 박스 방향과 LiDAR 박스 방향 차이 허용(rad)
     fork_post_max_dist: float = 3.5
-    fork_post_center_d: float = 0.4  # 받침이 도로 가운데(|d| < 이 값)일 때만 갈림길 표지판으로 사용
+    fork_post_center_d: float = 0.8  # 받침 후보 |d| 상한(도로 좌표가 틀어져도 받침을 놓치지 않게)
+    fork_sign_size: float = 0.10  # 표지판 판 높이(m): 카메라-표지판 거리 = fx * size / 박스 높이
+    fork_post_match: float = 0.5  # LiDAR 받침 후보 거리와 카메라 추정 거리 차 허용(m)
+    fork_pass_offset: float = 0.3  # 목표 경로: A면 받침 왼쪽 끝 + 이 값, B면 오른쪽 끝 - 이 값
+    fork_target_clamp: bool = False  # 갈림길 목표를 lane_centers 범위 안으로
+    fork_island_half_width: float = 0.0  # 11-20(C++): >0이면 가상 벽·목표를 받침 가운데 ± 이 값(섬 선) 기준으로
+    fork_island_clear: float = 0.10  # 11-20(C++): 섬 선과 차 옆면 사이 목표 여유
+    fork_target_limit: float = 0.0  # 11-20(C++): >0이면 갈림길 목표 d를 ±이 값으로 자름
+    fork_flip_min: int = 0  # 정한 뒤 반대 표지 연속 횟수(+표 수 우세) 조건, 0 = 즉시
 
     # --- 자동 시작(C++ 노드만): 흰 정지선 + 그 너머 흰 점선(3차선에만 있음) + 전방 장애물이 연속으로 보이면 활성화 ---
     start_auto: bool = True
+    start_white_ratio: float = 0.0  # >0: deep 흰색이 차선 BEV의 이 비율 이상이면 시작(이 조건만)
+    manual_resume_restart: bool = False  # 회피 중 수동->자율 복귀 시 정지 후 재시작(C++ 노드)
+    manual_resume_stop_sec: float = 0.5
+    start_white_confirm: int = 1
+    start_white_align: bool = False  # 시작 순간 흰 점선 두 줄로 도로 중심·방향(C++)
+    start_white_align_wait: float = 1.0
+    start_white_align_max_yaw: float = 0.8
+    start_align_max_yaw_rate: float = 0.0  # 11-20: 점선 쌍 없이 차 기준 시작은 |IMU wz| < 이 값일 때만(C++, 0=끔)
+    manual_resume_need_cue: bool = False  # 11-20(C++): 수동 복귀 재시작은 흰 점선 쌍 또는 좌우 표지판이 있을 때만
+    manual_resume_cue_wait: float = 2.0  # 11-20(C++)
+    sign_start: bool = False  # 11-20(C++): 꺼져 있을 때 좌우 표지판 확정 시 켬
+    cone_lockout_sec: float = 0.0  # 11-20(C++): 켜진 뒤 cone이 이 시간 이상 mux 점유 -> 다시 안 켬
+    start_align_front_stop: float = 0.0  # 11-20: 점선 대기 중 정면 LiDAR < 이 값(m)이면 바로 시작(C++, 0=끔)
     start_need_line: bool = False    # true: 흰 정지선도 있어야 시작(false = 점선 + 장애물만)
     start_line_x_min: float = 0.15   # 정지선을 찾는 차 앞 거리 범위(m, base_link 전방)
     start_line_x_max: float = 1.0

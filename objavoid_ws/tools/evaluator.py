@@ -142,7 +142,7 @@ class Evaluator(Node):
         infos = self.get_publishers_info_by_topic(self.a.cmd_topic)
         self.res['cmd_publishers'] = sorted({i.node_name for i in infos})
         self.res['command_05_publishers'] = sorted({i.node_name for i in
-                                                     self.get_publishers_info_by_topic('/mission/objavoid/command_04')})
+                                                     self.get_publishers_info_by_topic('/mission/objavoid/command_05')})
         self.res['nodes'] = sorted(self.get_node_names())
         self.res['sim_t'] = round(self.sim_t, 2)
         tmp = self.a.out + '.tmp'

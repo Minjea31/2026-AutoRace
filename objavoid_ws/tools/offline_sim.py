@@ -31,7 +31,7 @@ sys.path.insert(0, HERE)
 from metrics import rect_distance, section_obstacles  # noqa: E402
 
 
-LANE_YAML = os.path.join(ROOT, 'lane_fusion_ws/src/autorace_lane_fusion/config/sim/lane.yaml')
+LANE_YAML = os.path.join(ROOT, 'lane_fusion_ws/src/autorace_lane_deep_lite/config/sim/mission_vision.yaml')
 
 
 class VirtualLaneCamera:

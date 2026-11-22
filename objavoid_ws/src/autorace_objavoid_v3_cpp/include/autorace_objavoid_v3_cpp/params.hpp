@@ -70,6 +70,13 @@ using DVec = std::vector<double>;
   X(D, roi_margin, 0.06)                                           \
   X(D, cluster_jump, 0.12)                                         \
   X(I, cluster_min_points, 3)                                      \
+  X(B, obstacle_fixed_size, false)                                \
+  X(B, obstacle_shape_filter, true)                               \
+  X(D, obstacle_wall_min_length, 0.55)                             \
+  X(D, obstacle_wall_max_ratio, 0.02)                              \
+  X(D, obstacle_wall_max_rmse, 0.025)                              \
+  X(D, obstacle_fit_max_rmse, 0.08)                                \
+  X(D, obstacle_shape_extent_margin, 0.08)                         \
   X(D, obstacle_min_length, 0.33)                                  \
   X(D, obstacle_min_width, 0.23)                                   \
   X(D, obstacle_max_length, 0.70)                                  \
@@ -151,10 +158,10 @@ using DVec = std::vector<double>;
   X(D, i_limit, 0.1)                                               \
   X(D, fb_limit, 0.30)                                             \
   X(D, steer_gain, 1.0)                                            \
-  X(B, reverse_enable, true)                                       \
+  X(B, reverse_enable, false)                                      \
   X(D, reverse_wait, 1.0)                                          \
   X(D, reverse_speed, 0.10)                                        \
-  X(D, reverse_dist, 0.35)                                         \
+  X(D, reverse_dist, 0.20)                                         \
   X(D, reverse_psi, 0.5)                                           \
   X(I, reverse_max, 3)                                             \
   X(D, reverse_timeout, 6.0)                                       \
@@ -191,11 +198,93 @@ using DVec = std::vector<double>;
   X(D, fork_cam_cx, 321.5)                                         \
   X(D, fork_cam_x, 0.133)                                          \
   X(D, fork_cam_y, -0.05)                                          \
-  X(D, fork_bearing_tol, 0.10)                                     \
+  X(D, fork_bearing_tol, 0.15)                                     \
   X(D, fork_post_max_dist, 3.5)                                    \
-  X(D, fork_post_center_d, 0.4)                                    \
+  X(D, fork_post_center_d, 0.8)                                    \
+  X(D, fork_sign_size, 0.10)                                       \
+  X(D, fork_post_match, 0.5)                                       \
+  X(D, fork_pass_offset, 0.3)                                      \
+  /* 11-19: 갈림길 목표 d를 lane_centers 범위(±0.5) 안으로 자름 — 받침이 밀려도 목표가 도로 밖에 찍히지 않게 */ \
+  X(B, fork_target_clamp, false) \
+  /* 11-20: >0이면 받침 방식 가상 벽·목표를 받침 박스 끝이 아니라 받침 가운데 ± 이 값(섬 노란 선, 섬 폭 절반)으로. */ \
+  /*   벽 = 정하지 않은 쪽 ~ 섬 선, 목표 = 섬 선 + 차 폭 절반 + fork_island_clear. 0 = 기존(받침 끝, fork_pass_offset) */ \
+  X(D, fork_island_half_width, 0.0) \
+  X(D, fork_island_clear, 0.10) \
+  /* 11-20: >0이면 갈림길 목표 d를 ±이 값으로 자름(fork_target_clamp의 차로 중심 ±0.5 대신, 도로 경계 - 차 폭 절반) */ \
+  X(D, fork_target_limit, 0.0) \
+  /* 11-19: 방향을 정한 뒤 반대 표지가 이 횟수 연속 + 표 수도 더 많을 때만 바꿈(0 = 기존: 최근 표지로 즉시) */ \
+  X(I, fork_flip_min, 0) \
+  X(D, fork_sign_cache_sec, 30.0) \
+  X(D, fork_goal_tolerance, 0.15) \
+  X(D, preferred_obstacle_clearance, 0.10) \
+  X(B, road_outline, false) \
+  X(D, road_outline_length, 6.665) \
+  X(D, road_outline_straight, 5.529) \
+  X(B, fork_shape, false) \
+  X(D, fork_shape_length, 1.687) \
+  X(D, fork_shape_width, 0.5) \
+  X(D, fork_shape_margin, 0.05) \
+  X(D, fork_search_speed, 0.2) \
+  X(D, fork_search_distance, 1.2) \
+  X(D, fork_search_timeout, 6.0) \
+  X(D, fork_search_step, 0.4) \
+  X(D, fork_road_width, 1.54) \
+  X(B, start_entrance, false) \
+  X(I, start_entrance_confirm, 3) \
+  X(D, start_entrance_window, 5.0) \
+  X(I, start_entrance_obstacles, 2) \
+  /* 누적 점수 시작(start_score_min 0 = 끔): 최근 start_score_window 초 동안 입구 support(>= start_score_support) */ \
+  /* x 시간 합 >= start_score_min, 그리고 최근 start_obs_hold 초 장애물 최대 >= start_entrance_obstacles */ \
+  X(D, start_score_min, 0.0) \
+  X(D, start_score_window, 1.0) \
+  X(I, start_score_support, 40) \
+  X(D, start_obs_hold, 1.0) \
+  X(D, start_gate_rate, 0.0) \
+  /* 미션 상황: lane 주행 중에만 / 콘 미션 뒤 start_cone_block 초 차단 / 한 번 DONE 되면 다시 자동 시작 안 함 */ \
+  X(B, start_require_lane, false) \
+  X(D, start_cone_block, 0.0) \
+  X(B, start_once, false) \
+  /* 실패 재시작: 활성 중 STOP(시작 대기·센서 끊김 제외)이 start_restart_stop 초 이어지고 활성화 후 start_restart_min_active 초 */ \
+  /* 지났으면 시작 점수 판정을 다시 돌려, 충족 시 새 입구 기준으로 재활성화(lane 조건·rearm 무시). 2026-11-19 */ \
+  X(B, start_restart_on_fail, false) \
+  X(D, start_restart_stop, 2.0) \
+  X(D, start_restart_min_active, 5.0) \
+  /* 좌우 표지판(/yolo/LR_sign)을 최근 이 초 안에 받았으면 재시작 점수를 비우고 막음(갈림길 섬이 입구처럼 22~26점). 0이면 끔 */ \
+  X(D, start_restart_sign_block, 3.0) \
+  /* 횡단보도 정지(mux=crosswalk) 중에도 입구 점수를 쌓음(시작은 lane 복귀 후). 2026-11-19 */ \
+  X(B, start_score_crosswalk, false) \
+  /* 횡단보도 해제(mux crosswalk -> 다른 상태) 후 이 초 동안은 점수 기준을 start_score_min_after_crosswalk로. 0이면 끔 */ \
+  X(D, start_score_after_crosswalk_sec, 0.0) \
+  X(D, start_score_min_after_crosswalk, 0.0) \
   /* 자동 시작 */                                                    \
+  X(B, start_legacy, true)                                       \
   X(B, start_auto, true)                                           \
+  /* 11-19(사용자): >0이면 이 조건만으로 시작 — deep 흰색(클래스 2)이 차선 BEV 영상의 이 비율 이상. */ \
+  /* start_white_confirm: 새 마스크 기준 연속 횟수. 다른 시작 조건(점수·점선·장애물)은 보지 않음. */ \
+  X(D, start_white_ratio, 0.0) \
+  /* 11-19(사용자): 회피 중 수동(/limo_status control_mode != 1)이 됐다가 자율(1)로 돌아오면 */ \
+  /* manual_resume_stop_sec 동안 정지 명령 후 현재 위치 기준으로 미션 재시작 */ \
+  X(B, manual_resume_restart, false) \
+  X(D, manual_resume_stop_sec, 0.5) \
+  /* 11-20(사용자): 수동 복귀 재시작은 manual_resume_cue_wait 안에 흰 점선 쌍 또는 좌우 표지판이 보일 때만. */ \
+  /*   둘 다 없으면 장애물 미션을 끄고(구간 밖, 예: 라바콘 앞) 흰색 비율 자동 시작도 막음. 표지판이 오면 sign_start로 다시 켬 */ \
+  X(B, manual_resume_need_cue, false) \
+  X(D, manual_resume_cue_wait, 2.0) \
+  /* 11-20(사용자): 꺼져 있을 때(갈림길 통과 전) 좌우 표지판이 확정되면 그 자리에서 켬(갈림길부터 다시 시작) */ \
+  X(B, sign_start, false) \
+  /* 11-20(사용자): >0이면 한 번이라도 켜진 뒤 mux가 cone을 이 시간(s) 이상 잡으면 이번 주행에서 다시 안 켬 */ \
+  X(D, cone_lockout_sec, 0.0) \
+  X(I, start_white_confirm, 1) \
+  /* 11-19: 시작(흰색 비율·수동 복귀·실패 재시작) 순간 흰 점선 두 줄(차로 폭 간격)로 도로 중심·방향을 잡음. */ \
+  /* 쌍이 없으면 start_white_align_wait 초까지 기다린 뒤 차 위치로 시작. max_yaw: 점선으로 인정할 최대 기울기(rad) */ \
+  X(B, start_white_align, false) \
+  X(D, start_white_align_wait, 1.0) \
+  X(D, start_white_align_max_yaw, 0.8) \
+  /* 11-20: 점선 쌍 없이 차 위치·방향으로 시작하는 것은 |IMU yaw rate| < 이 값(rad/s)일 때만(0 = 끔). */ \
+  /* 커브 도는 중 시작하면 차 방향이 도로와 어긋남(bag 184015 125.4 s: -0.93 rad/s 중 시작 -> 왼쪽 벽으로) */ \
+  X(D, start_align_max_yaw_rate, 0.0) \
+  /* 11-20: 점선 쌍을 기다리는 중 정면(±15°) LiDAR 최소 거리가 이 값(m) 미만이면 바로 차 기준으로 시작(0 = 끔) */ \
+  X(D, start_align_front_stop, 0.0) \
   X(B, start_need_line, false)                                     \
   X(D, start_line_x_min, 0.15)                                     \
   X(D, start_line_x_max, 1.0)                                      \

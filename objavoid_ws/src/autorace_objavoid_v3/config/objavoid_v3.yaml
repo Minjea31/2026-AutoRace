@@ -26,7 +26,7 @@ objavoid_v3_node:
     plan_beyond_end: 0.1   # 경로 끝에서 차 앞끝이 구간 끝 + 이 값까지만: 표지판을 비켜 가지 않고 가운데 차로로 복귀
     home_d: 0.0   # 복귀할 가운데 차로 중심
     lane_centers: [-0.52, 0.0, 0.52]
-    # --- 카메라 노란 실선(퓨전 차선 결과 재사용: /lane_fusion/deep_mask + 원본 HSV, BEV는 퓨전 lane.yaml) ---
+    # --- 카메라 노란 실선(퓨전 차선 결과 재사용: /lane_fusion/deep_mask, BEV는 퓨전 lane.yaml) ---
     use_lane: true
     lane_cell: 0.03   # odom 노란선 격자 칸
     lane_confirm: 2   # 노란 확정 최소 관측 횟수
@@ -66,6 +66,15 @@ objavoid_v3_node:
     roi_margin: 0.06   # 경계 밖으로 허용하는 점 여유
     cluster_jump: 0.12
     cluster_min_points: 3
+    obstacle_fixed_size: false
+    # C++ fixed-size detector: classify full scan clusters before ROI cropping.
+    # Structures keep their observed bounds for collision checks, not robot counts.
+    obstacle_shape_filter: true
+    obstacle_wall_min_length: 0.55
+    obstacle_wall_max_ratio: 0.02
+    obstacle_wall_max_rmse: 0.025
+    obstacle_fit_max_rmse: 0.08
+    obstacle_shape_extent_margin: 0.08
     obstacle_min_length: 0.33   # LIMO 0.322 x 0.22, 과소평가 방지
     obstacle_min_width: 0.23
     obstacle_max_length: 0.7   # 이보다 커지면 누적 박스 대신 최신 관측 사용
@@ -90,7 +99,7 @@ objavoid_v3_node:
     max_skip: 3   # 간선이 건너뛸 수 있는 최대 층 수
     max_nodes_per_layer: 10
     node_merge: 0.03
-    margin_obstacle: 0.025   # 장애물 하드 여유
+    margin_obstacle: 0.03   # 장애물 하드 여유
     margin_boundary: 0.02   # 노란 경계 하드 여유
     clearance_soft: 0.12   # 이보다 가까우면 비용
     plan_min_radius: 0.55   # 차량 0.462보다 크게
@@ -148,10 +157,10 @@ objavoid_v3_node:
     fb_limit: 0.3
     steer_gain: 1.0   # 명령 곡률 배율(실차가 덜 돌면 >1). 상태의 turn_ratio로 판단
     # --- 후진 탈출: 앞으로 갈 경로가 없어 멈춰 있으면 지나온 쪽으로 조금 물러나며 앞머리를 빈 차로 쪽으로 돌린다 ---
-    reverse_enable: true
+    reverse_enable: false
     reverse_wait: 1.0   # 막혀서 정지한 뒤 이만큼 지나도 경로가 없으면 후진
     reverse_speed: 0.1
-    reverse_dist: 0.35   # 한 번에 물러나는 최대 거리(LiDAR가 뒤를 못 봄: 지나온 길 안에서만)
+    reverse_dist: 0.20   # 한 번에 물러나는 최대 거리(LiDAR가 뒤를 못 봄: 지나온 길 안에서만)
     reverse_psi: 0.5   # 앞머리를 빈 차로 쪽으로 이 각도까지 돌리고, 그 뒤는 조향을 펴고 물러남
     reverse_max: 3   # 같은 자리에서 최대 횟수(0.5 m 이상 전진하면 다시 셈)
     reverse_timeout: 6.0
@@ -188,11 +197,32 @@ objavoid_v3_node:
     fork_cam_cx: 321.5
     fork_cam_x: 0.133   # base_link 기준 카메라 위치(전방, 왼쪽)
     fork_cam_y: -0.05
-    fork_bearing_tol: 0.1   # YOLO 박스 방향과 LiDAR 박스 방향 차이 허용(rad)
+    fork_bearing_tol: 0.15   # YOLO 박스 방향과 LiDAR 박스 방향 차이 허용(rad)
     fork_post_max_dist: 3.5
-    fork_post_center_d: 0.4   # 받침이 도로 가운데(|d| < 이 값)일 때만 갈림길 표지판으로 사용
+    fork_post_center_d: 0.8   # 받침 후보 |d| 상한(도로 좌표가 틀어져도 받침을 놓치지 않게 넉넉히)
+    fork_sign_size: 0.1   # 표지판 판 높이(m): YOLO 박스 높이로 카메라-표지판 거리 = fx * size / h
+    fork_post_match: 0.5   # LiDAR 받침 후보 거리와 카메라 추정 거리 차 허용(m). 없으면 카메라 추정 위치를 받침으로
+    fork_pass_offset: 0.3   # 목표 경로: A면 받침 왼쪽 끝 + 이 값, B면 오른쪽 끝 - 이 값
+    fork_target_clamp: false   # 갈림길 목표 d를 lane_centers 범위(±0.5) 안으로 자름
+    fork_island_half_width: 0.0   # >0: 가상 벽·목표를 받침 가운데 ± 이 값(섬 노란 선) 기준으로(0 = 받침 끝 + fork_pass_offset)
+    fork_island_clear: 0.10   # 섬 선과 차 옆면 사이 목표 여유(m)
+    fork_target_limit: 0.0   # >0: 갈림길 목표 d를 ±이 값으로 자름(fork_target_clamp보다 우선)
+    fork_flip_min: 0   # 방향을 정한 뒤 반대 표지가 이 횟수 연속 + 표 수 우세일 때만 바꿈(0 = 즉시)
     # --- 자동 시작(C++ 노드만): 흰 정지선 + 그 너머 흰 점선(3차선에만 있음) + 전방 장애물이 연속으로 보이면 활성화 ---
     start_auto: true
+    start_white_ratio: 0.0   # >0: deep 흰색(클래스 2)이 차선 BEV 영상의 이 비율 이상이면 시작(다른 시작 조건 무시)
+    manual_resume_restart: false   # 회피 중 수동(control_mode != 1) -> 자율(1) 복귀 시 정지 후 재시작
+    manual_resume_stop_sec: 0.5   # 자율 복귀 후 정지 명령을 내는 시간(s)
+    start_white_confirm: 1   # 새 마스크 기준 연속 횟수
+    start_white_align: false   # 시작 순간 흰 점선 두 줄(차로 폭)로 도로 중심·방향을 잡음
+    start_white_align_wait: 1.0   # 점선 쌍을 기다리는 최대 시간(s), 넘으면 차 위치로 시작
+    start_white_align_max_yaw: 0.8   # 점선으로 인정하는 최대 기울기(rad, 정지선·횡단보도 거부)
+    start_align_max_yaw_rate: 0.0   # >0: 점선 쌍 없이 차 기준 시작은 |IMU yaw rate| < 이 값(rad/s)일 때만
+    manual_resume_need_cue: false   # 수동 복귀 재시작은 흰 점선 쌍 또는 좌우 표지판이 보일 때만(없으면 끔)
+    manual_resume_cue_wait: 2.0     # 그 신호를 기다리는 시간(s)
+    sign_start: false               # 꺼져 있을 때(갈림길 통과 전) 좌우 표지판이 확정되면 켬
+    cone_lockout_sec: 0.0           # >0: 한 번 켜진 뒤 mux가 cone을 이 시간 이상 잡으면 다시 안 켬
+    start_align_front_stop: 0.0     # >0: 점선 대기 중 정면(±15°) LiDAR < 이 값(m)이면 바로 차 기준 시작
     start_need_line: false   # true: 흰 정지선도 있어야 시작(false = 점선 + 장애물만)
     start_line_x_min: 0.15   # 정지선을 찾는 차 앞 거리 범위(m, base_link 전방)
     start_line_x_max: 1.0
@@ -212,7 +242,7 @@ objavoid_v3_node:
     start_lane_width_tol: 0.12
     start_stripe_max: 2   # 같은 거리에 나란한 얇은 조각이 이보다 많으면 횡단보도로 보고 거부
     start_obs_x_max: 3.0   # 전방 장애물 범위
-    start_obs_y: 0.25   # 차 헤딩 방향 통로(좌우 ±) 안의 장애물만(길가 표지판 거부)
+    start_obs_y: 0.35   # 차 헤딩 방향 통로(좌우 ±) 안의 장애물만(길가 표지판 거부)
     start_obs_min: 1
     start_obs_max_size: 0.45   # 장애물 LiDAR 실측 폭·길이 상한(벽·트랙 경계 거부, LIMO 약 0.2x0.33)
     start_obs_min_width: 0.12   # 장애물 LiDAR 실측 폭(보정 전 점 범위) 이상(표지판 기둥 거부, LIMO 뒷면 약 0.2 m)
@@ -221,6 +251,10 @@ objavoid_v3_node:
     start_arm_dist: 0.8   # 재출발 뒤 이만큼(m) 지나야 감시 시작(횡단보도 정지선·줄무늬 무시)
     start_confirm: 2   # 연속 판정 횟수
     start_rearm: 20.0   # 완료·비활성 뒤 이 시간 지나야 다시 자동 시작
+    start_restart_on_fail: false   # 실패 정지(STOP) 중 시작 점수 충족 시 새 입구 기준으로 재활성화(C++)
+    start_restart_stop: 2.0   # STOP이 이 초 이상 이어져야 실패로 봄(startup_*·first_plan·odom/scan_stale 제외)
+    start_restart_min_active: 5.0   # 활성화 후 이 초가 지나야 재시작 판정
+    start_restart_sign_block: 3.0   # 좌우 표지판을 최근 이 초 안에 받았으면 재시작 점수 비우고 막음(갈림길 섬 오인 방지)
     start_origin_at_line: true   # 도로 좌표 원점을 정지선에(section_end·fork_island_s = 정지선부터 거리)
     cmd_emulate_calibration: false
     cmd_cal_gain: 1.92
@@ -242,3 +276,24 @@ objavoid_v3_node:
     done_heading_tol: 0.12
     done_hold: 0.3
     done_clear_ahead: 0.8
+
+    fork_sign_cache_sec: 30.0
+    fork_goal_tolerance: 0.15
+    preferred_obstacle_clearance: 0.10
+    road_outline: false
+    road_outline_length: 6.665
+    road_outline_straight: 5.529
+    fork_shape: false
+    fork_shape_length: 1.687
+    fork_shape_width: 0.5
+    fork_shape_margin: 0.05
+    fork_search_speed: 0.2
+    fork_search_distance: 1.2
+    fork_search_timeout: 6.0
+    fork_search_step: 0.4
+    fork_road_width: 1.54
+    start_entrance: false
+    start_entrance_confirm: 3
+    start_entrance_window: 5.0
+    start_entrance_obstacles: 2
+    start_legacy: true

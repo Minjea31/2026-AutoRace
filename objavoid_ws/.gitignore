@@ -4,3 +4,6 @@ log/
 results/
 __pycache__/
 .pytest_cache/
+.build-cache/
+.replay-venv/
+.replay/

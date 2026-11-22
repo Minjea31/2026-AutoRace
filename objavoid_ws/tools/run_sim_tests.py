@@ -114,30 +114,16 @@ def stop_all(procs):
 
 
 LANE = True
-TEST_WT = os.path.expanduser('~/dev/objavoid_test_wt/objavoid_test_ws')
-TEAM_SRC = os.path.join(ROOT, 'objavoid_ws/src/autorace_objavoid')
 IMPL = {
-    # 이름: (명령 토픽, 상태 토픽, 완료 토픽, 노드 프로세스 식별 문자열)
     'v3': ('/objavoid_v3/cmd', '/objavoid_v3/state', '/objavoid_v3/done', 'objavoid_v3_node'),
-    'test': ('/mission/objavoid/command_04', '/objavoid_test/state', '/objavoid_test/done', 'objavoid_test_node'),
-    'team': ('/mission/objavoid/command_04', '/objavoid/none', '/objavoid/none_done', 'autorace_objavoid.node'),
 }
 
 
 def node_command(impl, t, remap):
-    if impl == 'v3':
-        return (f'source /opt/ros/humble/setup.bash && source {WS}/install/setup.bash && '
-                f'exec ros2 launch autorace_objavoid_v3 objavoid_v3.launch.py use_sim_time:=true v_max:={t["v"]} {remap}')
-    if impl == 'test':  # 사용자 비교용 objavoid_test(worktree 816b0d8 설치본, 수정 없이 실행). 노란선 마스크 없이 사전 경계
-        return (f'source /opt/ros/humble/setup.bash && source {TEST_WT}/install/setup.bash && '
-                f'exec ros2 launch autorace_objavoid_test objavoid_test.launch.py use_sim_time:=true drive:=true '
-                f'auto_activate:=true use_lane_mask:=false v_max:={t["v"]} {remap}')
-    # 팀원 objavoid_ws: 빌드·수정 없이 소스에서 실행. 차선 입력(/lane_fusion/measured_target) 생산자가 없어 LiDAR 전용 조건
-    sc = remap.replace('scan_topic:=', '-p scan_topic:=').replace('odom_topic:=', '-p odom_topic:=')
-    return (f'source /opt/ros/humble/setup.bash && export PYTHONPATH={TEAM_SRC}:$PYTHONPATH && '
-            f'exec python3 -u -c "from autorace_objavoid.node import main; main()" --ros-args -r __node:=objavoid_node '
-            f'--params-file {TEAM_SRC}/config/objavoid.yaml -p use_sim_time:=true -p web_enabled:=false '
-            f'-p manual_active:=true -p cruise_speed:={t["v"]} -p avoid_speed:={t["v"]} {sc}')
+    if impl != 'v3':
+        raise ValueError('Only the production C++ v3 planner is supported')
+    return (f'source /opt/ros/humble/setup.bash && source {WS}/install/setup.bash && '
+            f'exec ros2 launch autorace_objavoid_v3 objavoid_v3.launch.py use_sim_time:=true v_max:={t["v"]} {remap}')
 
 
 def run_test(t, domain, logdir, impl='v3'):

@@ -20,5 +20,6 @@ setup(
     description='AutoRace obstacle avoidance V3',
     license='MIT',
     tests_require=['pytest'],
-    entry_points={'console_scripts': ['objavoid_v3_node = autorace_objavoid_v3.node:main']},
+    # Runtime is the C++ node; Python modules support offline/parity checks.
+    entry_points={'console_scripts': []},
 )

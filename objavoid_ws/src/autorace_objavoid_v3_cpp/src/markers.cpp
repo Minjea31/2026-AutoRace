@@ -64,6 +64,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
   const RoadFrame & f = *core.frame;
   const Params & p = core.p;
   Marker clear;
+  clear.header.stamp=stamp;
   clear.action = Marker::DELETEALL;
   arr.markers.push_back(clear);
 
@@ -77,6 +78,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
     const Box & b = core.last_boxes[k];
     Marker m = mk("scan_detections", static_cast<int>(k), Marker::LINE_STRIP, stamp, {0.2, 1.0, 0.3, 0.9},
         {0.01, 0, 0});
+    if (!b.robot_candidate) {m.color.r=0.2; m.color.g=0.7; m.color.b=1.0;}
     rect(m, f, b.s0, b.s1, b.d0, b.d1, 0.05);
     arr.markers.push_back(m);
   }
@@ -85,18 +87,22 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
       const Box & b = tr.box;
       std::array<double, 4> col = tr.confirmed ? std::array<double, 4>{1.0, 0.1, 0.1, 1.0} :
         std::array<double, 4>{1.0, 0.6, 0.0, 0.8};
+      if (!b.robot_candidate) {col={0.2,0.7,1.0,1.0};}
       Marker m = mk("obstacles", tr.id, Marker::LINE_STRIP, stamp, col, {0.03, 0, 0});
       rect(m, f, b.s0, b.s1, b.d0, b.d1);
       arr.markers.push_back(m);
       Marker txt = mk("obstacle_label", tr.id, Marker::TEXT_VIEW_FACING, stamp, {1, 1, 1, 1}, {0, 0, 0.06});
       txt.pose.position = pt(f, b.cs(), b.cd(), 0.25);
-      txt.text = "#" + std::to_string(tr.id) + " " + fmt("%.2fx%.2f", b.s1 - b.s0, b.d1 - b.d0);
+      txt.text = std::string(b.robot_candidate?"robot #":"structure #") + std::to_string(tr.id) + " " +
+        fmt("%.2fx%.2f", b.s1 - b.s0, b.d1 - b.d0);
       arr.markers.push_back(txt);
     }
   }
 
   // Gap 후보·노드
-  const PlanDiag & last = core.planner.last;
+  const bool fork_ready=!p.fork_shape || core.planner.fork_target.has_value();
+  const PlanDiag empty;
+  const PlanDiag & last = fork_ready?core.planner.last:empty;
   Marker gm = mk("gaps", 0, Marker::LINE_LIST, stamp, {0.1, 0.9, 0.2, 0.9}, {0.02, 0, 0});
   for (auto & [sk, gaps] : last.gaps) {
     for (auto & [a, b] : gaps) {
@@ -115,7 +121,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
   Marker cm = mk("candidates", 0, Marker::LINE_LIST, stamp, {0.6, 0.6, 0.6, 0.5}, {0.008, 0, 0});
   for (size_t c = 0; c < last.cand.size() && c < 40; ++c) {
     const auto & pl = last.cand[c];
-    for (size_t q = 0; q + 1 < pl.size(); q += 2) {
+    for (size_t q = 0; q + 1 < pl.size(); ++q) {
       cm.points.push_back(pt(f, pl[q].s, pl[q].d, 0.02));
       cm.points.push_back(pt(f, pl[q + 1].s, pl[q + 1].d, 0.02));
     }
@@ -125,10 +131,11 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
   // 선택 경로(진한 분홍)와 검증 끝
   const PathPtr path = core.path_;
   if (path) {
-    Marker pm = mk("path", 0, Marker::LINE_STRIP, stamp, {1.0, 0.2, 0.6, 1.0}, {0.035, 0, 0});
-    for (size_t q = 0; q < path->s.size(); q += 2) {pm.points.push_back(pt(f, path->s[q], path->d[q], 0.04));}
+    Marker pm = mk(fork_ready?"path":"approach_path", 0, Marker::LINE_STRIP, stamp,
+      fork_ready?std::array<double,4>{1.0,0.2,0.6,1.0}:std::array<double,4>{0.65,0.7,0.75,0.9}, {0.035, 0, 0});
+    for (size_t q = 0; q < path->s.size(); ++q) {pm.points.push_back(pt(f, path->s[q], path->d[q], 0.04));}
     arr.markers.push_back(pm);
-    if (std::isfinite(core.verified_s)) {
+    if (fork_ready && std::isfinite(core.verified_s)) {
       Marker vm = mk("verified_end", 0, Marker::SPHERE, stamp, {1.0, 1.0, 0.0, 0.9}, {0.05, 0.05, 0.05});
       const double dv = core.verified_s <= path->end_s() ? path->d_at(core.verified_s) : path->d.back();
       vm.pose.position = pt(f, core.verified_s, dv, 0.05);
@@ -148,7 +155,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
     }
     arr.markers.push_back(em);
     const CtrlInfo & info = core.last_info;
-    if (info.valid) {
+    if (fork_ready && info.valid) {
       Marker tm = mk("target", 0, Marker::SPHERE, stamp, {0.1, 0.3, 1.0, 1.0}, {0.05, 0.05, 0.05});
       tm.pose.position = pt(f, info.ref_s, info.ref_d, 0.05);
       arr.markers.push_back(tm);
@@ -191,9 +198,16 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
     arr.markers.push_back(ym);
     arr.markers.push_back(pm);
   }
+  for(int color=0;color<2;++color) {
+    auto raw=mk(color?"white_observed":"yellow_observed",0,Marker::POINTS,stamp,
+      color?std::array<double,4>{0.95,0.95,1,0.7}:std::array<double,4>{1,0.8,0,0.7},{0.015,0.015,0});
+    const auto & points=color?core.white_observed:core.yellow_observed;
+    for(const auto & q:points) {Point a;a.x=q.x;a.y=q.y;a.z=0.01;raw.points.push_back(a);}
+    arr.markers.push_back(raw);
+  }
   if (!core.white_cells.empty()) {
     Marker wm = mk("lane_white_cells", 0, Marker::POINTS, stamp, {0.9, 0.9, 1.0, 0.8}, {0.02, 0.02, 0});
-    for (size_t q = 0; q < core.white_cells.size(); q += 2) {
+    for (size_t q = 0; q < core.white_cells.size(); ++q) {
       Point a; a.x = core.white_cells[q].x; a.y = core.white_cells[q].y; a.z = 0.005;
       wm.points.push_back(a);
     }
@@ -202,7 +216,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
   if (core.ymap) {
     const std::vector<XY> cells = core.has_lane_cells ? core.lane_cells : core.ymap->confirmed();
     Marker lm = mk("lane_yellow_cells", 0, Marker::POINTS, stamp, {1.0, 0.5, 0.0, 0.9}, {0.03, 0.03, 0});
-    for (size_t q = 0; q < cells.size(); q += 2) {
+    for (size_t q = 0; q < cells.size(); ++q) {
       Point a; a.x = cells[q].x; a.y = cells[q].y; a.z = 0.005;
       lm.points.push_back(a);
     }
@@ -220,7 +234,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
       arr.markers.push_back(st2);
     }
   }
-  if (p.fork_enable && core.island_known() && core.fork_side() != 0 && core.sign_post()) {
+  if (!p.fork_shape && p.fork_enable && core.island_known() && core.fork_side() != 0 && core.sign_post()) {
     const auto pb = core.sign_post();
     const int side = core.fork_side();
     Marker wm2 = mk("fork_island", 0, Marker::LINE_STRIP, stamp, {0.6, 0.3, 1.0, 1.0}, {0.025, 0, 0});
@@ -232,7 +246,7 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
     it2.text = std::string(side > 0 ? "A (왼쪽)" : "B (오른쪽)") + " 받침 기준 L" + std::to_string(core.fork_votes_l) +
       " R" + std::to_string(core.fork_votes_r) + (core.fork_locked ? " 고정" : "");
     arr.markers.push_back(it2);
-  } else if (p.fork_enable && core.island_known()) {
+  } else if (!p.fork_shape && p.fork_enable && core.island_known()) {
     const Box ib = core.island_box();
     const int side = core.fork_side();
     std::array<double, 4> col = side == 0 ? std::array<double, 4>{0.8, 0.8, 0.8, 0.9} :
@@ -246,6 +260,33 @@ MarkerArray build_markers(const ObjAvoidCore & core, const builtin_interfaces::m
     it.text += " L" + std::to_string(core.fork_votes_l) + " R" + std::to_string(core.fork_votes_r) +
       (core.fork_locked ? " 고정" : "");
     arr.markers.push_back(it);
+  }
+  if(p.road_outline) {
+    const auto outline=core.road_outline();
+    auto model=mk("road_outline",0,Marker::LINE_LIST,stamp,{0.2,0.8,1,0.8});
+    for(const auto & e:outline.edges) {model.points.push_back(pt(f,e.first.x,e.first.y));model.points.push_back(pt(f,e.second.x,e.second.y));}
+    arr.markers.push_back(model);
+    const std::array<std::string,3> names{"road_match_points","island_match_points","unmatched_points"};
+    const std::array<std::array<double,4>,3> colors{{{0.2,0.8,1,1},{0.6,0.3,1,1},{0.5,0.5,0.5,0.7}}};
+    const std::vector<XY> * sets[]={&core.road_match_points,&core.island_match_points,&core.unmatched_points};
+    for(int k=0;k<3;++k) {
+      auto evidence=mk(names[k],0,Marker::POINTS,stamp,colors[k],{0.025,0.025,0});
+      for(const auto & q:*sets[k]) evidence.points.push_back(pt(f,q.x,q.y,0.04));
+      arr.markers.push_back(evidence);
+    }
+  }
+  if(p.fork_shape && core.navigation_island().pose.valid) {
+    const auto sh=core.navigation_island();
+    auto polygon=mk("fork_island",0,Marker::LINE_STRIP,stamp,
+      sh.pose.confirmed?std::array<double,4>{0.6,0.3,1,1}:std::array<double,4>{0.8,0.8,0.8,1});
+    for(const auto & q:sh.vertices()) polygon.points.push_back(pt(f,q.x,q.y));
+    polygon.points.push_back(polygon.points.front());arr.markers.push_back(polygon);
+    const int side=core.fork_side();
+    if(side) {
+      auto goal=mk("fork_goal",0,Marker::SPHERE,stamp,{0.3,1,0.5,1},{0.1,0.1,0.1});
+      const auto target=core.fork_goal();
+      if(target) {goal.pose.position=pt(f,target->x,target->y,0.05);arr.markers.push_back(goal);}
+    }
   }
   Marker sm = mk("section_end", 0, Marker::LINE_LIST, stamp, {1.0, 0.3, 1.0, 0.8}, {0.01, 0, 0});
   sm.points = {pt(f, p.section_end, -0.8, 0.01), pt(f, p.section_end, 0.8, 0.01)};
@@ -289,12 +330,13 @@ MarkerArray preview_markers(const ObjAvoidCore & core, const std::vector<float> 
     const Box & b = boxes[k];
     Marker dm = mk("scan_detections", static_cast<int>(k), Marker::LINE_STRIP, stamp, {0.2, 1.0, 0.3, 0.9},
         {0.015, 0, 0});
+    if (!b.robot_candidate) {dm.color.r=0.2; dm.color.g=0.7; dm.color.b=1.0;}
     rect(dm, f, b.s0, b.s1, b.d0, b.d1, 0.05);
     arr.markers.push_back(dm);
     Marker txt = mk("obstacle_label", static_cast<int>(k), Marker::TEXT_VIEW_FACING, stamp, {1, 1, 1, 1},
         {0, 0, 0.06});
     txt.pose.position = pt(f, b.cs(), b.cd(), 0.25);
-    txt.text = fmt("%.2fx%.2f", b.s1 - b.s0, b.d1 - b.d0);
+    txt.text = std::string(b.robot_candidate?"robot ":"structure ") + fmt("%.2fx%.2f", b.s1 - b.s0, b.d1 - b.d0);
     arr.markers.push_back(txt);
   }
   Marker st = mk("state", 0, Marker::TEXT_VIEW_FACING, stamp, {1, 1, 1, 1}, {0, 0, 0.09});

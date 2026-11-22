@@ -13,6 +13,7 @@
 
 #include "autorace_objavoid_v3_cpp/controller.hpp"
 #include "autorace_objavoid_v3_cpp/lane.hpp"
+#include "autorace_objavoid_v3_cpp/outline.hpp"
 #include "autorace_objavoid_v3_cpp/params.hpp"
 #include "autorace_objavoid_v3_cpp/perception.hpp"
 #include "autorace_objavoid_v3_cpp/planner.hpp"
@@ -33,6 +34,10 @@ struct Stats
 struct Pose {double x, y, yaw, v, w;};
 struct Veh {double s, d, psi, v;};
 
+// 11-20: 받침 방식 갈림길(side 1 = A 왼쪽, -1 = B 오른쪽)의 가상 벽 d 범위와 목표 d (mission.cpp)
+struct ForkGeom {double wall_d0 = 0, wall_d1 = 0, target = 0;};
+ForkGeom fork_geometry(int side, const Box & post, const Params & p);
+
 class ObjAvoidCore
 {
 public:
@@ -42,7 +47,7 @@ public:
   void on_odom(double t, double x, double y, double yaw, double v, double w);
   std::optional<Pose> pose_at(double t, double extrapolate = -1.0) const;
   // s_shift: 도로 원점을 현재 자세에서 전방으로 옮김(자동 시작 시 정지선 위치)
-  bool activate(double t, double s_shift = 0.0);
+  bool activate(double t, double s_shift = 0.0, double yaw_offset = 0.0, double d_shift = 0.0, bool start_hold = false);
   double start_shift = 0.0;
   void deactivate();
   bool on_lane(double stamp, const std::vector<XY> & yellow, const std::vector<XY> & view,
@@ -57,23 +62,49 @@ public:
   // 섬 시작 s: 실측값(fork_island_s) > 표지판을 본 위치로 추정한 값 > 모름(inf)
   double island_s() const
   {
+    if (p.fork_shape) {const auto model=navigation_island();return model.pose.valid ? model.pose.s : kInf;}
     if (p.fork_island_s > 0) {return p.fork_island_s;}
     if (const auto pb = sign_post()) {return pb->s0;}  // 표지판 받침(갈림길 섬 끝)
     return island_est_ ? *island_est_ : kInf;
   }
   // YOLO 표지판 박스(영상 가로 중심 u, 촬영 시각) -> 그 방향의 LiDAR 박스를 표지판 받침으로
-  void on_sign_detail(double stamp, bool right, double u);
+  // h: 박스 높이(px, 0이면 모름) -> 카메라 거리 추정. LiDAR 받침이 없으면 카메라 추정 위치를 받침으로(11-15 노트북 stash)
+  void on_sign_detail(double stamp, bool right, double u, double h = 0.0);
   std::optional<Box> sign_post() const;
   bool island_known() const {return std::isfinite(island_s());}
   Box island_box() const {return {island_s(), island_s() + p.fork_island_len, -p.fork_island_half, p.fork_island_half};}
+  IslandShape navigation_island() const;
+  RoadOutline road_outline() const;
+  std::optional<XY> fork_goal() const;
+  unsigned long mapping_epoch=0;
   int fork_side() const {return fork_side_;}  // +1 왼쪽(A), -1 오른쪽(B), 0 미정
+  IslandMapper island_mapper;
+  bool searching = false;
+  double search_distance = 0, lane_command_at = -1e9, island_frame_at = -1e9;
+  double search_started = -1, search_plan_at = -1e9;
+  std::optional<XY> search_last;
+  std::optional<double> entry_stable;
+  std::vector<XY> fresh_island_odom, fresh_view_odom;
+  double island_fit_stamp=-1e9;
+  double island_sign_after=1e100;
+  std::optional<double> island_section_reached_at;
+  std::deque<std::pair<double,std::vector<XY>>> yellow_history;
+  std::vector<XY> road_match_points, island_match_points, unmatched_points;
+  OutlineFit outline_fit;
+  double outline_frame_at=-1e9;
+  int outline_stable=0;
+  size_t yellow_raw_count=0,yellow_filtered_count=0;
+
+  void on_lane_command(double t) {std::lock_guard<std::recursive_mutex> g(mtx_); lane_command_at=t;}
   int fork_votes_l = 0, fork_votes_r = 0;
+  int fork_flip_streak = 0;  // 정한 방향과 반대인 표지 연속 횟수
   bool fork_locked = false;
   std::string status_json() const;
   void clear_path() {std::lock_guard<std::recursive_mutex> g(mtx_); path_.reset();}
   bool active() const {std::lock_guard<std::recursive_mutex> g(mtx_); return frame.has_value();}
   State get_state() const {std::lock_guard<std::recursive_mutex> g(mtx_); return state;}
   std::string get_done_reason() const {std::lock_guard<std::recursive_mutex> g(mtx_); return done_reason;}
+  std::string get_reason() const {std::lock_guard<std::recursive_mutex> g(mtx_); return reason;}
   double scan_timeout() const {return p.scan_timeout;}
 
   // 상태 조회(마커·노드용, mutex 잡고 호출)
@@ -92,12 +123,12 @@ public:
   double verified_s = kNaN;
   std::vector<Pt2> last_points;
   std::vector<Box> last_boxes;
-  std::vector<XY> lane_cells, white_cells;
+  std::vector<XY> lane_cells, white_cells, yellow_observed, white_observed;
   bool has_lane_cells = false;
   int replans = 0;
   bool aligned = false;
   std::string done_reason;
-  Stats scan_queue_ms;
+  Stats scan_queue_ms, mapping_ms;
   PathTracker ctrl, proj;
 
 private:
@@ -107,11 +138,14 @@ private:
   std::vector<XY> lidar_ground_filter(const std::vector<XY> & pts, const Pose & pose);
   std::optional<Veh> lane_update(Veh veh, double t);
   bool lane_blocking(double t) const;
-  void reframe(double a, double dc, double t);
+  void reframe(double a, double dc, double t, double ds=0.0);
+  void classify_outline_points(std::vector<Pt2> & sd);
   bool emergency(const std::vector<float> & ranges, double angle_min, double angle_inc, double v) const;
   PlanStart start_state(const Veh & veh, std::optional<double> w, double & ey) const;
   void maybe_replan(const Veh & veh, double t);
+  bool yellow_blocks_route(const Veh & veh,double t);
   void update_clear_ahead(const Veh & veh);
+  bool startup_path_ready(const Veh & veh) const;
   bool maybe_start_reverse(double t, const std::optional<Veh> & veh);
   std::pair<double, double> reverse_clear(double s, double d, double psi, const std::vector<Box> & boxes) const;
   void reverse_step(double t, double dt, const Veh & veh, double & v_cmd, double & steer_cmd);
@@ -124,6 +158,8 @@ private:
   mutable std::recursive_mutex mtx_;
   PriorBoundary prior_;
   std::unique_ptr<LaneBoundary> lane_;
+  IslandShape retained_island_;
+  std::unique_ptr<IslandRoadBoundary> road_boundary_;
   double section_end0_;
   std::deque<std::array<double, 6>> odom_;
   static constexpr size_t kOdomMax = 200;
@@ -144,7 +180,20 @@ private:
   std::map<std::string, int> fail_checks_;
   int lane_frames_ = 0;
   long lane_lidar_dropped_ = 0;
-  struct Rev {double t0, x0, y0; int sigma; double target;};
+  struct Rev {
+    bool fork_lane=false;
+    double t0=0,x0=0,y0=0;
+    std::vector<XY> trail;
+    size_t cursor=0;
+    double travelled=0,last_x=0,last_y=0;
+  };
+  std::deque<XY> driven_trail_;
+  std::vector<XY> failed_routes_;
+  std::optional<XY> locked_fork_goal_odom_;
+  double locked_fork_yaw_odom_=0;
+  bool fork_path_committed_=false, yellow_route_blocked_=false, obstacle_route_blocked_=false;
+  std::optional<XY> last_route_;
+  std::vector<XY> last_route_points_;
   std::optional<Rev> rev_;
   int rev_count_ = 0;
   std::optional<double> rev_anchor_s_;
@@ -160,9 +209,12 @@ private:
   std::optional<std::pair<double, double>> align_prev_;
   std::optional<double> island_;
   double activated_t_ = 0;
+  bool startup_wait_=false;
+  std::optional<double> startup_stopped_at_;
   struct OccScan {std::vector<double> r; double amin, ainc; LidarPose lp;};
   std::optional<OccScan> occ_scan_;
   int fork_side_ = 0;
+  std::optional<std::pair<double,bool>> pending_sign_;
   bool fork_replan_ = false;
   std::optional<double> wait_since_;
   double home_d0_ = 0.0, plan_beyond0_ = 0.0, roi_beyond0_ = 0.0;
@@ -172,7 +224,8 @@ private:
   int post_id_ = -1;
   std::optional<Box> post_box_;
   int post_align_ = -1;
-  bool match_post(double stamp, double u);
+  bool match_post(double stamp, double u, double cam_dist);
+  void fork_target();
   std::chrono::steady_clock::time_point t0_wall_ = std::chrono::steady_clock::now();
 };
 

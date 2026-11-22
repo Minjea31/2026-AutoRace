@@ -18,7 +18,10 @@ Agent.md
 
 # Local assistant workspace files
 *[gG][pP][tT]*
+*[pP][gG][tT]*
 .codex/
+.codex*/
+.agents/
 .claude/
 .openai/
 CLAUDE.md

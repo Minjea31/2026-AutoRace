@@ -20,7 +20,7 @@ static double ycfg(const YAML::Node & c, const char * k, double def)
 }
 
 GroundProjection::GroundProjection(const std::string & cfg_path, double mr, double ml,
-  const std::vector<double> & homography)
+  const std::vector<double> & homography, bool full_image)
 : max_range(mr), max_lateral(ml)
 {
   const YAML::Node root = YAML::LoadFile(cfg_path);
@@ -47,6 +47,7 @@ GroundProjection::GroundProjection(const std::string & cfg_path, double mr, doub
     for (int q = 0; q < 3; ++q) {Hx(r, q) = Hm.at<double>(r, q);}
   }
   G_ = M * Hx;
+  Hbev_ = Hx;
   bool any = false;
   for (double v : homography) {any = any || v != 0.0;}
   if (any && homography.size() == 9) {
@@ -54,9 +55,7 @@ GroundProjection::GroundProjection(const std::string & cfg_path, double mr, doub
   }
   Ginv_ = G_.inv();
   roi_ = {ycfg(c, "roi_left", 0.0), ycfg(c, "roi_right", 1.0), ycfg(c, "roi_top", 0.0), ycfg(c, "roi_bottom", 1.0)};
-  hsv = {ycfg(c, "yellow_h_min", 15), ycfg(c, "yellow_h_max", 40), ycfg(c, "yellow_s_min", 80),
-    ycfg(c, "yellow_v_min", 80)};
-  white_hsv = {ycfg(c, "white_s_max", 70), ycfg(c, "white_v_min", 120)};
+  if(full_image) roi_={0,1,0,1};
   // 영상 ROI 전체(거리 max_range까지)를 관측 영역으로
   near = kInf;
   for (double x = 0.2; x < max_range; x += 0.03) {
@@ -101,31 +100,30 @@ bool GroundProjection::to_image(double x, double y, double & u, double & v) cons
   return std::isfinite(u) && std::isfinite(v);
 }
 
-std::vector<XY> GroundProjection::class_points(const cv::Mat & mask, const cv::Mat & bgr, int cls, bool white,
+double GroundProjection::class_ratio_bev(const cv::Mat & mask, int cls) const
+{
+  if (mask.empty() || w <= 1 || h <= 1) {return 0.0;}
+  // mask pixel -> camera image pixel (mask may be smaller), image -> BEV, evaluated on a half-size BEV.
+  const cv::Matx33d S(static_cast<double>(w) / mask.cols, 0, 0, 0, static_cast<double>(h) / mask.rows, 0, 0, 0, 1);
+  const cv::Matx33d D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 1);
+  const cv::Matx33d T = D * Hbev_ * S;
+  cv::Mat bev;
+  cv::warpPerspective(mask, bev, cv::Mat(T), cv::Size(std::max(1, w / 2), std::max(1, h / 2)),
+    cv::INTER_NEAREST, cv::BORDER_CONSTANT, cv::Scalar(0));
+  return static_cast<double>(cv::countNonZero(bev == cls)) / static_cast<double>(bev.total());
+}
+
+std::vector<XY> GroundProjection::class_points(const cv::Mat & mask, int cls,
   int step) const
 {
   std::vector<XY> out;
   const int mh = mask.rows, mw = mask.cols;
   const int sh = (mh + step - 1) / step, sw = (mw + step - 1) / step;
-  cv::Mat hsvimg;
-  if (!bgr.empty()) {
-    cv::Mat img = bgr;
-    if (bgr.rows != sh || bgr.cols != sw) {cv::resize(bgr, img, cv::Size(sw, sh), 0, 0, cv::INTER_NEAREST);}
-    cv::cvtColor(img, hsvimg, cv::COLOR_BGR2HSV);
-  }
   const double W = w - 1, H = h - 1;
   for (int vv = 0; vv < sh; ++vv) {
     const uchar * mrow = mask.ptr<uchar>(vv * step);
     for (int uu = 0; uu < sw; ++uu) {
       if (mrow[uu * step] != cls) {continue;}
-      if (!hsvimg.empty()) {
-        const cv::Vec3b px = hsvimg.at<cv::Vec3b>(vv, uu);
-        if (white) {
-          if (!(px[1] <= white_hsv[0] && px[2] >= white_hsv[1])) {continue;}
-        } else if (!(px[0] >= hsv[0] && px[0] <= hsv[1] && px[1] >= hsv[2] && px[2] >= hsv[3])) {
-          continue;
-        }
-      }
       const double u = uu * step * (static_cast<double>(w) / mw);
       const double v = vv * step * (static_cast<double>(h) / mh);
       if (!(u >= roi_[0] * W && u <= roi_[1] * W && v >= roi_[2] * H && v <= roi_[3] * H)) {continue;}
@@ -133,34 +131,7 @@ std::vector<XY> GroundProjection::class_points(const cv::Mat & mask, const cv::M
       to_ground(u, v, x, y);
       x *= sx_;
       y *= sy_;
-      if (x >= near - 0.02 && x <= max_range && std::abs(y) <= max_lateral) {out.push_back({x, y});}
-    }
-  }
-  return out;
-}
-
-std::vector<XY> GroundProjection::hsv_white_points(const cv::Mat & bgr, int step) const
-{
-  std::vector<XY> out;
-  if (bgr.empty()) {return out;}
-  cv::Mat hsvimg;
-  cv::cvtColor(bgr, hsvimg, cv::COLOR_BGR2HSV);
-  const double W = w - 1, H = h - 1;
-  const double ku = static_cast<double>(w) / bgr.cols, kv = static_cast<double>(h) / bgr.rows;
-  for (int vv = 0; vv < hsvimg.rows; vv += step) {
-    const cv::Vec3b * row = hsvimg.ptr<cv::Vec3b>(vv);
-    const double v = vv * kv;
-    if (v < roi_[2] * H || v > roi_[3] * H) {continue;}
-    for (int uu = 0; uu < hsvimg.cols; uu += step) {
-      const cv::Vec3b & px = row[uu];
-      if (!(px[1] <= white_hsv[0] && px[2] >= white_hsv[1])) {continue;}
-      const double u = uu * ku;
-      if (u < roi_[0] * W || u > roi_[1] * W) {continue;}
-      double x, y;
-      to_ground(u, v, x, y);
-      x *= sx_;
-      y *= sy_;
-      if (x >= near - 0.02 && x <= max_range && std::abs(y) <= max_lateral) {out.push_back({x, y});}
+      if (std::isfinite(x) && std::isfinite(y) && x >= std::max(0.05, near - 0.02) && x <= max_range && std::abs(y) <= max_lateral) {out.push_back({x, y});}
     }
   }
   return out;

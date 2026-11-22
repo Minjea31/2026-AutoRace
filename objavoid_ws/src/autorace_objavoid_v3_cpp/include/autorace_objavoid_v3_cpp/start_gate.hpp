@@ -1,6 +1,9 @@
 // 자동 시작 판정: 흰 정지선(가로로 얇고 넓은 띠) + 그 너머 흰 점선(차로 경계 위치의 얇은 조각, 3차선에만 있음)
 // + 전방 장애물. 입력은 모두 차 기준(base_link: x 전방, y 왼쪽).
 #pragma once
+#include <algorithm>
+#include <deque>
+#include <utility>
 #include <vector>
 
 #include "autorace_objavoid_v3_cpp/lane.hpp"
@@ -24,6 +27,99 @@ struct GateResult
 
 // white: 흰색 바닥 점, boxes: LiDAR 검출 박스(차 기준, 실측 폭 start_obs_min_width 미만은 호출 전에 제외)
 GateResult eval_start_gate(const std::vector<XY> & white, const std::vector<Box> & boxes, const Params & p);
+
+struct EntranceResult {
+  bool ok=false, left=false, right=false;
+  double x=0, center=0, yaw=0;
+  int support=0;
+};
+// Narrow (~0.50m) -> diagonal widening -> wide (~1.54m) yellow boundary.
+EntranceResult eval_entrance_gate(const std::vector<XY> & yellow, bool dash_pair, const Params & p);
+
+constexpr double kEntranceFreshness = 0.30;
+
+// 11-19: road centre and direction from the two white dashed lane lines (3-lane section, +-0.25 m).
+// Input: white floor points in the vehicle frame (x forward, y left). center = lateral offset of the
+// road centre line from the vehicle (left +), yaw = road direction relative to the vehicle heading.
+struct DashLane {
+  bool ok = false;
+  double center = 0, yaw = 0, width = 0;
+  int left = 0, right = 0;
+};
+DashLane fit_dash_lane(const std::vector<XY> & white, const Params & p);
+
+// A fixed observation window also requires current confirmation. A lost/stale
+// sighting cannot lend its remaining deadline to unrelated later obstacles.
+class EntranceWindow {
+public:
+  double deadline=-1e9, last_time=-1e9, last_confirmed=-1e9;
+  bool seen=false;
+  bool armed(double t) const {return t>=last_time && t<=deadline && t-last_confirmed<=kEntranceFreshness;}
+  void reset() {deadline=last_time=last_confirmed=-1e9;seen=false;}
+  bool update(double t,bool detected,int obstacles,double seconds=5.0,int required=2,bool in_front=true) {
+    if(t<last_time) reset();
+    last_time=t;
+    if(!in_front) {reset();last_time=t;return false;}
+    if(!detected && t-last_confirmed>kEntranceFreshness) {reset();last_time=t;return false;}
+    if(detected && !seen && !armed(t)) deadline=t+seconds;
+    if(detected) last_confirmed=t;
+    seen=detected;
+    return detected && armed(t) && obstacles>=required;
+  }
+};
+
+// Accumulated start evidence (2026-11-18). The yellow entrance corner is in view for only ~0.3 s
+// and the LiDAR obstacle count flickers 1<->2, so "both in the same frame" started by luck.
+// Instead: score = sum(support x dt) of entrance detections over the last `window` s (support
+// below min_support counts 0), obstacles = max over the last `hold` s. Bags 11-17/11-18 (7):
+// entrance peaks 24.7-122 at 20 Hz, other lane places <= 19.4 (cone corners 33-52: mission gate).
+class StartScore {
+public:
+  double score = 0;
+  int obstacles = 0;
+  void reset() {support_.clear(); obstacles_.clear(); score = 0; obstacles = 0; last_ = -1e9;}
+  // One fresh mask. Returns true when score >= min_score and obstacles >= min_obstacles.
+  bool update(double t, int support, int obstacles_now, double window, double hold, int min_support,
+    double min_score, int min_obstacles) {
+    if (t < last_) {reset();}
+    const double dt = last_ > -1e8 ? std::clamp(t - last_, 0.0, 0.2) : 0.05;
+    last_ = t;
+    support_.emplace_back(t, support >= min_support ? support * dt : 0.0);
+    obstacles_.emplace_back(t, obstacles_now);
+    while (!support_.empty() && support_.front().first < t - window) {support_.pop_front();}
+    while (!obstacles_.empty() && obstacles_.front().first < t - hold) {obstacles_.pop_front();}
+    score = 0;
+    for (const auto & s : support_) {score += s.second;}
+    obstacles = 0;
+    for (const auto & o : obstacles_) {obstacles = std::max(obstacles, o.second);}
+    return min_score > 0 && score >= min_score && obstacles >= min_obstacles;
+  }
+private:
+  std::deque<std::pair<double, double>> support_;
+  std::deque<std::pair<double, int>> obstacles_;
+  double last_ = -1e9;
+};
+
+inline bool entrance_ahead(double x,double y,double vehicle_x,double vehicle_y,double yaw) {
+  return (x-vehicle_x)*std::cos(yaw)+(y-vehicle_y)*std::sin(yaw)>0.10;
+}
+
+// 11-20: 시작 순간 도로 기준 정하기. Dash = 흰 점선 쌍으로, Vehicle = 차 위치·방향으로, Wait = 이번엔 시작 안 함.
+//   점선 쌍이 있으면 Dash. 없으면 정면 장애물이 start_align_front_stop 안이면 바로 Vehicle,
+//   start_white_align_wait 동안 기다린 뒤에도 차가 돌고 있으면(|yaw_rate| >= start_align_max_yaw_rate) 계속 Wait.
+//   yaw_rate / front_m 이 NaN(센서 없음)이면 그 조건은 보지 않음. start_white_align이 꺼져 있으면 항상 Vehicle.
+enum class AlignStart { Wait, Dash, Vehicle };
+AlignStart align_start(bool dash_pair, double waited_s, double yaw_rate, double front_m, const Params & p);
+const char * align_start_name(AlignStart a);
+
+// 11-20: 수동 -> 자율 복귀 판단. Restart = 재시작, Wait = 정지 명령으로 계속 기다림, Skip = 장애물 미션 끔.
+//   manual_resume_need_cue가 꺼져 있으면 항상 Restart(11-19 동작).
+enum class ResumeCue { Wait, Restart, Skip };
+ResumeCue resume_cue(bool dash_pair, bool sign_seen, double waited_s, const Params & p);
+// 11-20: 꺼진 상태에서 좌우 표지판으로 켜도 되는지(sign_age_s: 마지막 /yolo/LR_sign 이후 시간)
+bool sign_start_allowed(bool active, bool locked_out, bool done_once, double sign_age_s, const Params & p);
+// 11-20: 라바콘 잠금. cone_since_s < 0 = 지금 cone 아님, mux_age_s = 마지막 /mux/active_source 이후 시간
+bool cone_lockout_due(bool ever_active, double cone_since_s, double now_s, double mux_age_s, const Params & p);
 
 // cmd_emulate_calibration: 센서 드라이버 보정이 꺼져 있어도 보정 켰을 때와 같은 서보 값이 되도록 중심 조향각 변환
 double emulate_calibration(double delta, const Params & p);

@@ -67,3 +67,18 @@ def test_start_curvature_from_motion_and_clamped():
     core.state = RUN
     st, _ = core._start_state((1.0, 0.0, 0.0, 0.0), w=0.0)   # 정지 중 + 직접 몰던 중: 명령 조향(한계 안)
     assert abs(st[3]) <= kmax + 1e-9
+
+
+
+def test_deep_projection_needs_only_class_mask():
+    from autorace_objavoid_v3.lane_boundary import GroundProjection
+    cfg=dict(width=100,height=100,bev_top_y=.1,bev_bottom_y=.9,
+             bev_top_left=.1,bev_top_right=.9,bev_bottom_left=.1,bev_bottom_right=.9,
+             lane_width_m=.5,lane_width_px=50,bev_near_m=.2,bev_far_m=2.)
+    gp=GroundProjection(cfg,max_range=2.,homography=[0,.02,.1,.02,0,-1,0,0,1])
+    mask=np.ones((100,100),np.uint8);mask[:,50:]=2
+    yellow=gp.yellow_points(mask);white=gp.white_points(mask)
+    assert len(yellow)>0 and len(white)>0
+    assert np.all(yellow[:,0]<=2.) and np.all(white[:,0]<=2.)
+    mask[:]=0
+    assert len(gp.yellow_points(mask))==0 and len(gp.white_points(mask))==0
