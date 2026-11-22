@@ -1,24 +1,39 @@
-# camera_compat_ws — 카메라 호환성
+# Camera OpenCV compatibility overlay
 
-ROS 영상과 OpenCV 사이의 변환·압축 전송을 지원합니다. 자체 주행 노드는 없습니다.
+카메라와 ROS 영상 패키지의 OpenCV 버전을 맞추는 호환성 워크스페이스입니다.
 
-![카메라 호환성](../docs/logic/camera_compat_ws.svg)
+## 알고리즘과 역할
+
+ROS 영상과 OpenCV 행렬을 변환하고, 카메라 영상의 압축·복원을 지원합니다. 시스템 OpenCV 버전에 맞춰 라이브러리를 빌드하는 호환성 워크스페이스이며 자체 주행 노드는 없습니다.
+
+![camera_compat_ws 알고리즘 개념 그림](../docs/logic/camera_compat_ws.svg)
 
 ## 입력·출력 토픽
 
-<details>
-<summary>토픽 이름·메시지 타입 펼쳐보기</summary>
+이 워크스페이스 자체에는 독립 실행되는 주행 노드나 고정 토픽이 없습니다. 현재 시스템에서 라이브러리를 사용하는 영상 흐름은 다음과 같습니다.
 
 | 구분 | 토픽 / 데이터 | 타입 | 역할 |
 | --- | --- | --- | --- |
 | 영상 원본 | `/camera/color/image_raw` | `sensor_msgs/msg/Image` | 카메라 노드의 ROS 영상 ↔ OpenCV 변환 |
 | 압축 전송 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 카메라 노드가 발행하고 인지 노드가 복원 |
 
-</details>
-
 ## References
 
-- [ROS perception: cv_bridge](https://github.com/ros-perception/vision_opencv/tree/humble/cv_bridge)
-- [ROS perception: image_transport_plugins](https://github.com/ros-perception/image_transport_plugins/tree/humble)
+학습·주행 알고리즘 논문 대신 사용하는 라이브러리의 원본을 참고합니다.
 
-[통합 실행](../tensor_bringup/README.md) · [전체 토픽](../docs/architecture.md)
+- [ROS perception: cv_bridge](https://github.com/ros-perception/vision_opencv/tree/humble/cv_bridge) — ROS/OpenCV 영상 변환.
+- [ROS perception: image_transport_plugins](https://github.com/ros-perception/image_transport_plugins/tree/humble) — 압축 영상 전송 플러그인.
+
+## 빌드와 환경 적용
+
+The camera uses system OpenCV 4.8; ROS binaries used OpenCV 4.5, causing mixed libraries and camera aborts. This workspace rebuilds cv_bridge and image transport plugins against OpenCV 4.8, without replacing system packages.
+
+Sources: ros-perception/vision_opencv and ros-perception/image_transport_plugins, humble branch. Git checkouts retain exact revisions.
+
+```bash
+source /opt/ros/humble/setup.bash
+cd ~/2026-AutoRace/camera_compat_ws
+colcon build --packages-select cv_bridge compressed_image_transport compressed_depth_image_transport theora_image_transport --cmake-args -DOpenCV_DIR=/usr/lib/cmake/opencv4 -DCMAKE_BUILD_TYPE=Release --parallel-workers 2
+source install/setup.bash
+```
+Sensor and tensor_bringup setup files were regenerated with this overlay as an underlay. Re-source setup in existing terminals before restarting sensors.

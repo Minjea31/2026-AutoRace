@@ -32,10 +32,6 @@ cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane
 | `src/roi_view.cpp`, `src/bag.cpp` | 튜너용 ROI/BEV 드래그 화면, rosbag2 영상 리더 |
 | `src/eval.cpp` | bag 일괄 평가 / 단일 이미지 확인 |
 
-## 알고리즘
-
-![Deep 차선과 Fusion 차선](../../../docs/logic/lane_fusion_ws.svg)
-
 ## 토픽
 
 | 방향 | 토픽 | 내용 |
@@ -44,7 +40,7 @@ cd ~/2026-AutoRace && ./simul/adapter.sh --no-gui --topic /mission/lane
 | 발행 | `/lane_fusion/target` | `Float32MultiArray` `[valid, lateral_m, heading_rad, lookahead_m, curvature, confidence, left_state, right_state, near_lateral_m, near_heading_rad, near_m]` (좌측 +, state 0=LOST 1=HELD 2=DETECTED). 앞 6개는 목표점(lookahead), `near_*`는 중앙 경로의 가장 가까운 점(BEV 맨 아래 쪽) 값 |
 | 발행 | `/lane_fusion/debug` | BEV 경계·경로 영상 (구독자가 있을 때만 생성) |
 
-## 설정
+## 설정 파일 — 시뮬과 실차를 폴더로 분리
 
 
 - launch와 튜너 모두 `profile`(sim / real)로 폴더를 고릅니다. 한쪽을 튜닝해도 다른 쪽은 바뀌지 않습니다. launch 기본값은 `profile:=sim`이고, `use_sim_time`은 profile에 따라 자동(sim=true, real=false)입니다. 제어 패키지 `autorace_lane_fusion_pid`도 같은 `profile` 인자를 씁니다.
