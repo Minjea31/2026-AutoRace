@@ -1,9 +1,46 @@
-# cone_ws: LiDAR ROI 전처리와 라바콘 후보 클러스터링
+# cone_ws — LiDAR 콘 경로 생성·추종
+
+LiDAR로 콘 후보와 좌우 경계를 찾고 중앙 경로를 따라 주행합니다. 현재 통합 실행의 기준은 아래 C++ 알고리즘과 토픽입니다.
+
+## 현재 알고리즘
+
+통합 실차 실행은 **C++ `roi_node`**를 사용합니다. LiDAR 후보 추출부터 경계·중앙 경로 생성과 조향 제어까지 수행합니다.
+
+1. **ROI·인접 군집**: 스캔을 TF로 `base_link`에 옮겨 ROI를 자르고, 연속 스캔 인덱스와 이웃 점 거리로 묶습니다. 포인트 수·폭 조건으로 콘 후보를 고릅니다. 일반 DBSCAN을 호출하는 구현은 아닙니다.
+2. **경계 연결**: 후보 중심을 거리·진행 방향·차로 폭 일관성으로 연결해 좌우 경계를 추적합니다. 이 연결 규칙은 자체 휴리스틱입니다.
+3. **중앙 경로**: 양 경계의 대응 단면 중점을 사용합니다. 한쪽만 보이면 최근 관측한 폭의 절반만큼 법선 방향으로 오프셋하고, 모서리·경계 교차·설정된 곡률 조건을 검사합니다. TF 기반 이전 경로 메모리도 사용합니다.
+4. **경로 오차 제어**: 기준점에서 횡오차와 방향 오차를 구해 `steer = lateral_gain·e_y + heading_gain·e_heading`으로 조향합니다. 조향각·조향 변화율을 제한하고 조향·곡률에 따라 감속합니다. 일반적인 경로 오차 피드백 계열이지만, 이 코드는 Pure Pursuit나 Stanley 공식을 그대로 쓰지 않습니다.
+5. **차선 복귀**: 전방 콘이 사라지는 등 종료 조건에서 최신 `/mission/lane` 조향으로 탈출한 뒤 제어권을 넘깁니다.
+
+전체 파이프라인은 자체 구현입니다. 특정 논문과 동일한 알고리즘으로 표기하지 않습니다.
+
+구현: [roi_node.cpp](src/cone_lane_follower/cpp/roi_node.cpp), [기하·군집·경로 함수](src/cone_lane_follower/include/cone_lane_follower/core.hpp), [경계 추적](src/cone_lane_follower/include/cone_lane_follower/boundary_tracker.hpp), [실행 설정](src/cone_lane_follower/launch/roi.launch.py).
+
+## 입력·출력 토픽
+
+| 방향 | 토픽 | 타입 | 내용 / 연결 |
+| --- | --- | --- | --- |
+| 입력 | `/scan` | `sensor_msgs/msg/LaserScan` | 콘 후보 거리값 |
+| 입력 · TF | `/tf`, `/tf_static` | `tf2_msgs/msg/TFMessage` | 센서 변환·경로 메모리 좌표 변환 |
+| 입력 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 탈출 시 차선 명령 |
+| 입력 | `/mux/active_source` | `std_msgs/msg/String` | 실제 제어 주체 |
+| 출력 | `/mission/cone/command_06` | `ackermann_msgs/msg/AckermannDriveStamped` | 콘 경로 명령 → mux |
+| 출력 | `/cone_lane/exit_lane_active` | `std_msgs/msg/Bool` | 탈출 상태 → fusion 모드의 차선 인식 |
+| 출력 | `/cone_lane/control_status` | `visualization_msgs/msg/Marker` | 제어 상태 표시·bringup 시작 검사 |
+| 출력 · 관측 | `/cone_lane/roi_marker`, `/cone_lane/roi_points` | `visualization_msgs/msg/Marker` | ROI 경계·점 |
+| 출력 · 관측 | `/cone_lane/clusters`, `/cone_lane/cone_centers` | `visualization_msgs/msg/MarkerArray` | 군집·후보 중심 |
+| 출력 · 관측 | `/cone_lane/boundaries`, `/cone_lane/control_points` | `visualization_msgs/msg/MarkerArray` | 좌우 경계·제어 기준점 |
+| 출력 · 관측 | `/cone_lane/center_path`, `/cone_lane/center_spot`, `/cone_lane/backup_path` | `visualization_msgs/msg/MarkerArray` | 중앙 경로·단면·보조 경로 |
+
+현재 deep 모드의 deep_lite는 `/cone_lane/exit_lane_active`를 구독하지 않습니다. 이 연결은 fusion 모드에만 있습니다. `/cone_lane/control_status`는 Marker 타입이지만 표시 전용으로만 쓰이지는 않습니다.
+
+## 상세 구현·개발 기록
+
+아래는 초기 Python ROI 구현부터의 기록입니다. 현재 실차의 실행 파일·입출력은 위 C++ 요약을 기준으로 봅니다.
 
 `cone_lane_follower`는 `/scan`을 차량 좌표계로 변환하고 ROI 내부 포인트를
 연속 스캔 인덱스와 XY 거리로 클러스터링한다. 크기 필터를 통과한 클러스터는
-**라바콘 후보**이며 확정된 라바콘이 아니다. 좌우 분류·추적·경로 생성·주행 제어는 포함하지 않는다.
-차량 명령 토픽(`/mission/objavoid/command_05`, `/cmd_vel` 등)에 발행하지 않는다.
+**라바콘 후보**이며 확정된 라바콘이 아니다. 이 초기 ROI 단계에 좌우 분류·경로·제어가 추가되어 현재 C++ 노드로 사용된다. 최종 콘 명령은 `/mission/cone/command_06`이다.
 
 ## 파일 구성
 

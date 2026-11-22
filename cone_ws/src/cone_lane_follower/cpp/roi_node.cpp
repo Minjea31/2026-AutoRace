@@ -696,16 +696,11 @@ void control_tick()
                                      p
                                      ["control_reference_x"]);
   }
-  // Preserve the original branch ordering, including its unreachable recovery elif.
   if (live_errors) {
     remember_live_path();
     if (path_memory_.finished) remember_live_path(true);
-  }else if (live_errors&&memory_reason != "memory_tf_unavailable_or_stale")
-    remember_live_path(true);
-  else if (!live_errors)
+  }else
     memory_update_reason_ = "not_attempted: " + path_stop_reason(center_path_, p["control_reference_x"]);
-  else
-    memory_update_reason_ = "not_attempted: " + memory_reason;
   memory_following_ = false;
   if (!path_memory_.points.empty()) {
     auto[remaining, reason] = remaining_memory_path(p);

@@ -2,6 +2,38 @@
 
 ROS 2 Humble의 `autorace_crosswalk` 패키지입니다. `slow_ws`와 같은 흰색 바닥 표시 감지를 사용합니다. 흰색 픽셀 비율을 판정하며 정지선 모양이나 실제 거리는 구별하지 않습니다.
 
+## 알고리즘
+
+**표지판 확인 + HSV 흰색 ROI + 상태기계**로 횡단보도 정지를 수행합니다.
+
+1. `/yolo/crosswalk_sign`의 연속 true 2회를 확인합니다.
+2. 그 이후 촬영된 새 영상의 하단 ROI에서 HSV 흰색 픽셀 비율을 계산합니다. 기준을 넘으면 설정된 지연 후 정지를 시작합니다. [1]
+3. 최신 lane 명령의 조향을 유지하면서 속도만 0으로 바꿉니다. 기본 3초 정지 후 명령 발행을 멈추고 기본 10초 재진입 대기를 둡니다.
+4. 첫 정지 명령과 함께 `/start_crosswalk`를 알려 slow가 서행을 종료하도록 합니다.
+
+확인 횟수·지연·정지 유지·재진입 조건은 대회 미션에 맞춘 자체 상태기계이며 특정 논문을 재현한 알고리즘은 아닙니다.
+
+구현: [core.py](src/autorace_crosswalk/autorace_crosswalk/core.py), [node.py](src/autorace_crosswalk/autorace_crosswalk/node.py), [설정](src/autorace_crosswalk/config/crosswalk.yaml).
+
+## 입력·출력 토픽
+
+| 방향 | 토픽 | 타입 | 내용 / 연결 |
+| --- | --- | --- | --- |
+| 입력 | `/yolo/crosswalk_sign` | `std_msgs/msg/Bool` | 횡단보도 표지 감지 |
+| 입력 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 새 흰색 바닥 표시 검사 |
+| 입력 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 정지 중 유지할 차선 조향 |
+| 출력 | `/mission/crosswalk/command_01` | `ackermann_msgs/msg/AckermannDriveStamped` | 정지 명령 → mux |
+| 출력 | `/start_crosswalk` | `std_msgs/msg/Bool` | 첫 정지 시작 true → slow |
+| 출력 · 관측 | `/crosswalk/white_roi/detected` | `std_msgs/msg/Bool` | 흰색 ROI 판정 |
+| 출력 · 관측 | `/crosswalk/white_roi/ratio` | `std_msgs/msg/Float32` | 흰색 픽셀 비율 |
+| 출력 · 관측 | `/crosswalk/white_roi/debug/compressed` | `sensor_msgs/msg/CompressedImage` | ROI 미리보기, 구독자가 있을 때 |
+
+`/<lane_white_node>/get_parameters`(`rcl_interfaces/srv/GetParameters`, 기본 `/lane_fusion_node/get_parameters`)로 HSV 값을 조회할 수 있습니다. 현재 deep 실행에는 그 서버가 없으므로 lane YAML의 초기값을 사용합니다.
+
+## References
+
+- [1] OpenCV, [Thresholding Operations using inRange](https://docs.opencv.org/4.x/da/d97/tutorial_threshold_inRange.html). HSV 범위로 흰색 마스크를 만드는 기본 연산이며, 정지 상태기계는 자체 구현입니다.
+
 ## 확정된 구현 계획 (Proposed Plan)
 
 흰색 바닥 표시 감지 조건을 추가한 최신 합의와 구현 기준입니다.
@@ -64,9 +96,9 @@ lane·표지판·명령의 QoS는 Reliable / Volatile / KeepLast(1)이며, 영�
 
 | 파라미터 | 기본값 | 의미 |
 | --- | --- | --- |
-| `white_roi_left` / `white_roi_right` | 0.20 / 0.80 | 원본 영상 중앙 폭 60% |
-| `white_roi_top` / `white_roi_bottom` | 0.86 / 0.92 | 영상 하단의 얕은 띠 |
-| `white_roi_minimum_ratio` | 0.08 | ROI 픽셀 중 흰색 비율 8% 이상 |
+| `white_roi_left` / `white_roi_right` | 0.05 / 0.95 | 원본 영상 중앙 폭 90% |
+| `white_roi_top` / `white_roi_bottom` | 0.961 / 1.0 | 영상 맨 아래 띠 |
+| `white_roi_minimum_ratio` | 0.40 | ROI 픽셀 중 흰색 비율 40% 이상 |
 | `white_image_timeout_sec` | 0.30 | 영상 촬영 시각의 허용 나이 |
 | `white_image_hz` | 10.0 | 영상 처리 상한 |
 | `white_image_topic` | `/camera/color/image_raw/compressed` | 입력 영상 |

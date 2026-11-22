@@ -7,6 +7,41 @@
 
 **실행 방법은 [RUN.md](RUN.md)에 정리돼 있습니다.** 인식과 제어는 노드, 설정 파일, 튜너 창이 모두 따로 있습니다. 차선 튜너에는 제어 파라미터가 없고, PID 튜너에는 인식 파라미터가 없습니다.
 
+## 알고리즘
+
+현재 통합 실차 실행(`lane_mode:=deep lane_speed:=0.8`)에서는 **이 워크스페이스의 PID 제어기만 실행**합니다. 인식 결과는 `lane_fusion_ws`의 `/lane_deep/target`에서 받습니다.
+
+- **차선 제어**: 가까운 중앙 경로의 횡오차·방향 오차와 전방 목표점 오차를 가중합해 PID로 조향각을 구합니다. 미분 필터·적분 제한·조향각/조향 변화율 제한을 적용하며, 곡률 피드포워드는 설정에 따라 더합니다. `steer = Kp·e + Ki·∫e dt + Kd·de/dt + curvature_ff·atan(L·κ)`. [1]
+- **속도·유실 처리**: 조향·신뢰도에 따라 감속하고, 잠깐의 차선 유실은 경로 유지·저속 복구를 거쳐 정지합니다. `lane_speed:=0.8`은 기본 속도 설정이며 모든 구간에서 0.8 m/s를 유지한다는 뜻은 아닙니다.
+- **주차 접근**: 주차 표지 연속 확인 후 감속하고 접근 시작을 알립니다. 주차 준비·활성·제어 상태를 받아 접근과 복귀를 관리합니다.
+- **HSV 인식 (`lane_mode:=opencv`에서만)**: 카메라를 BEV로 변환한 뒤 HSV·모폴로지로 노랑/흰 차선을 추출합니다. 행별 탐색·경계 추적·중앙 경로 생성으로 PID 입력을 만듭니다. 이 부분은 OpenCV 기본 연산을 조합한 자체 파이프라인입니다. [2]
+
+구현: [PID 계산](src/autorace_lane_pid/src/pid.cpp), [PID 노드](src/autorace_lane_pid/src/node.cpp), [HSV 인식](src/autorace_lane_lite/src/lane.cpp).
+
+## 입력·출력 토픽
+
+현재 deep 실행의 PID 연결입니다. bare PID의 `target_topic` 기본값은 `/lane_lite/target`이지만 통합 launch가 아래처럼 바꿉니다.
+
+| 방향 | 토픽 | 타입 | 내용 / 연결 |
+| --- | --- | --- | --- |
+| 입력 | `/lane_deep/target` | `std_msgs/msg/Float32MultiArray` | 중앙 경로·목표점·신뢰도 ← deep_lite |
+| 입력 | `/odom` | `nav_msgs/msg/Odometry` | 주차 표지 이동 조건 검사, guard 활성화 시 |
+| 입력 | `/yolo/parking_sign` | `std_msgs/msg/Bool` | 주차 접근 감속 시작 |
+| 입력 | `/parking/approach_ready` | `std_msgs/msg/Header` | 접근 준비 확인 |
+| 입력 | `/parking/control_state` | `std_msgs/msg/String` | 주차 제어 상태 |
+| 입력 | `/parking/active` | `std_msgs/msg/Bool` | 주차 활성 상태 |
+| 출력 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 기본 차선 명령 → mux, `enable_vehicle_output=true`일 때 |
+| 출력 | `/parking/approach_start` | `std_msgs/msg/Header` | 접근 시작 시각 → parking·mux |
+| 출력 | `/lane_pid/command` | `ackermann_msgs/msg/AckermannDriveStamped` | 계산한 명령 관측·튜닝 |
+| 출력 | `/lane_pid/state` | `std_msgs/msg/Float32MultiArray` | 제어 오차·상태 관측 |
+
+HSV 인식 노드를 별도로 실행하면 `/camera/color/image_raw/compressed`(`CompressedImage`)와 `/odom`(`Odometry`)을 받아 `/lane_lite/target`(`Float32MultiArray`)을 발행합니다. `debug=true`에서는 `/lane_lite/debug`(`Image`)도 발행합니다. 타입의 패키지는 각각 `sensor_msgs`, `nav_msgs`, `std_msgs`, `sensor_msgs`입니다.
+
+## References
+
+- [1] K. J. Åström, R. M. Murray, **Feedback Systems**, 2008, Chapter 10: PID Control. [저자 공개 자료](https://www.cds.caltech.edu/~murray/FBS/PID_Control.html). PID·미분 필터·적분 포화 처리의 배경이며 오차 결합과 주차 상태 처리는 자체 구현입니다.
+- [2] OpenCV, [HSV 범위 임계값](https://docs.opencv.org/4.x/da/d97/tutorial_threshold_inRange.html), [모폴로지 연산](https://docs.opencv.org/4.x/d9/d61/tutorial_py_morphological_ops.html). HSV 인식의 기본 연산 자료입니다.
+
 ## 명령어 모음 (복사해서 쓰기)
 
 저장소를 `~/2026-AutoRace`에 clone했다고 가정합니다. 위치가 다르면 경로만 바꿉니다.

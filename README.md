@@ -66,3 +66,5 @@
 | 공통 | [mux_ws](mux_ws/) | 미션 command 우선순위 선택. 유효한 미션 command가 없으면 `/mission/lane` 선택. 최종 차량 제어 `/cmd_vel` 발행 |
 | 공통 | [sensor_ws](sensor_ws/) | 카메라·라이다 등 센서 데이터 수집 및 처리 |
 | 공통 | [yolo_ws](yolo_ws/) | 방지턱·지그재그·보행자 표지판·갈림길·신호등·주차 인지 결과를 Bool 토픽으로 발행 |
+
+알고리즘과 입력·출력 토픽은 [워크스페이스별 정리](docs/architecture.md#워크스페이스별-알고리즘), 미사용 코드 삭제 전후 결과는 [검증 기록](docs/logic-cleanup.md)에 정리했습니다.

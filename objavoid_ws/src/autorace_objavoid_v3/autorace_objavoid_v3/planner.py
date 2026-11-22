@@ -388,7 +388,6 @@ class Planner:
         L = p.wheelbase
         rl, rr = side_radius(p, 'escape')
         dl_max, dr_max = math.atan(L / rl), math.atan(L / rr)  # 좌(+)·우(-) 최대 조향
-        dmax = max(dl_max, dr_max)
         rate = p.max_steering_rate / max(p.v_max, 0.1) * p.sample_ds  # 표본 간 최대 조향 변화
         n = int(p.horizon / p.sample_ds) + 1
         targets = np.linspace(-dr_max, dl_max, p.escape_steers)

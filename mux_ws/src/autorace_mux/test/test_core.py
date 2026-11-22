@@ -200,13 +200,17 @@ def test_inputs_and_output_match_saved_drawio_and_topic_manifest():
               for topic in expected if topic in edge.get('value', '')}
     assert actual == expected
     manifest = json.loads((repo / 'docs/architecture-topics.json').read_text())
-    inputs = [e for e in manifest if e['target'] == 'mux_ws']
-    assert {e['topics'][0]['name'] for e in inputs} == expected
-    assert all(e['topics'][0]['type'] == 'ackermann_msgs/msg/AckermannDriveStamped'
-               for e in inputs)
-    outputs = [e for e in manifest if e['source'] == 'mux_ws']
-    assert len(outputs) == 1
-    assert outputs[0]['topics'] == [{'name': '/cmd_vel', 'type': 'geometry_msgs/msg/Twist'}]
+    inputs = {t['name']: t['type'] for e in manifest if e['target'] == 'mux_ws'
+              for t in e['topics']}
+    assert {name for name, kind in inputs.items()
+            if kind == 'ackermann_msgs/msg/AckermannDriveStamped'} == expected
+    assert inputs['/parking/control_state'] == 'std_msgs/msg/String'
+    assert inputs['/parking/approach_start'] == 'std_msgs/msg/Header'
+    assert inputs['/parking/lane_handoff'] == 'std_msgs/msg/Header'
+    outputs = {t['name']: t['type'] for e in manifest if e['source'] == 'mux_ws'
+               for t in e['topics']}
+    assert outputs == {'/cmd_vel': 'geometry_msgs/msg/Twist',
+                       '/mux/active_source': 'std_msgs/msg/String'}
 
 
 def test_disabled_steering_and_yaw_caps_preserve_requested_turn():

@@ -18,6 +18,62 @@
 
 모델: `src/autorace_lane_fusion_deep/model/best.pt`(lanedeep 학습 결과, 640×480)와 ONNX 두 가지. `lane_640_mask.onnx`(기본)는 정규화·softmax·argmax를 모델 안에 넣어 Jetson에서 후처리가 GPU로 갑니다.
 
+## 알고리즘
+
+현재 실차의 `lane_mode:=deep` 경로는 **딥 마스크 → deep_lite 기하 처리 → lane_ws PID**입니다. 아래의 `fusion` 모드와 구분합니다.
+
+| 단계 | 현재 deep 모드의 동작 |
+| --- | --- |
+| 딥 분할 | MobileNetV3-Small 인코더와 depthwise separable U-Net 디코더로 카메라 픽셀을 배경·노랑·흰색으로 분류합니다. TensorRT/ONNX/PyTorch 실행은 모델 경로에 따라 선택합니다. [1][2] |
+| 경계·중앙 경로 | 클래스 마스크를 BEV로 변환하고 경계 탐색·시간 추적을 수행합니다. 양쪽 경계의 중앙 또는 한쪽 경계와 차로 폭으로 중앙 경로·목표점·횡오차·방향·곡률·신뢰도를 계산합니다. 유실 시 odom으로 이전 경로를 짧게 유지합니다. |
+| 지그재그 | 노란 윤곽의 convex hull과 convexity defects로 반복된 홈을 찾습니다. 0=없음, 1=한쪽, 2=양쪽을 출력하는 자체 형상 판정입니다. [3] |
+| 조향 제어 | `/lane_deep/target`을 `lane_ws`의 PID가 구독합니다. 이 워크스페이스가 직접 차량 명령을 만드는 단계는 아닙니다. |
+
+U-Net과 MobileNetV3는 모델 구조의 참고문헌입니다. 차선 데이터 학습, 두 구조의 결합, 경계 추적과 미션 연결은 저장소 구현입니다.
+
+`lane_mode:=fusion`에서는 별도 `lane_fusion_node`가 HSV 후보와 딥 후보를 차량 이동량으로 정합하고, 기하·차로 폭·추적 연속성으로 선택/융합합니다. 이 후보 융합은 자체 휴리스틱입니다. `autorace_lane_fusion_pid`가 `/lane_fusion/target`을 제어하며 현재 deep 실행에는 두 노드가 뜨지 않습니다.
+
+구현: [분할 모델](src/autorace_lane_fusion_deep/autorace_lane_fusion_deep/model.py), [mask_node.py](src/autorace_lane_fusion_deep/autorace_lane_fusion_deep/mask_node.py), [deep_lite](src/autorace_lane_deep_lite/src/deep_lane.cpp), [지그재그](src/autorace_lane_deep_lite/src/zigzag.cpp), [fusion 후보 선택](src/autorace_lane_fusion/src/lane.cpp).
+
+## 입력·출력 토픽
+
+### 현재 deep 모드
+
+| 방향 / 노드 | 토픽 | 타입 | 내용 / 연결 |
+| --- | --- | --- | --- |
+| 입력 · deep_mask | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 카메라 영상 |
+| 출력 · deep_mask → deep_lite·objavoid | `/lane_fusion/deep_mask` | `sensor_msgs/msg/Image` | `mono8`: 0=배경, 1=노랑, 2=흰색 |
+| 입력 · deep_lite | `/odom` | `nav_msgs/msg/Odometry` | 이전 경로의 이동 보정 |
+| 출력 · deep_lite | `/lane_deep/target` | `std_msgs/msg/Float32MultiArray` | 차선 기하·목표점 → lane_ws PID |
+| 출력 · deep_lite | `/lane_deep/zigzag` | `std_msgs/msg/UInt8` | 0/1/2 지그재그 판정 → slow |
+| 출력 · deep_lite | `/lane_deep/debug` | `sensor_msgs/msg/Image` | BEV 관측, `debug=true`일 때 |
+
+`/lane_fusion/deep_mask`는 시각화 전용이 아니라 차선·장애물 회피의 실제 인지 입력입니다. PID 입출력은 [lane_ws](../lane_ws/README.md#입력출력-토픽)에 정리합니다.
+
+### fusion 모드에서만 추가되는 연결
+
+| 방향 / 노드 | 토픽 | 타입 | 내용 |
+| --- | --- | --- | --- |
+| 입력 · fusion 인식 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | HSV 인식 영상 |
+| 입력 · fusion 인식 | `/lane_fusion/deep_mask` | `sensor_msgs/msg/Image` | 딥 경계 후보 |
+| 입력 · fusion 인식 | `/odom`, `/imu` | `nav_msgs/msg/Odometry`, `sensor_msgs/msg/Imu` | 지연된 마스크·유지 경로 이동 보정 |
+| 입력 · fusion 인식 | `/cone_lane/exit_lane_active` | `std_msgs/msg/Bool` | 콘 탈출 시 경계 역할 판단 보조 |
+| 출력 · fusion 인식 → fusion PID | `/lane_fusion/target` | `std_msgs/msg/Float32MultiArray` | 융합 차선 기하 |
+| 출력 · fusion 인식 | `/lane_fusion/yellow_boundary` | `nav_msgs/msg/Path` | 주차가 구독하는 노란 경계 |
+| 출력 · fusion 인식 | `/lane_fusion/debug` | `sensor_msgs/msg/Image` | `debug=true` 관측 영상 |
+| 입력 · fusion PID | `/parking_start` | `std_msgs/msg/Bool` | 주차 준비 정지 |
+| 입력 · fusion PID | `/parking/ready` | `std_msgs/msg/Header` | 주차 준비 완료 |
+| 출력 · fusion PID | `/mission/lane`, `/lane_fusion_pid/command` | `ackermann_msgs/msg/AckermannDriveStamped` | 차량 후보 / 관측 명령, 전자는 차량 출력 활성화 시 |
+| 출력 · fusion PID | `/lane_fusion_pid/state` | `std_msgs/msg/Float32MultiArray` | 제어 상태 |
+
+현재 deep 모드에서는 `/lane_fusion/target`, `/lane_fusion/yellow_boundary`, `/lane_fusion/debug`의 발행자가 없습니다. `/lane_fusion/fork_debug`도 현재 인식 노드에서 발행하지 않습니다.
+
+## References
+
+- [1] O. Ronneberger, P. Fischer, T. Brox, **U-Net: Convolutional Networks for Biomedical Image Segmentation**, MICCAI, 2015. [논문](https://arxiv.org/abs/1505.04597). Skip connection을 사용하는 분할 디코더의 배경입니다.
+- [2] A. Howard et al., **Searching for MobileNetV3**, ICCV, 2019. [논문](https://arxiv.org/abs/1905.02244). 코드의 `mobilenet_v3_small` 인코더에 해당합니다.
+- [3] OpenCV, [Contour Features](https://docs.opencv.org/4.x/dd/d49/tutorial_py_contour_features.html). 윤곽·convex hull·convexity defects의 기본 연산 자료입니다.
+
 ## 퓨전 파이프라인 (2026-11-10 재설계: 비동기 후보 퓨전)
 
 이전 구조(딥 우선 → 딥이 약할 때만 HSV, `hsv_penalty`, 셀 체인 후보, 프레임-마스크 동기 대기, 출력 게이트)를 걷어내고 `lane_ws`의 검증된 OpenCV 검출·추적을 바탕으로 다시 만들었습니다.

@@ -1,6 +1,10 @@
 # parking_ws
 
-출차는 곡선 후진이 남아 있으면 parking 제어를 유지합니다. 실차의 `exit_curve_handoff: true`는
+## 설정별 상세 동작
+
+아래는 선택 가능한 설정별 설명입니다. 현재 실차 기본값은 위 알고리즘 절과 `parking_real.yaml`을 기준으로 합니다.
+
+출차는 곡선 후진이 남아 있으면 parking 제어를 유지합니다. `exit_curve_handoff: true`를 선택하면
 마지막 곡선 후진을 마치고 실제 방향이 진입 차선 방향의 0.05rad 이내로 정렬되면,
 남은 직선 후진과 전진 꼬리 경로를 생략하고 lane으로 제어권을 넘길 수 있습니다.
 차체 전체가 주차 격자 밖이어야 하고 원래 차선 중심에서 가로 오차 20cm 이내여야 합니다.
@@ -29,7 +33,7 @@ fused 모드는 완료 시점의 EKF 보정 변환을 고정하고 이후 odom�
 제어와 mux 준비 상태는 유효한 odom·라이다를 기준으로 판정합니다.
 odom 또는 라이다가 끊기면 경로를 버리지 않고 정지하며, 같은 좌표계의 정상 입력이 복구되면 이어갑니다.
 위치 도약은 잘못된 좌표계에서 후진하지 않도록 정지 상태를 유지하며 `/parking/reset`이 필요합니다.
-실차는 `manual_mode_guard: false`로 차량의 수동/오토 모드를 감시하지 않습니다.
+`manual_mode_guard: false`를 선택하면 차량의 수동/오토 모드를 감시하지 않습니다(현재 실차 설정은 true).
 수동 전환을 이유로 경로를 지우거나 미션을 초기화하지 않으며, 별도의 복귀 로직은 없습니다.
 차체가 주행 모드를 처리하고 parking은 기존 경로와 상태를 계속 유지합니다.
 20초 무진행 실패 처리와 센서·장애물 검사, 명시적 초기화, 출차 완료와 lane 이양 조건은 그대로 적용합니다.
@@ -38,6 +42,66 @@ odom 또는 라이다가 끊기면 경로를 버리지 않고 정지하며, 같�
 
 차량 오른쪽의 장애물과 빈 주차칸을 찾고, 경로 생성·추종·주차·출차를 수행합니다.
 위치는 sensor_ws의 휠·IMU 융합 결과를 사용하고, 라이다 관측을 기억 지도에 누적합니다.
+
+## 알고리즘
+
+현재 통합 실차 실행은 `parking_real.yaml`의 **융합 위치 기반 주차**를 사용합니다.
+
+1. **시작·위치 정합**: 주차 표지·흰색 바닥 ROI·lane 접근 이벤트로 시작을 관리합니다. 휠/IMU EKF 위치를 기준으로 하고, 라이다 키프레임의 점-직선 정합으로 허용 범위 안에서 위치를 보정합니다. 점의 법선 방향 오차를 줄이는 방식은 point-to-plane ICP의 2D 계열입니다. [1]
+2. **주차칸 추정**: 라이다 군집·장애물 기억 지도에서 오른쪽의 빈 틈과 둘러싸인 주차 영역을 찾고, 관측·크기·차체 여유를 검사해 목표를 고릅니다. 칸 선택·바닥 표시·인계 조건은 자체 미션 로직입니다.
+3. **경로 계획**: 직선·원호 해석 후보를 먼저 검사하고, 필요하면 차량의 연속 자세 `(x,y,yaw)`와 조향 운동을 사용하는 제한 시간 Hybrid A*로 탐색합니다. 움직이는 직사각형 차체로 충돌을 검사하며 노란 경계·미관측 영역의 취급은 설정에 따릅니다. [2]
+4. **추종·출차**: 전방 목표점을 향하는 Pure Pursuit 조향에 경로 곡률 피드포워드와 차체 보정을 적용합니다. 저장한 진입 경로와 충돌 검사된 출차 경로로 후진·복귀하고, 준비 조건이 맞으면 lane에 제어권을 넘깁니다. [3]
+
+현재 실차 설정은 `manual_mode_guard=true`, `parking_calibration_stop=true`, `exit_on_lane_reacquired=false`, `exit_curve_handoff=false`, `exit_curve_only=true`, `yellow_boundary_enabled=false`, `assume_unobserved_free=true`입니다. 따라서 주행 모드를 감시하고 곡선 후진 완료로 출차를 끝내며, 노란 경계 충돌 검사는 끄고 미관측 영역은 빈 공간으로 취급합니다.
+
+관련 연구의 개념을 사용한 자체 구현이며, 논문의 모든 탐색·후처리·제어 단계를 그대로 구현한 것은 아닙니다.
+
+구현: [core.py](src/autorace_parking/autorace_parking/core.py), [control.py](src/autorace_parking/autorace_parking/control.py), [tracking.py](src/autorace_parking/autorace_parking/tracking.py), [localization.py](src/autorace_parking/autorace_parking/localization.py), [node.py](src/autorace_parking/autorace_parking/node.py), [실차 설정](src/autorace_parking/config/parking_real.yaml).
+
+## 입력·출력 토픽
+
+| 방향 | 토픽 | 타입 | 내용 / 연결 |
+| --- | --- | --- | --- |
+| 입력 | `/yolo/parking_sign` | `std_msgs/msg/Bool` | 주차 표지 |
+| 입력 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 흰색 바닥 표시, floor gate 활성화 시 |
+| 입력 | `/scan` | `sensor_msgs/msg/LaserScan` | 장애물·빈 칸·정합 |
+| 입력 | `/odom` | `nav_msgs/msg/Odometry` | 원시 이동·정지 검사·출차 추적 |
+| 입력 | `/localization/imu` | `sensor_msgs/msg/Imu` | 정지·방향 검사 |
+| 입력 | `/odometry/filtered` | `nav_msgs/msg/Odometry` | EKF 융합 위치, fused 모드 |
+| 입력 | `/localization/health` | `std_msgs/msg/String` | 융합 준비·최신성, fused 모드 |
+| 입력 | `/parking/approach_start` | `std_msgs/msg/Header` | lane 접근 시작 시각, fused 모드 |
+| 입력 · 조건부 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | `exit_on_lane_reacquired=true`에서만; 현재 실차 false |
+| 입력 | `/mux/active_source` | `std_msgs/msg/String` | 제어 주체 |
+| 입력 · 조건부 | `/limo_status` | `limo_msgs/msg/LimoStatus` | `manual_mode_guard=true`일 때만; 현재 실차 true |
+| 입력 · 조건부 | `/lane_fusion/target` | `std_msgs/msg/Float32MultiArray` | `exit_on_lane_reacquired=true`에서만; 현재 false, deep 발행자도 없음 |
+| 입력 · deep에서 미연결 | `/lane_fusion/yellow_boundary` | `nav_msgs/msg/Path` | 노란 경계; 현재 deep 발행자 없음 |
+| 출력 | `/mission/parking/command_03` | `ackermann_msgs/msg/AckermannDriveStamped` | 주차·정지·출차 명령 → mux |
+| 출력 | `/parking/control_state` | `std_msgs/msg/String` | 제어 준비·소유·인계 상태 → mux·PID |
+| 출력 | `/parking/active` | `std_msgs/msg/Bool` | 주차 활성 → PID·관측 |
+| 출력 | `/parking/approach_ready` | `std_msgs/msg/Header` | 접근 준비 → lane PID |
+| 출력 | `/parking/lane_handoff` | `std_msgs/msg/Header` | 출차 후 lane 인계 → mux |
+| 출력 | `/parking_start`, `/parking/ready` | `std_msgs/msg/Bool`, `std_msgs/msg/Header` | 별도 fusion PID의 준비 정지/해제; deep PID는 구독하지 않음 |
+| 출력 · 관측 | `/parking/localization/odometry`, `/parking/approach_odometry` | `nav_msgs/msg/Odometry` | 주차 위치·접근 기준 상대 위치 |
+| 출력 · 관측 | `/parking/status` | `std_msgs/msg/String` | 주차 상태·진단 |
+| 출력 · 관측 | `/parking/path` | `nav_msgs/msg/Path` | 주차·출차 경로 |
+| 출력 · 관측 | `/parking/obstacle_memory` | `sensor_msgs/msg/PointCloud2` | 누적 장애물 지도 |
+| 출력 · 관측 | `/parking/obstacles`, `/parking/target`, `/parking/slot_map`, `/parking/candidate_roi`, `/parking/lookahead` | `visualization_msgs/msg/MarkerArray` | 장애물·목표·칸·ROI·추종점 |
+| 출력 · 관측 | `/parking/ldf` | `std_msgs/msg/Float32` | 추종 전방 거리 |
+
+위 미연결 입력은 노드가 구독을 만들더라도 현재 deep 실행에서 데이터가 오지 않는다는 뜻입니다.
+
+| 서비스 | 방향 | 타입 | 내용 |
+| --- | --- | --- | --- |
+| `/parking/reset` | 제공 | `std_srvs/srv/Trigger` | 미션 초기화 |
+| `/set_pose` | 호출 | `robot_localization/srv/SetPose` | 시작 시 EKF 자세 설정 |
+| `/localization/calibrate_gyro` | 조건부 호출 | `std_srvs/srv/Trigger` | `parking_calibration_stop` 활성화 시 정지 자이로 보정 |
+| `/<steering_driver_node>/get_parameters` | 선택 조회 | `rcl_interfaces/srv/GetParameters` | 드라이버 조향 보정 설정 조회 |
+
+## References
+
+- [1] Y. Chen, G. Medioni, **Object Modeling by Registration of Multiple Range Images**, ICRA, 1991. [논문](https://graphics.stanford.edu/courses/cs164-09-spring/Handouts/paper_chenmedioni.pdf). 법선 방향 거리 최소화에 기반한 정합의 관련 연구입니다. 본 코드는 2D 점-직선 정합과 EKF/이동량 제약을 사용합니다.
+- [2] D. Dolgov, S. Thrun, M. Montemerlo, J. Diebel, **Practical Search Techniques in Path Planning for Autonomous Driving**, AAAI Workshop, 2008. [논문](https://ai.stanford.edu/~ddolgov/papers/dolgov_gpp_stair08.pdf). 연속 차량 자세를 유지하는 Hybrid A* 탐색의 관련 연구입니다.
+- [3] R. C. Coulter, **Implementation of the Pure Pursuit Path Tracking Algorithm**, CMU-RI-TR-92-01, 1992. [CMU 원문](https://www.ri.cmu.edu/publication_view.html?pub_id=278). 전방 목표점 기반 추종의 배경입니다.
 
 ## 감속 시작 기준 상대 위치
 
