@@ -123,11 +123,11 @@ def test_invalid_command_removes_previous_candidate(value, field):
     assert select(mux) is None
 
 
-def test_reverse_is_allowed_only_for_parking():
+def test_reverse_is_allowed_only_for_parking_and_objavoid():
     mux = Arbitrator(Config())
     for source, _ in INPUTS:
         accepted, _ = receive(mux, source, speed=-0.2)
-        assert accepted == (source == 'parking')
+        assert accepted == (source in ('parking', 'objavoid'))
     assert select(mux).source == 'parking'
 
 
@@ -138,7 +138,8 @@ def test_ros_clock_reset_drops_cached_candidates():
 
 
 def test_conversion_clamps_and_uses_vehicle_geometry():
-    cfg = Config(max_acceleration_mps2=100.0, max_deceleration_mps2=100.0)
+    cfg = Config(max_acceleration_mps2=100.0, max_deceleration_mps2=100.0,
+                 max_yaw_rate_rps=20.0, steering_limit_enabled=True, yaw_rate_limit_enabled=True)
     converter = TwistConverter(cfg)
     candidate = Candidate('lane', 10.0, 1.0, EPOCH, 0.0)
     converter.convert(candidate, 0.0)
@@ -199,10 +200,50 @@ def test_inputs_and_output_match_saved_drawio_and_topic_manifest():
               for topic in expected if topic in edge.get('value', '')}
     assert actual == expected
     manifest = json.loads((repo / 'docs/architecture-topics.json').read_text())
-    inputs = [e for e in manifest if e['target'] == 'mux_ws']
-    assert {e['topics'][0]['name'] for e in inputs} == expected
-    assert all(e['topics'][0]['type'] == 'ackermann_msgs/msg/AckermannDriveStamped'
-               for e in inputs)
-    outputs = [e for e in manifest if e['source'] == 'mux_ws']
-    assert len(outputs) == 1
-    assert outputs[0]['topics'] == [{'name': '/cmd_vel', 'type': 'geometry_msgs/msg/Twist'}]
+    inputs = {t['name']: t['type'] for e in manifest if e['target'] == 'mux_ws'
+              for t in e['topics']}
+    assert {name for name, kind in inputs.items()
+            if kind == 'ackermann_msgs/msg/AckermannDriveStamped'} == expected
+    assert inputs['/parking/control_state'] == 'std_msgs/msg/String'
+    assert inputs['/parking/approach_start'] == 'std_msgs/msg/Header'
+    assert inputs['/parking/lane_handoff'] == 'std_msgs/msg/Header'
+    outputs = {t['name']: t['type'] for e in manifest if e['source'] == 'mux_ws'
+               for t in e['topics']}
+    assert outputs == {'/cmd_vel': 'geometry_msgs/msg/Twist',
+                       '/mux/active_source': 'std_msgs/msg/String'}
+
+
+def test_disabled_steering_and_yaw_caps_preserve_requested_turn():
+    config = Config(max_steering_angle_rad=.4, max_yaw_rate_rps=1.5,
+                    steering_limit_enabled=False, yaw_rate_limit_enabled=False)
+    converter = TwistConverter(config)
+    candidate = Candidate('parking', .5, .65, 1, 0.)
+    converter.convert(candidate, 0.)
+    for i in range(1, 21):
+        speed, yaw = converter.convert(candidate, i*.05)
+    assert speed == pytest.approx(.5)
+    assert yaw == pytest.approx(.5*math.tan(.65)/config.wheelbase_m)
+    assert yaw > config.max_yaw_rate_rps
+
+
+def test_slow_preempts_objavoid_then_cone_for_every_arrival_order():
+    from itertools import permutations
+    assert dict(INPUTS)['slow'] == '/mission/slow/command_04'
+    assert dict(INPUTS)['objavoid'] == '/mission/objavoid/command_05'
+    assert dict(INPUTS)['cone'] == '/mission/cone/command_06'
+    for order in permutations(('slow', 'objavoid', 'cone')):
+        mux = Arbitrator(Config())
+        receive(mux, 'lane')
+        for source in order:
+            receive(mux, source)
+        for expected in ('slow', 'objavoid', 'cone', 'lane'):
+            assert select(mux).source == expected
+            mux.discard(expected)
+
+def test_objavoid_reverse_keeps_priority_over_lane_and_cone():
+    mux = Arbitrator(Config())
+    receive(mux, 'lane', speed=0.5)
+    receive(mux, 'cone', speed=0.2)
+    assert receive(mux, 'objavoid', speed=-0.1)[0]
+    assert select(mux).source == 'objavoid'
+    assert select(mux).speed == -0.1
