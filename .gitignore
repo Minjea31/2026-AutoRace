@@ -193,3 +193,10 @@ bags/
 # Existing alternative colcon output directories
 /parking_ws/build_tensor_repair/
 /parking_ws/install_tensor_repair/
+
+# Local objavoid_ws backups and generated files
+/objavoid_ws/**/backups/
+/objavoid_ws/**/*.before_*
+/objavoid_ws/**/*.log
+/objavoid_ws/**/*.cache
+/objavoid_ws/**/*.lock
