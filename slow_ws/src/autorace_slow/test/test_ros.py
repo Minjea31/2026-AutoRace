@@ -2,6 +2,8 @@ import copy
 import math
 import os
 import time
+import cv2
+import numpy as np
 from uuid import uuid4
 
 import pytest
@@ -16,6 +18,7 @@ from rclpy.parameter import Parameter
 from rclpy.signals import SignalHandlerOptions
 from rosgraph_msgs.msg import Clock
 from std_msgs.msg import Bool
+from sensor_msgs.msg import CompressedImage
 
 from autorace_slow.node import SlowNode
 from autorace_mux.core import INPUTS
@@ -23,7 +26,7 @@ from autorace_mux.node import MuxNode
 
 
 class Harness:
-    def __init__(self, hold=2., sim=False):
+    def __init__(self, hold=2., sim=False, white_gate=False, start_delay=0.):
         self.context = Context()
         rclpy.init(context=self.context, domain_id=180+os.getpid()%20,
                    signal_handler_options=SignalHandlerOptions.NO)
@@ -31,13 +34,18 @@ class Harness:
         self.topics = {key: prefix+'/'+key for key, _ in INPUTS}
         self.sim = sim
         common = [Parameter('use_sim_time', value=sim)]
+        if start_delay is not None:
+            common.append(Parameter('start_delay_sec', value=start_delay))
+            common.append(Parameter('bump_start_delay_sec', value=start_delay))
         clock_args = ['--ros-args', '-r', '/clock:='+prefix+'/clock']
         self.node = SlowNode(context=self.context, parameter_overrides=common+[
-            Parameter('hold_sec', value=hold)], cli_args=clock_args+[
+            Parameter('hold_sec', value=hold),
+            Parameter('white_roi_enabled', value=white_gate)], cli_args=clock_args+[
                 '-r', '/mission/lane:='+self.topics['lane'],
-                '-r', '/mission/slow/command_08:='+self.topics['slow'],
+                '-r', '/mission/slow/command_04:='+self.topics['slow'],
                 '-r', '/yolo/slow_sign:='+prefix+'/sign',
-                '-r', '/yolo/bump_sign:='+prefix+'/bump'])
+                '-r', '/yolo/bump_sign:='+prefix+'/bump',
+                '-r', '/camera/color/image_raw/compressed:='+prefix+'/image'])
         self.mux = None if sim else MuxNode(context=self.context, parameter_overrides=common+[
             Parameter(k, value=v) for k, v in {
                 **{'topics.'+key: topic for key, topic in self.topics.items()},
@@ -48,6 +56,7 @@ class Harness:
         self.lane_pub = self.probe.create_publisher(AckermannDriveStamped, self.topics['lane'], 1)
         self.signs = {kind: self.probe.create_publisher(Bool, prefix+'/'+topic, 1)
                       for kind, topic in (('slow', 'sign'), ('bump', 'bump'))}
+        self.camera = self.probe.create_publisher(CompressedImage, prefix+'/image', 1)
         self.commands, self.outputs = [], []
         self.subs = [self.probe.create_subscription(AckermannDriveStamped, self.topics['slow'], self.commands.append, 1),
                      self.probe.create_subscription(Twist, prefix+'/output', self.outputs.append, 1)]
@@ -58,7 +67,8 @@ class Harness:
         self.lane_enabled, self.angle = False, .05
         deadline = time.monotonic()+3.
         while (self.lane_pub.get_subscription_count() < (1 if sim else 2)
-               or any(pub.get_subscription_count() < 1 for pub in self.signs.values())):
+               or any(pub.get_subscription_count() < 1 for pub in self.signs.values())
+               or (white_gate and self.camera.get_subscription_count() < 1)):
             assert time.monotonic() < deadline, 'DDS discovery timed out'
             self.pump(.02)
         self.pump(.1)
@@ -83,10 +93,21 @@ class Harness:
                 next_lane = time.monotonic()+.02
             self.executor.spin_once(timeout_sec=.003)
 
-    def detect(self, kind, count=3):
+    def detect(self, kind, count=2):
         for _ in range(count):
             self.signs[kind].publish(Bool(data=True))
             self.pump(.015)
+
+    def floor(self, white, age=0.):
+        frame = np.full((240, 320, 3), 255 if white else 0, dtype=np.uint8)
+        ok, encoded = cv2.imencode('.jpg', frame)
+        assert ok
+        message = CompressedImage(format='jpeg', data=encoded.tobytes())
+        stamp = self.probe.get_clock().now().nanoseconds - int(age * 1e9)
+        message.header.stamp.sec, message.header.stamp.nanosec = divmod(stamp, 1_000_000_000)
+        self.camera.publish(message)
+        self.pump(.13)
+        return message
 
     def close(self):
         self.executor.shutdown()
@@ -95,7 +116,51 @@ class Harness:
         self.context.shutdown()
 
 
-def test_dds_slow_steering_is_zero_and_bump_uses_latest_lane():
+def test_floor_gate_requires_yolo_two_then_new_fresh_white_camera_frame():
+    h = Harness(white_gate=True)
+    try:
+        h.lane_enabled = True
+        h.pump(.25)
+        old_white = h.floor(True)
+        h.detect('slow')
+        assert h.node.state.missions['slow'].armed
+        assert not h.commands
+        h.camera.publish(old_white)
+        h.pump(.12)
+        assert not h.commands
+        h.floor(False)
+        assert not h.commands
+        h.floor(True, age=1.)
+        assert not h.commands
+        h.floor(True)
+        assert h.commands[-1].drive.speed == pytest.approx(.2)
+        assert h.commands[-1].drive.steering_angle == pytest.approx(h.angle)
+    finally:
+        h.close()
+
+
+def test_bump_can_wait_after_sign_disappears_then_keep_latest_lane_steering():
+    h = Harness(white_gate=True)
+    try:
+        h.lane_enabled = True
+        h.angle = .22
+        h.pump(.25)
+        h.detect('bump')
+        h.signs['bump'].publish(Bool(data=False))
+        h.pump(.1)
+        assert h.node.state.missions['bump'].armed and not h.commands
+        h.floor(True, age=.15)
+        # This image is fresh enough, but was acquired before confirmation.
+        # A newer image, not a remembered white result, is required.
+        assert not h.commands
+        h.floor(True)
+        assert h.commands[-1].drive.speed == pytest.approx(.2)
+        assert h.commands[-1].drive.steering_angle == pytest.approx(.22)
+    finally:
+        h.close()
+
+
+def test_dds_slow_and_bump_preserve_latest_lane_steering():
     h = Harness()
     try:
         h.lane_enabled = True
@@ -103,18 +168,24 @@ def test_dds_slow_steering_is_zero_and_bump_uses_latest_lane():
         assert h.outputs[-1].linear.x == pytest.approx(.4)
         h.angle = .12
         h.pump(.025)
-        h.detect('slow', 2)
+        h.detect('slow', 1)
         assert not h.commands
         h.detect('slow', 1)
         h.pump(.15)
         assert h.commands[-1].drive.speed == pytest.approx(.2)
-        assert h.commands[-1].drive.steering_angle == 0.
-        assert h.outputs[-1].linear.x == pytest.approx(.2)
+        assert h.commands[-1].drive.steering_angle == pytest.approx(h.angle)
+        drive = h.commands[-1].drive
+        assert (drive.steering_angle_velocity, drive.acceleration, drive.jerk) == pytest.approx((.2, .3, .6))
+        assert h.node.lane.drive.speed == pytest.approx(.4)
+        deadline = time.monotonic() + .6
+        while abs(h.outputs[-1].linear.x - .2) > .001 and time.monotonic() < deadline:
+            h.pump(.025)
+        assert h.outputs[-1].linear.x == pytest.approx(.2, abs=.001)
         h.angle = .24
         h.pump(.12)
         h.detect('slow', 1)
         h.pump(.06)
-        assert h.commands[-1].drive.steering_angle == 0.
+        assert h.commands[-1].drive.steering_angle == pytest.approx(h.angle)
         h.detect('bump')
         h.pump(.06)
         message = h.commands[-1]
@@ -159,7 +230,7 @@ def test_renewal_expiry_with_system_mux_or_paused_sim_clock(sim):
         h.close()
 
 
-def test_missing_stale_invalid_lane_stops_and_first_fresh_lane_moves_straight():
+def test_missing_stale_invalid_lane_stops_and_first_fresh_lane_resumes_tracking():
     h = Harness()
     try:
         h.detect('slow')
@@ -199,3 +270,65 @@ def test_missing_stale_invalid_lane_stops_and_first_fresh_lane_moves_straight():
             assert h.node.lane is None
     finally:
         h.close()
+
+
+def test_default_white_start_waits_one_tenth_second_and_repeated_white_does_not_postpone():
+    h=Harness(white_gate=True,start_delay=None)
+    try:
+        assert h.node.start_delay_sec==.1
+        assert h.node.bump_start_delay_sec==.5
+        h.lane_enabled=True
+        h.detect('slow')
+        frame=np.full((240,320,3),255,dtype=np.uint8)
+        ok,encoded=cv2.imencode('.jpg',frame)
+        assert ok
+        message=CompressedImage(format='jpeg',data=encoded.tobytes())
+        message.header.stamp=h.probe.get_clock().now().to_msg()
+        first=time.monotonic()
+        h.node.on_white_image(message)
+        start=h.node.state.missions['slow'].start_at
+        assert start>=first+.1
+        assert start<first+.2
+        assert not h.commands
+        h.node.on_white_image(message)
+        assert h.node.state.missions['slow'].start_at==start
+        h.pump(max(0.,start-time.monotonic()-.04))
+        assert not h.commands
+        h.pump(.15)
+        assert h.commands and h.commands[0].drive.speed==pytest.approx(.2)
+    finally:
+        h.close()
+
+
+def test_signal_stop_event_cancels_scheduled_slow_before_it_starts():
+    h=Harness(white_gate=True,start_delay=.5)
+    try:
+        h.lane_enabled=True
+        h.detect('slow')
+        h.floor(True)
+        assert h.node.state.missions['slow'].start_at is not None
+        h.node.on_signal_stop(Bool(data=True))
+        h.pump(1.15)
+        assert not h.commands and h.node.state.selected(time.monotonic()) is None
+    finally:
+        h.close()
+
+@pytest.mark.parametrize('kind',['slow','bump'])
+def test_mission_activity_covers_floor_wait_active_hold_and_completion(kind):
+    from rclpy.qos import QoSProfile,DurabilityPolicy
+    h=Harness(white_gate=True)
+    try:
+        values=[]
+        h.subs.append(h.probe.create_subscription(Bool,'/slow/mission_active',lambda m:values.append(m.data),QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)))
+        h.pump(.1);assert values and values[-1] is False
+        h.node.on_sign(kind,Bool(data=True));h.node.on_sign(kind,Bool(data=True));h.pump(.1)
+        assert h.node.state.missions[kind].armed and values[-1] is True
+        assert not h.commands
+        late=[]
+        h.subs.append(h.probe.create_subscription(Bool,'/slow/mission_active',lambda m:late.append(m.data),QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)))
+        h.pump(.1);assert late and late[-1] is True
+        h.node.state.receive_white(True,time.monotonic(),[kind]);h.node.publish();h.pump(.05)
+        assert values[-1] is True
+        h.node.state.missions[kind].deadline=time.monotonic()-1
+        h.node.publish();h.pump(.1);assert values[-1] is False
+    finally:h.close()
