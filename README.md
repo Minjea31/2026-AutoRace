@@ -61,20 +61,10 @@
 | 미션 | [slow_ws](slow_ws/) (도면 이름 `slow`) | YOLO slow_sign·zigzag Bool 중 하나라도 true이면 서행. lane 조향을 유지하고 속도만 감속 |
 | 미션 | [cone_ws](cone_ws/) | 라바콘 회피 주행 |
 | 미션 | [objavoid_ws](objavoid_ws/) | 정적 장애물 인식 및 차선 변경을 통한 회피 |
-| 공통 | [lane_ws](lane_ws/) | 차선 인식·차로 유지 및 갈림길 A/B 주행. 기본 명령 `/mission/lane` 발행 |
+| 공통 | [lane_ws](lane_ws/) | 차선 인식·차로 유지 및 갈림길 A/B 주행. 기본 명령 `/mission/lane` 발행 (HSV 인식 + PID) |
+| 공통 | [lane_fusion_ws](lane_fusion_ws/) | 차선 인식 퓨전 버전: lanedeep U-Net 우선 + 필요할 때만 HSV. `lane_ws`와 같은 `/mission/lane` 발행 (둘 중 하나만 실행) |
 | 공통 | [mux_ws](mux_ws/) | 미션 command 우선순위 선택. 유효한 미션 command가 없으면 `/mission/lane` 선택. 최종 차량 제어 `/cmd_vel` 발행 |
 | 공통 | [sensor_ws](sensor_ws/) | 카메라·라이다 등 센서 데이터 수집 및 처리 |
 | 공통 | [yolo_ws](yolo_ws/) | 방지턱·지그재그·보행자 표지판·갈림길·신호등·주차 인지 결과를 Bool 토픽으로 발행 |
 
-모든 워크스페이스는 아래와 같은 폴더 구조를 사용합니다. `src/init.txt`는 빈 `src` 폴더를 Git에 유지하기 위한 파일입니다.
-
-```text
-<workspace>/
-├── README.md
-└── src/
-    └── init.txt
-```
-
-대회 규정집, 미션 상세 문서 및 트랙 도면은 [assets](assets/) 폴더에 있습니다.
-
-지도 순서에 따른 미션 수행 내용, 판정 기준 및 표지판은 [미션별 정리](misson.md)에서 확인할 수 있습니다.
+알고리즘과 입력·출력 토픽은 [워크스페이스별 정리](docs/architecture.md#워크스페이스별-알고리즘), 미사용 코드 삭제 전후 결과는 [검증 기록](docs/logic-cleanup.md)에 정리했습니다.

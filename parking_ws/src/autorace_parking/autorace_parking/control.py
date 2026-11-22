@@ -4,8 +4,8 @@ from collections import Counter
 import math
 import time
 
-from .core import (CollisionChecker, RecoveryCollisionChecker, Gap, cluster_points, find_gaps, plan_path,
-                   advance, sample_candidate, straight_turn_candidates, parking_candidates, front_clearance, wrap)
+from .core import (CollisionChecker, RecoveryCollisionChecker, Gap, find_gaps, plan_path,
+                   advance, sample_candidate, parking_candidates, front_clearance, wrap)
 from .tracking import compose, inverse
 from .enclosed import enclosed_goals
 from .targets import automatic_goals,update_geometry_goal,SEMANTIC_GOALS

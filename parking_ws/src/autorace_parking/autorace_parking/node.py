@@ -16,7 +16,7 @@ import rclpy
 from rclpy.node import Node
 from rcl_interfaces.msg import SetParametersResult
 from rcl_interfaces.srv import GetParameters
-from rclpy.qos import QoSProfile, qos_profile_sensor_data, ReliabilityPolicy, DurabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.signals import SignalHandlerOptions
 from ackermann_msgs.msg import AckermannDriveStamped
@@ -29,7 +29,7 @@ from std_srvs.srv import Trigger
 from visualization_msgs.msg import Marker, MarkerArray
 
 from .start_sequence import StartSequence
-from .departure import single_reverse_route, reverse_entry_route, arc_straight_departure, arc_then_straight, anchored_reverse_entry
+from .departure import reverse_entry_route, arc_straight_departure, arc_then_straight, anchored_reverse_entry
 from .lane_handoff import ExitLaneGate,ExitStopGate
 from .core import Activation, Scan, Settings, Gap, CollisionChecker, RecoveryCollisionChecker, cluster_points, front_clearance, wrap
 from .control import Follower, build_plan_report, local_goal,needs_reverse_for_goal,minimum_recovery_path,supported_recovery_target,safe_progress_step
@@ -2294,9 +2294,6 @@ class ParkingNode(StartSequence, Node):
             search_exhausted=(self.search_enabled and not (search_target is not None and search_target.confirmed)
                 and not self.follower.path and self.search_started is not None
                 and (self.search_distance>=self.search_max_distance or now-self.search_started>=self.search_timeout))
-            observe_pair=(self.cfg.automatic_target_selection and not self.cfg.auto_exit_after_parking
-                          and self.follower.goal is not None
-                          and (self.follower.goal.kind=='pair_midpoint' or not self.follower.goal.confirmed))
             retain_entry=(self.follower.path and self.follower.final_approach
                 and not self.follower.recovering and not self.follower.exiting
                 and self.state in ('PARKING','CONFIRMING') and self.follower.goal is not None

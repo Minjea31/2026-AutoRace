@@ -3,7 +3,7 @@ from dataclasses import replace
 import math
 
 from .core import Cluster,Gap,CollisionChecker,find_gaps,wrap
-from .enclosed import hull,physical_objects,inside
+from .enclosed import physical_objects
 from .tracking import compose,inverse
 from .roi import contains as roi_contains
 
@@ -100,7 +100,7 @@ def automatic_goals(scan,clusters,cfg,origin,details,map_hint=None):
     """Enclosure existence takes precedence, even when its center is blocked."""
     world=[Cluster([compose(origin,(*p,0.))[:2] for p in cluster.points],cluster.track_id) for cluster in clusters]
     if cfg.slot_map_enabled:
-        from .slot_map import fit_slot_map,rotation
+        from .slot_map import fit_slot_map
         merged=physical_objects(world,cfg,right_only=False)
         objects=[(indices,c) for indices,c in merged if cfg.min_cluster_size<=max(c.bounds[1]-c.bounds[0],c.bounds[3]-c.bounds[2])<=cfg.max_cluster_size]
         layout=fit_slot_map(objects,cfg,map_hint,sensor_origin=compose(origin,scan.sensor_pose)[:2],
