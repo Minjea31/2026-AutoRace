@@ -1,0 +1,34 @@
+
+
+# BEGIN local AI tool exclusions
+*[gG][pP][tT]*
+*[pP][gG][tT]*
+.codex*/
+.agents/
+.claude*/
+.openai/
+.cursor/
+.cursorignore
+.cursorrules
+.windsurf/
+.windsurfrules
+.aider*
+.continue/
+.copilot/
+**/.github/copilot-instructions.md
+**/.github/instructions/
+.gemini/
+.cline/
+.clinerules*
+.roo/
+.roorules*
+.opencode/
+opencode.json
+AGENTS.md
+AGENT.md
+Agent.md
+CLAUDE.md
+CODEX.md
+GEMINI.md
+AI_INSTRUCTIONS.md
+# END local AI tool exclusions
