@@ -194,6 +194,9 @@ bags/
 /parking_ws/build_tensor_repair/
 /parking_ws/install_tensor_repair/
 
-# Local cone tuning backups
-/cone_ws/backups/
-/cone_ws/**/*.before_speed_gains
+# Local cone_ws backups and generated files
+/cone_ws/**/backups/
+/cone_ws/**/*.before_*
+/cone_ws/**/*.log
+/cone_ws/**/*.cache
+/cone_ws/**/*.lock
