@@ -3,6 +3,38 @@
 lane과 미션 노드의 주행 명령을 받아 우선순위가 가장 높은 유효 명령 하나를 선택하고, 차량용 `/cmd_vel`로 변환합니다.
 입력은 `ackermann_msgs/msg/AckermannDriveStamped`, 출력은 `geometry_msgs/msg/Twist`입니다.
 
+## 알고리즘
+
+**고정 우선순위 중재 + 입력 만료 검사 + Ackermann/Twist 변환**을 사용하는 자체 제어 중재기입니다.
+
+1. 각 명령의 수신 시각·메시지 stamp·수치 유효성을 검사합니다.
+2. 유효한 후보 중 crosswalk(01) → signal(02) → parking(03) → slow(04) → objavoid(05) → cone(06) 순서로 선택합니다. 후보가 없으면 lane, lane도 없으면 정지합니다.
+3. 주차 상태·접근 시작·인계 이벤트에 따라 parking/lane 전용 선택을 적용합니다. 출차 이후 정책은 아래 인계 절을 따릅니다.
+4. 선택한 속도 `v`와 조향각 `δ`를 `linear.x=v`, `angular.z=v·tan(δ)/L`로 변환합니다. 속도·가감속·전후진 전환 제한을 적용하고 실제 선택 주체를 발행합니다.
+
+우선순위·주차 인계는 이 프로젝트의 규칙입니다. 별도 경로 계획 논문을 재현하지 않으며, 변환 식은 코드의 기구학적 자전거 모델을 사용합니다.
+
+구현: [core.py](src/autorace_mux/autorace_mux/core.py), [node.py](src/autorace_mux/autorace_mux/node.py).
+
+## 입력·출력 토픽
+
+| 방향 | 토픽 | 타입 | 내용 |
+| --- | --- | --- | --- |
+| 입력 | `/mission/crosswalk/command_01` | `ackermann_msgs/msg/AckermannDriveStamped` | 횡단보도 후보 |
+| 입력 | `/mission/signal/command_02` | `ackermann_msgs/msg/AckermannDriveStamped` | 신호등 후보 |
+| 입력 | `/mission/parking/command_03` | `ackermann_msgs/msg/AckermannDriveStamped` | 주차 후보 |
+| 입력 | `/mission/slow/command_04` | `ackermann_msgs/msg/AckermannDriveStamped` | 서행 후보 |
+| 입력 | `/mission/objavoid/command_05` | `ackermann_msgs/msg/AckermannDriveStamped` | 장애물 회피 후보 |
+| 입력 | `/mission/cone/command_06` | `ackermann_msgs/msg/AckermannDriveStamped` | 콘 회피 후보 |
+| 입력 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 기본 차선 후보 |
+| 입력 | `/parking/control_state` | `std_msgs/msg/String` | 주차 제어 상태 |
+| 입력 | `/parking/approach_start` | `std_msgs/msg/Header` | 주차 접근 시작 |
+| 입력 | `/parking/lane_handoff` | `std_msgs/msg/Header` | 출차 후 lane 인계 |
+| 출력 | `/cmd_vel` | `geometry_msgs/msg/Twist` | 최종 차량 속도·각속도 → LIMO base |
+| 출력 | `/mux/active_source` | `std_msgs/msg/String` | 현재 선택한 제어 주체 → 미션·웹 |
+
+출력 이름은 기본값이며 파라미터로 변경할 수 있습니다. 자체 우선순위 로직의 근거는 위 소스와 아래 입력 우선순위 표입니다.
+
 ## 빌드와 실행
 
 ```bash
