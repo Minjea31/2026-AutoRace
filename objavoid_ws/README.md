@@ -1,10 +1,55 @@
-# objavoid_ws — 장애물 회피 V3 (Gap 탐색 + 5차 다항식 Lattice + PD 추종)
+# objavoid_ws — 장애물 회피·갈림길 주행
+
+LiDAR 장애물과 딥 차선 마스크를 이용해 회피 경로를 계획·추종합니다. 현재 실차 연결은 아래 C++/car06 기준입니다.
+
+## 현재 알고리즘
+
+현재 `tensor_bringup`은 **C++ `autorace_objavoid_v3_cpp`**, `car:=06`, `recovery_mode:=normal`로 실행하며 출력 명령을 mux의 `command_05`에 연결합니다.
+
+1. **인지·지도**: LiDAR 인접 군집을 장애물 박스로 추적하고 관측된 빈 공간을 격자에 기록합니다. 딥 마스크의 노란/흰 차선을 바닥 좌표로 투영해 도로 경계와 시작 조건에 사용합니다. 현재 C++ 인지 입력에는 원본 카메라 구독이 없습니다.
+2. **시작·갈림길**: car06 설정은 BEV 흰색 비율 확인으로 시작하고, 서행/방지턱 중에는 시작을 막습니다. YOLO 좌우 표지와 상세 박스 정보로 갈림길 목표를 정합니다. 현재 `fork_shape=false`, `road_outline=false`이므로 섬 외곽 정합 모드를 기본 동작으로 설명하지 않습니다.
+3. **Gap + 5차 다항식 Lattice + DP**: 전방의 여러 거리 층에서 통과 가능한 가로 위치를 만들고 `d(s)` 5차 다항식으로 연결합니다. 차량 외곽과 장애물·노란 경계의 여유를 검사하고, 차로 이탈·곡률·곡률 변화·기존 경로와의 차이를 비용으로 넣어 DP로 선택합니다. 프레네 좌표의 다항식 후보 생성은 [1]과 관련 있지만, 이 코드의 층별 Gap·DP·재계획 규칙은 별도 구현입니다.
+4. **경로 추종**: `steer = atan(L·κ_preview) - K_y·e_y - K_ψ·e_ψ`에 선택적 적분 보정을 더합니다. 조향·조향 변화율과 속도를 제한합니다. 코드에서 PD 추종이라 부르지만 단순 시간 미분 PID보다는 횡오차·방향 오차 피드백에 해당합니다.
+5. **재계획·복귀**: 새 장애물·경로 이탈·남은 길이를 검사해 재계획하고, 센서·관측 조건이 부족하면 정지합니다. 완료하면 후보 명령 발행을 멈춰 lane으로 돌아갑니다.
+
+현재 C++ 일반 Lattice에서는 장애물·경계 충돌이 후보 탈락 조건이며 곡률·곡률 변화는 비용으로 반영됩니다. 이전 Python 설명의 모든 운동학 상한을 현재 C++의 강제 조건으로 해석하지 않습니다.
+
+구현: [node.cpp](src/autorace_objavoid_v3_cpp/src/node.cpp), [planner.cpp](src/autorace_objavoid_v3_cpp/src/planner.cpp), [controller.cpp](src/autorace_objavoid_v3_cpp/src/controller.cpp), [mission.cpp](src/autorace_objavoid_v3_cpp/src/mission.cpp), [car06 설정](src/autorace_objavoid_v3/config/real_car06.yaml).
+
+## 입력·출력 토픽
+
+| 방향 | 토픽 | 타입 | 내용 / 연결 |
+| --- | --- | --- | --- |
+| 입력 | `/scan` | `sensor_msgs/msg/LaserScan` | 장애물·통과 공간 관측 |
+| 입력 | `/odom` | `nav_msgs/msg/Odometry` | 차량 이동 |
+| 입력 | `/imu` | `sensor_msgs/msg/Imu` | 방향 적분, 현재 car06의 `yaw_source=imu` |
+| 입력 | `/lane_fusion/deep_mask` | `sensor_msgs/msg/Image` | 노란 경계·흰색 시작 조건, 차선 사용 시 |
+| 입력 | `/yolo/LR_sign` | `std_msgs/msg/Bool` | false=왼쪽/A, true=오른쪽/B |
+| 입력 | `/yolo/LR_detail` | `std_msgs/msg/Float32MultiArray` | 확정 표지판 박스·촬영 시각 |
+| 입력 | `/limo_status` | `limo_msgs/msg/LimoStatus` | 수동/자동 제어 모드 |
+| 입력 | `/mux/active_source` | `std_msgs/msg/String` | 실제 제어 주체 |
+| 입력 | `/slow/mission_active` | `std_msgs/msg/Bool` | 서행 중 시작 차단 |
+| 입력 | `/mission/slow/command_04` | `ackermann_msgs/msg/AckermannDriveStamped` | 최근 서행 명령 확인 |
+| 입력 · 외부 | `/objavoid_v3/activate` | `std_msgs/msg/Bool` | 수동 시작/중지 |
+| 입력 · 조건부 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | `fork_shape=true`에서만 구독; 현재 car06은 false |
+| 출력 · 통합 실행 | `/mission/objavoid/command_05` | `ackermann_msgs/msg/AckermannDriveStamped` | 회피 명령 → mux |
+| 출력 · 상태 | `/objavoid_v3/active`, `/objavoid_v3/done`, `/objavoid_v3/entrance_armed`, `/objavoid_v3/has_control` | `std_msgs/msg/Bool` | 활성·완료·입구 준비·제어 소유 |
+| 출력 · 상태 | `/objavoid_v3/state` | `std_msgs/msg/String` | 미션 상태·진단 |
+| 출력 · 관측 | `/objavoid_v3/markers` | `visualization_msgs/msg/MarkerArray` | 장애물·후보·경로 표시 |
+| 출력 · 관측 | `/objavoid_v3/path` | `nav_msgs/msg/Path` | 선택 경로 |
+
+단독 launch의 명령 기본값은 `/objavoid_v3/cmd`이며 통합 launch가 `/mission/objavoid/command_05`로 바꿉니다. `/start_crosswalk`는 현재 C++ 노드의 구독 토픽이 아닙니다.
+
+## References
+
+- [1] M. Werling, J. Ziegler, S. Kammel, S. Thrun, **Optimal Trajectory Generation for Dynamic Street Scenarios in a Frenet Frame**, ICRA, 2010. [KIT 서지](https://publikationen.bibliothek.kit.edu/1000138243), [DOI](https://doi.org/10.1109/ROBOT.2010.5509799). 프레네 좌표와 다항식 궤적 생성의 관련 연구이며, 본 구현은 동적 교통 궤적 최적화 전체를 재현하지 않습니다.
+
+## 상세 구현·개발 기록
+
+아래는 초기 Python V3와 시뮬레이션을 포함한 개발 기록입니다. 현재 실차의 기본 설정·입출력·강제 제약은 위 C++/car06 요약을 기준으로 봅니다.
 
 3차로에 엇갈려 놓인 정차 LIMO 7대를 하나의 S자 경로로 연속 회피하고, 마지막 장애물을 지난 뒤 가운데 차로로 복귀하면 `DONE`을 내고 명령 발행을 멈추는 ROS 2 Humble 패키지 `autorace_objavoid_v3`.
 
-- 기존 `objavoid_ws`(팀원), `objavoid_test_ws`(비교 실험), `lane_ws`, `lane_fusion_ws`, `mux_ws`, `simul/` 원본 코드·맵은 **수정하지 않았다.** (비교 실험에서 `objavoid_ws`는 소스 그대로, `objavoid_test`는 worktree 설치본 그대로 실행만 했다.)
-- 로컬 PC 시뮬레이터에서만 검증했다. **실차 검증은 하지 않았다.**
-- 흰 점선 자동 시작, 갈림길 주행은 구현하지 않았다(수동 활성화, DONE 후 다음 미션에 제어권 반환).
 
 ## 1. 파이프라인
 
@@ -201,7 +246,7 @@ R40 모서리는 보수적인 육각형 충돌 외곽 안에 포함합니다. �
 관측 경로는 차량 전체의 섬·도로·장애물 여유와 라이다 관측 여부를 검사합니다.
 유효 경로가 없거나 센서가 끊기면 정지합니다. 표지판은 앞끝 주변에 있을 수 있으며 정확한 위치를 고정하지 않습니다.
 표지판 방향이 확정되면 선택 통로의 lattice로 연결하고, 진입 안정 및 신선한 `/mission/lane`을 확인한 뒤 인계합니다.
-실행 노드는 C++ `autorace_objavoid_v3_cpp/objavoid_v3_node`로 통일했습니다. Python 모듈은 오프라인 분석·비교 검증용이며 실행 엔트리포인트는 없습니다.
+`impl:=py`는 기존 갈림길 방식을 사용합니다. 새 섬 모드는 C++ 전용입니다.
 
 ### bag을 반복 재생하며 새 결과 보기
 

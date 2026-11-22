@@ -1,143 +1,140 @@
-# 2026 AutoRace 통합 워크스페이스·토픽 설계
+# 2026 AutoRace — 현재 실차 알고리즘과 토픽
 
-2026-11-01 수정. MCP로 연결된 draw.io의 최신 **`전체 흐름` 한 페이지**를 저장소에 내보냈다. 센서·인지·미션·우선순위 mux를 10개 워크스페이스 박스와 sensor_ws 내부의 camera·lidar 박스 2개로 표시하고, 발행자 미정 입력선 1개와 차량으로 향하는 최종 출력선 1개를 포함한 26개 선에 토픽명과 타입을 기재했다. mux가 `/cmd_vel`을 차량에 직접 발행한다. 도면과 본 문서는 인터페이스 설계 명세이며 실제 노드 구현·실차 검증 상태와는 구분한다.
+기준: 현재 main 소스와 `tensor_bringup`의 `lane_mode:=deep lane_speed:=0.8`, 기본 car06 설정입니다. 센서는 별도 `sensors.launch.py`로 실행합니다. 실제 실행 인자·설정 파일을 바꾸면 연결과 동작도 달라집니다.
 
-도면의 서행 워크스페이스 이름은 **`slow`**이며 저장소의 기존 `slow_ws/` 폴더와 대응한다. 본 문서와 토픽 JSON의 `slow_ws`는 이 폴더와 draw.io 내부 셀 ID를 가리킨다. 방지턱은 `/yolo/bump_sign`, 지그재그 서행은 `/yolo/slow_sign`으로 구분한다. 두 토픽 모두 기존 `slow_ws`가 받고, 감속 명령은 `/mission/slow/command_08` 하나를 사용한다. LR 관련 연결은 유지하며 `LRsign_ws`는 추가하지 않는다.
+- [편집 가능한 Draw.io](2026_AutoRace.drawio)
+- [PNG](2026_AutoRace.png) / [SVG](2026_AutoRace.svg)
+- [도식 연결 명세 JSON](architecture-topics.json)
+- [미사용 코드 정리·삭제 전후 검증](logic-cleanup.md)
 
-갈림길의 진입·경로 선택·속도·조향·완료 처리는 `lane_ws`에 통합한다. YOLO 인지 토픽 `/yolo/LR_sign`은 `lane_ws`가 직접 구독한다. 기본 주행 토픽은 `/mission/lane`이며, mux는 유효한 미션 command가 없으면 이 입력을 기본값으로 선택한다.
+도식은 기존 워크스페이스 배치를 유지합니다. 왼쪽 센서 컨테이너에 camera·LiDAR·IMU·LIMO base·sensor_fusion·EKF를 나누고, 표시용 토픽은 하단 `visualization`에 모았습니다. 연결선은 직각이며 진한 실선은 주행·제어, 보라색 점선은 관측 분기입니다. 하단 카드와 설명 박스는 토픽을 묶어 보여주는 영역이며 별도 ROS 노드를 뜻하지 않습니다.
 
-- [편집 가능한 draw.io 파일](2026_AutoRace.drawio)
-- [전체 흐름 PNG](2026_AutoRace.png) / [SVG](2026_AutoRace.svg)
-- [기계 판독용 토픽 연결 명세](architecture-topics.json)
+## 워크스페이스별 알고리즘
 
-## 글자 표시
-
-도면의 제목·본문·토픽·메시지 타입·범례·주석은 모두 굵은 글씨로 표시한다. 크기는 전체 제목 44, 워크스페이스 이름 32, 내부 센서 이름 26, 설명 영역 제목 24, 본문·토픽명 20, 메시지 타입 16, 주석 18을 사용한다. 센서 박스의 메시지 타입과 발행자 미정 표시는 16이다. 최신 draw.io의 배치·연결선 색상·메시지 타입·추종 차선 기본값을 그대로 내보냈다.
-
-## 사용자 지정 입력
-
-| 발행 ws | 토픽 | 타입 | 구독 ws |
-| --- | --- | --- | --- |
-| `sensor_ws` | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | `yolo_ws`, `lane_ws`, `signal_ws`, `parking_ws`, `objavoid_ws` |
-| `sensor_ws` | `/scan` | `sensor_msgs/msg/LaserScan` | `parking_ws`, `cone_ws`, `objavoid_ws` |
-
-미션의 센서 입력은 카메라와 라이다만 사용한다. TF, odom, IMU, CameraInfo 토픽은 이 도면에 없다. 카메라 소비자는 압축 JPEG/PNG를 내부에서 디코딩하며 별도의 Image 토픽을 다시 발행할 필요는 없다. `crosswalk_ws`와 `slow_ws`는 카메라를 직접 구독하지 않고 YOLO Bool과 lane 명령을 받는다. 정지선·주차선 거리 환산에 필요한 보정값은 설정 파일에서 읽는다. LaserScan은 센서 설치 방향을 반영한 각도·거리 설정으로 처리한다.
-
-`sensor_ws`는 센서 드라이버를 실행한다. 차량의 LIMO base driver는 `mux_ws`가 발행하는 `/cmd_vel`을 구독한다. 드라이버가 제공하는 다른 텔레메트리 토픽이 있더라도 본 미션에서는 구독하지 않는다.
-
-도면에서는 `sensor_ws`를 컨테이너로 두고 내부에 `camera`와 `lidar`를 나눈다. 카메라 선은 camera 박스에서, `/scan` 선은 lidar 박스에서 출발한다. parking_ws·objavoid_ws로 향하는 카메라와 라이다 입력은 각각 별도 연결선으로 표시한다. 두 내부 박스는 sensor_ws에 속한 구성 요소이며 별도 워크스페이스 폴더를 만들지 않는다. 토픽 JSON의 source는 내부 셀 ID, source_workspace는 sensor_ws로 기록한다.
-
-## 연결선 색상
-
-도면 상단 범례와 각 선의 라벨은 같은 색상을 사용한다.
-
-| 구분 | 색상 | 토픽 |
+| 워크스페이스 | 현재 역할·알고리즘 | 상세 문서 |
 | --- | --- | --- |
-| 카메라 | 파랑 `#1976D2` | `/camera/color/image_raw/compressed` |
-| 라이다 | 주황 `#E65100` | `/scan` |
-| YOLO 인지 | 보라 `#8E44AD` | `/yolo/*` Bool |
-| 기본 차선 명령 | 황금색 `#AD7A00` | `/mission/lane` |
-| 미션 명령 | 초록 `#238363` | `/mission/*/command_XX` |
-| mux 차량 출력 | 청록 `#00695C` | `/cmd_vel` |
-| 추종 차선 선택 | 회청색 점선 `#455A64` | `/current_lane` — 발행자 미정 |
+| camera_compat_ws | ROS Image/OpenCV 변환·압축 전송 호환성 라이브러리 | [README](../camera_compat_ws/README.md) |
+| sensor_ws | 휠·IMU 검증/정지 바이어스 보정 + robot_localization EKF | [README](../sensor_ws/README.md) |
+| yolo_ws | YOLO26 + confidence·박스 면적·새 영상 연속 확인 | [README](../yolo_ws/README.md) |
+| lane_fusion_ws | MobileNetV3/U-Net 분할 → BEV 경계 추적·중앙 경로, 지그재그 형상 판정 | [README](../lane_fusion_ws/README.md) |
+| lane_ws | 횡오차·방향·목표점 결합 PID + 주차 접근 | [README](../lane_ws/README.md) |
+| crosswalk_ws | 표지 확인·HSV 흰색 ROI·지연 정지·유지·재진입 상태기계 | [README](../crosswalk_ws/README.md) |
+| signal_ws | 빨강/초록 연속 확인·새 흰색 ROI·정지 상태기계 | [README](../signal_ws/README.md) |
+| slow_ws | 표지판 타이머 + 지그재그 상태기계·고정 속도 서행 | [README](../slow_ws/README.md) |
+| objavoid_ws | LiDAR/차선 지도·Gap·5차 다항식 Lattice·DP·경로 오차 피드백 | [README](../objavoid_ws/README.md) |
+| cone_ws | LiDAR 인접 군집·좌우 경계 추적·중앙/오프셋 경로·오차 피드백 | [README](../cone_ws/README.md) |
+| parking_ws | 주차칸 기하·융합 위치/2D 점-직선 정합·Hybrid A*·보정 Pure Pursuit | [README](../parking_ws/README.md) |
+| mux_ws | 고정 우선순위·입력 만료·주차 제어 인계·Ackermann/Twist 변환 | [README](../mux_ws/README.md) |
 
-서행 박스 `slow`에는 `/yolo/bump_sign`과 `/yolo/slow_sign`을 표시한다. 두 입력선은 모두 `yolo_ws`에서 같은 `slow_ws`로 연결한다. crosswalk_ws·parking_ws·signal_ws 박스에도 `/yolo/crosswalk_sign`, `/yolo/parking_sign`, `/yolo/signal`이라는 실제 토픽명과 Bool 의미를 적는다.
+각 README는 알고리즘 설명·입출력 타입·구현 파일을 포함합니다. 모델·표준 알고리즘의 논문과 자체 미션 규칙을 구분하며, 관련 연구와 유사하다는 이유만으로 논문 전체를 재현했다고 표기하지 않습니다.
 
-## 추종 차선 선택 입력
+## 현재 실행되는 차선 흐름
 
-`lane_ws`는 `/current_lane` (`std_msgs/msg/Bool`)을 입력으로 받도록 설계한다.
+```text
+camera CompressedImage
+  → lane_fusion_deep_mask
+  → /lane_fusion/deep_mask (Image, mono8)
+  → lane_deep_lite_node
+  → /lane_deep/target (Float32MultiArray)
+  → lane_pid_controller (lane_ws)
+  → /mission/lane (AckermannDriveStamped)
+  → mux
+```
 
-| 값 | 동작 |
-| --- | --- |
-| `false` / `0` | 좌측 차선 추종 |
-| `true` / `1` | 우측 차선 추종 |
-| 초기값·아직 미수신 | `false`, 좌측 차선 추종 |
+`/lane_deep/zigzag`(`std_msgs/msg/UInt8`)는 0=없음, 1=한쪽, 2=양쪽이며 slow가 구독합니다. `/lane_fusion/deep_mask`는 objavoid도 사용하므로 시각화 전용 토픽이 아닙니다. `lane_speed:=0.8`은 기본 속도 설정이고 감속·정지·미션 제어에서 실제 출력 속도가 달라집니다.
 
-아직 발행 워크스페이스는 정하지 않는다. 도면에서는 source가 없는 열린 시작점에서 `lane_ws`로 화살표가 들어오도록 하고, 회청색 점선에 토픽·타입·0/1 의미·기본값·발행자 미정을 적는다. 토픽 JSON도 source=null, publisher_status=unassigned로 기록한다. 추종할 차선 선택과 YOLO의 갈림길 A/B 인지는 별도 입력이며, 이 선을 임의의 기존 워크스페이스에 연결하지 않는다.
+**Fusion 알고리즘·노드·설정은 보존합니다.** `lane_mode:=fusion`에서는 HSV/딥 후보를 융합하는 `lane_fusion_node`와 별도 fusion PID를 실행합니다. `lane_mode:=opencv`의 HSV 경로도 별도 기능으로 유지합니다. 이 둘은 현재 deep 실행의 활성 노드와 구분합니다.
 
-## YOLO Bool 계약
+## 센서·위치 입력
 
-| 발행 ws → 구독 ws | 토픽 | 타입 | false(0) | true(1) |
-| --- | --- | --- | --- | --- |
-| `yolo_ws → slow_ws` | `/yolo/bump_sign` | `std_msgs/msg/Bool` | 발행하지 않음 | 방지턱 표지판 감지 |
-| `yolo_ws → slow_ws` | `/yolo/slow_sign` | `std_msgs/msg/Bool` | 발행하지 않음 | 지그재그 구간 서행 표지판 감지 |
-| `yolo_ws → crosswalk_ws` | `/yolo/crosswalk_sign` | `std_msgs/msg/Bool` | 발행하지 않음 | 보행자 표지판 감지 |
-| `yolo_ws → lane_ws` | `/yolo/LR_sign` | `std_msgs/msg/Bool` | 왼쪽 / A | 오른쪽 / B |
-| `yolo_ws → signal_ws` | `/yolo/signal` | `std_msgs/msg/Bool` | red | green |
-| `yolo_ws → parking_ws` | `/yolo/parking_sign` | `std_msgs/msg/Bool` | 발행하지 않음 | 주차 표지판 감지 |
-
-`LR_sign`은 요청한 대소문자를 유지한다. **LR_sign과 signal은 인지한 프레임에서만 발행한다.** 미검출을 false로 보내면 왼쪽이나 적색이라는 의미와 섞이므로, 미검출·판별 불가·황색에서는 해당 Bool을 발행하지 않는다. 수신 노드는 수신 시각과 유효 시간으로 값의 신선도를 판단하며, 초기값 false를 인지 결과로 사용하지 않는다. 활성 신호등 미션은 신호가 불확실해져도 정지 명령을 계속 유지하고, 유효한 green 확인 후에 출발한다.
-
-`bump_sign`, `slow_sign`, `crosswalk_sign`, `parking_sign`은 검출된 새 영상에서만 true를 최대 10 Hz로 발행하고, 미검출 false는 보내지 않는다. **`bump` 클래스는 `/yolo/bump_sign`, `slow` 클래스는 `/yolo/slow_sign`으로 각각 발행하며, 두 토픽 모두 기존 `slow_ws`가 받는다.** 두 클래스가 모두 확인되면 두 토픽을 독립적으로 발행한다. `slow_ws`는 입력별로 방지턱·지그재그 구간을 구분하며, 감속 명령은 같은 `/mission/slow/command_08`을 사용한다. 수신 유효 시간과 미션 내부의 진행·완료 상태를 확인하며 미검출 false를 기다리지 않는다. 주차 시작 후 표지판이 화면 밖으로 나갔다고 미션을 종료하지 않고, 주차 노드 내부 상태를 유지한다. YOLO 결과에는 연속 프레임 확인·신뢰도 임계값·재검출 방지 조건을 적용한다. Bool에는 원본 stamp가 없으므로 `yolo_ws`에서 압축 영상 header의 획득 시각을 검사하고 오래된 영상의 결과를 새 인지로 발행하지 않는다.
-
-**`crosswalk_ws`는 `/yolo/crosswalk_sign` Bool을 받고 카메라를 직접 구독하지 않는다.** YOLO의 보행자 표지판 감지를 정지 진입 조건으로 사용하고, `lane_ws` 명령의 조향은 유지하면서 속도만 바꿔 정지·3초 대기·재출발을 수행한다.
-
-## 미션 명령과 우선순위
-
-미션과 lane이 mux로 보내는 주행 후보는 **`ackermann_msgs/msg/AckermannDriveStamped`**로 통일한다. 이 표준 타입은 속도 `drive.speed`와 조향각 `drive.steering_angle`이 분리되어 있어, 요청한 "속도만 변경"을 그대로 표현한다. mux는 선택한 후보를 **`geometry_msgs/msg/Twist`**로 변환해 `/cmd_vel`로 발행한다. 미션의 숫자는 토픽 이름의 **`command_XX`**에 붙이며 작을수록 우선순위가 높다. 기본 주행 토픽 `/mission/lane`에는 command 접미사를 붙이지 않는다. 다음 배치는 현재 설계 제안이고 실제 트랙의 주행 순서와 별개이다.
-
-| 우선순위 | 발행 ws | 토픽 | 입력 |
+| 발행자 | 토픽 | 타입 | 주요 구독자 |
 | --- | --- | --- | --- |
-| 01 | `crosswalk_ws` | `/mission/crosswalk/command_01` | lane 명령 + YOLO crosswalk_sign Bool |
-| 02 | `signal_ws` | `/mission/signal/command_02` | lane 명령 + 카메라 + YOLO signal Bool |
-| 03 | `parking_ws` | `/mission/parking/command_03` | 카메라 + `/scan` + YOLO parking_sign Bool |
-| 04 | `objavoid_ws` | `/mission/objavoid/command_04` | 카메라 + `/scan` |
-| 05 | `cone_ws` | `/mission/cone/command_05` | `/scan` |
-| 08 | `slow_ws` | `/mission/slow/command_08` | lane 명령 + YOLO bump_sign/slow_sign Bool (둘 다 slow_ws 수신) |
-| DEFAULT | `lane_ws` | `/mission/lane` | 카메라 + YOLO LR_sign Bool |
+| 카메라 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | YOLO·deep mask·crosswalk·signal·slow·parking floor gate |
+| 카메라 | `/camera/color/image_raw` | `sensor_msgs/msg/Image` | 선택적 RViz·영상 도구 |
+| LiDAR | `/scan` | `sensor_msgs/msg/LaserScan` | parking·cone·objavoid·선택적 관측 |
+| LIMO base | `/odom` | `nav_msgs/msg/Odometry` | sensor_fusion·deep_lite·lane PID guard·parking·objavoid |
+| LIMO base | `/imu` | `sensor_msgs/msg/Imu` | sensor_fusion·objavoid(car06 IMU yaw) |
+| LIMO base | `/limo_status` | `limo_msgs/msg/LimoStatus` | objavoid·parking(manual guard 활성화 시) |
+| sensor_fusion | `/localization/wheel` | `nav_msgs/msg/Odometry` | EKF |
+| sensor_fusion | `/localization/imu` | `sensor_msgs/msg/Imu` | EKF·parking |
+| sensor_fusion | `/localization/health` | `std_msgs/msg/String` | parking |
+| EKF | `/odometry/filtered` | `nav_msgs/msg/Odometry` | parking |
+| TF 발행 노드 | `/tf`, `/tf_static` | `tf2_msgs/msg/TFMessage` | cone·RViz 등 |
 
-`lane_ws`는 `/mission/lane`을 mux와 **slow_ws, crosswalk_ws, signal_ws**에 함께 발행한다. 이 세 미션은 최신 lane 메시지를 복사하고 **`drive.speed`만 수정한다. `drive.steering_angle`, 조향각 변화율, 가속도·jerk 설정 등 다른 drive 필드는 유지한다.** 헤더 시각은 생성 시각으로 설정하되, lane 입력이 만료되면 오래된 입력을 새 명령으로 되살리지 않는다. `drive.speed` 단위는 m/s, `drive.steering_angle`은 rad이다. 좌측 조향은 양수이다.
+EKF는 2D/30 Hz, `parking_odom` 기준이며 EKF 자체의 TF 발행은 꺼져 있습니다. `/localization/calibrate_gyro`(`std_srvs/srv/Trigger`)와 `/set_pose`(`robot_localization/srv/SetPose`)는 보정·초기 자세 서비스입니다.
 
-정지에서는 speed=0으로 유지하면서 lane 조향각은 그대로 보존한다. slow_ws는 방지턱·지그재그 구간에서 감속하고 crosswalk/signal은 정지·재출발 속도를 지정한다. 갈림길 통과 속도와 조향은 lane_ws가 계산한다. parking/cone/objavoid는 자기 센서로 속도와 조향을 모두 계산할 수 있다. `header.frame_id=base_link`는 차량 기준 방향 표기이며 TF 구독을 추가하지 않는다.
+## YOLO 미션 신호
 
-갈림길 주행은 **`lane_ws`가 `/yolo/LR_sign`을 직접 구독해 좌/우 경로·속도·조향을 선택하고 구간 종료까지 처리**한다. 갈림길을 위한 별도 command 토픽이나 mux 우선순위 06 입력은 없다. 지그재그 서행은 slow_ws에 통합하여 별도 우선순위 07 입력 없이 기존 우선순위 08을 사용한다. 지그재그 구간의 영상 기반 조향 처리도 lane_ws가 담당하고 slow_ws는 `/yolo/bump_sign`과 `/yolo/slow_sign`으로 구간을 구분하고 미션 내부 상태에 따라 속도만 감속한다.
-
-## mux와 차량 출력
-
-`mux_ws`는 미션 노드에 상태·활성화·완료를 보내지 않는다. 미션 상태 토픽과 이전 REQUEST/ACTIVE/DONE 메시지 계약은 제거했다. 미션 노드는 각각 자기 실행·완료·재검출 방지 상태를 관리한다.
-
-1. **미션 비활성:** 명령을 발행하지 않는다. 비활성이라고 0 명령을 반복 발행하면 높은 우선순위가 기본 주행을 막으므로 사용하지 않는다.
-2. **미션 수행 중:** 해당 command_XX를 주기 발행한다. 속도 조정 미션의 정지 중에는 drive.speed=0과 lane의 조향각을 계속 발행해 제어권을 유지한다.
-3. **미션 완료:** 명령 발행을 중단한다. 기존 후보가 timeout되면 다음 유효한 우선순위 후보가 선택된다.
-4. **주차 완료:** 예외적으로 정지 명령을 계속 발행해 차량을 유지한다.
-5. **mux 선택:** 등록된 입력 중 timeout되지 않고 수치가 유효한 후보의 가장 작은 번호를 선택한다. 우선순위는 구독 토픽 설정에 명시하며 도착 순서로 결정하지 않는다.
-6. **lane DEFAULT:** 미션 command가 수신되지 않았거나 모든 후보가 만료되면 `/mission/lane`의 최신 유효 명령을 기본값으로 선택한다. 기본 입력도 없거나 만료되면 속도 0의 정지 명령을 출력한다.
-
-| 발행 ws → 구독 ws | 토픽 | 타입 |
+| 토픽 | 타입 | 현재 의미 / 소비자 |
 | --- | --- | --- |
-| `mux_ws → 차량 / LIMO base driver` | `/cmd_vel` | `geometry_msgs/msg/Twist` |
+| `/yolo/slow_sign` | `std_msgs/msg/Bool` | 서행 표지 존재 → slow |
+| `/yolo/crosswalk_sign` | `std_msgs/msg/Bool` | 횡단보도 표지 존재 → crosswalk·slow |
+| `/yolo/parking_sign` | `std_msgs/msg/Bool` | 주차 표지 존재 → parking·lane PID |
+| `/yolo/LR_sign` | `std_msgs/msg/Bool` | false=왼쪽/A, true=오른쪽/B → objavoid |
+| `/yolo/LR_detail` | `std_msgs/msg/Float32MultiArray` | 좌우 표지 박스·촬영 시각 → objavoid |
+| `/yolo/signal` | `std_msgs/msg/Bool` | false=빨강, true=초록 → signal |
 
-mux는 미션 후보를 구독하고 차량으로 향하는 `/cmd_vel` 출력 1개를 발행한다. 센서와 YOLO 결과는 mux에 직접 보내지 않는다. 도면에서는 mux에서 차량으로 열린 끝점의 화살표를 그리고, 차량 / LIMO base driver를 주석으로 표시한다. 토픽 JSON은 이 출력의 target=null, subscriber_status=external, target_system="LIMO base driver"로 기록한다.
+현재 YOLO는 slow/crosswalk/parking의 미검출을 false로 발행합니다. 좌우 방향·신호등은 미검출·모호함·영상 만료 시 발행하지 않습니다. `/yolo/bump_sign` 발행은 비활성이고 slow 쪽 구독만 남아 있습니다. 도식에 활성 YOLO 발행선으로 그리지 않습니다.
 
-`lane_ws`가 `/mission/lane`의 유일한 발행자이다. mux는 이 토픽을 구독하고, 선택한 후보를 차량의 선속도·각속도로 변환해 `/cmd_vel`로 전달한다. `/mission/lane`을 mux에서 다시 발행하는 구조가 아니다.
+## 미션 명령과 차량 출력
 
-초기 제안 주기는 미션/lane 후보 20 Hz, mux 출력 30 Hz이며, 후보 유효 시간은 0.25 s이다. 이 숫자는 대회 규정이 아니라 실측 후 조정할 설정값이다. mux는 후보의 stamp와 수신 시각으로 유효 시간을 검사한다. 최종 Twist에는 헤더가 없으므로 입력의 신선도 검사는 mux 내부에서 수행하고, 모든 후보가 만료되면 `/cmd_vel`에 선속도·각속도 0의 정지 명령을 주기 발행한다. 주행 명령 QoS는 Reliable/Volatile/KeepLast(1)를 제안하고, 과거 명령을 latch하지 않는다. Bool도 Volatile/KeepLast(1)로 다룬다. 센서 구독은 실제 드라이버와 QoS를 맞춘다.
+모든 미션 후보의 타입은 `ackermann_msgs/msg/AckermannDriveStamped`입니다.
 
-주차의 후진 후보는 `/mission/parking/command_03`에서만 허용하도록 mux 입력 검증 조건을 둔다. mux는 선택한 후보의 속도·조향각·가감속 범위를 제한하고, LIMO 드라이버용 `/cmd_vel`로 변환한다. `linear.x=v`, `angular.z=v*tan(steering_angle)/wheelbase`이며 **v=0이면 angular.z도 0**이다. 축간거리와 조향 한계는 실차 설정값을 사용한다. `/cmd_vel`의 단위는 `linear.x`가 m/s, `angular.z`가 rad/s이다. 세 미션이 조향각을 보존하는 것과 최종 드라이버 출력 변환을 구분한다.
+| 우선순위 | 발행 워크스페이스 | 토픽 |
+| --- | --- | --- |
+| 01 | crosswalk_ws | `/mission/crosswalk/command_01` |
+| 02 | signal_ws | `/mission/signal/command_02` |
+| 03 | parking_ws | `/mission/parking/command_03` |
+| 04 | slow_ws | `/mission/slow/command_04` |
+| 05 | objavoid_ws | `/mission/objavoid/command_05` |
+| 06 | cone_ws | `/mission/cone/command_06` |
+| 기본 | lane_ws | `/mission/lane` |
 
-## 센서 제한에 맞춘 미션 판단
+Crosswalk·signal·slow는 유효한 lane 조향을 유지하며 속도를 조정합니다. 유실/정지 예외는 각 README를 따릅니다. 비활성 미션은 후보를 발행하지 않고, 정지 중인 미션은 속도 0을 계속 발행해 제어권을 유지합니다.
 
-- `crosswalk_ws`: `/yolo/crosswalk_sign`의 보행자 표지판 감지로 정지에 진입하고 lane 속도만 수정한다. 카메라 입력 없이 내부 상태로 정지·3초 대기·재출발을 관리한다.
-- `signal_ws`: Bool의 red/green과 카메라 정지선을 함께 사용하고 lane 속도만 수정한다. 실제 신호등 영역과 광고판을 구분한다.
-- `lane_ws`: 카메라와 YOLO Bool로 갈림길 진입·좌/우 방향·속도·조향·완료를 관리하고 `/mission/lane`으로 발행한다.
-- `parking_ws`: 표지판 Bool로 미션을 시작하고 영상의 주차선·LiDAR 여유 공간으로 진행한다. 영상과 센서 설치 치수는 고정 보정값을 사용한다.
-- `slow_ws` (도면 이름 `slow`): `/yolo/bump_sign`으로 방지턱, `/yolo/slow_sign`으로 지그재그 서행을 구분해 받는다. 카메라 입력 없이 lane 조향각을 유지하고 속도만 lane 속도의 절반 수준, 최대 0.2 m/s 이하로 제한한다. 두 입력 모두 같은 `/mission/slow/command_08`을 사용한다. 각 입력의 수신 유효 시간과 미션 진행·완료 상태를 검사하며, 미검출 false를 기다리지 않는다.
-- `objavoid_ws`, `cone_ws`: LiDAR 거리·배열과 필요한 영상 특징으로 진입·회피·출구를 판단한다.
+Mux는 입력 유효성·주차 인계 정책을 적용한 뒤 `/cmd_vel`(`geometry_msgs/msg/Twist`)을 LIMO base에 보냅니다. 변환은 `linear.x=v`, `angular.z=v·tan(steering)/wheelbase`입니다. `/mux/active_source`(`std_msgs/msg/String`)로 실제 선택 주체를 parking·cone·objavoid·관측 도구에 알립니다.
 
-미션 종료는 각 노드가 실제로 구독하는 카메라 특징·Bool·LiDAR 패턴·시간 조건을 조합한다. odom 적분 거리 기반 종료 조건은 쓰지 않는다. 표지판이 없는 구간의 진입 범위·종료 조건·재검출 금지 시간은 각 미션에서 트랙을 보고 보정한다. 트랙 순서는 방지턱(slow) → 지그재그(slow) → crosswalk → objavoid → 갈림길(lane) → cone → signal → parking이다.
+## 미션 사이의 인계
 
-## 커스텀 타입과 검증
+| 발행자 | 토픽 | 타입 | 구독자 / 용도 |
+| --- | --- | --- | --- |
+| crosswalk | `/start_crosswalk` | `std_msgs/msg/Bool` | slow의 서행 종료 |
+| signal | `/start_signal` | `std_msgs/msg/Bool` | slow의 서행 종료 |
+| slow | `/slow/mission_active` | `std_msgs/msg/Bool` | objavoid 시작 차단·관측 |
+| lane PID | `/parking/approach_start` | `std_msgs/msg/Header` | parking 접근 기준점·mux 접근 상태 |
+| parking | `/parking/approach_ready` | `std_msgs/msg/Header` | lane PID 접근 준비 |
+| parking | `/parking/active` | `std_msgs/msg/Bool` | lane PID·관측 |
+| parking | `/parking/control_state` | `std_msgs/msg/String` | lane PID·mux 제어 상태 |
+| parking | `/parking/lane_handoff` | `std_msgs/msg/Header` | mux의 lane 인계 |
 
-**이번 구조에는 커스텀 메시지 타입이 필요 없다.** CompressedImage, LaserScan, Bool, AckermannDriveStamped, Twist를 사용한다. 이전 설계의 커스텀 메시지 정의는 현재 명세에서 제거했다.
+현재 deep PID는 `/parking_start`, `/parking/ready`를 구독하지 않습니다. 이 출력은 별도 fusion PID가 사용합니다. 현재 objavoid car06은 `fork_shape=false`여서 `/mission/lane` 구독을 생성하지 않으며 `/start_crosswalk`도 직접 구독하지 않습니다.
 
-통합본은 10개 워크스페이스 박스와 센서 내부 박스 2개, 차량 출력선을 포함한 25개 발행자 지정 연결 및 발행자 미정 입력선 1개, 17개 고유 토픽이다. `/cmd_vel`은 mux의 최종 외부 출력이다. 최신 도면에서 카메라 5개·라이다 3개·YOLO Bool 6개 연결을 확인하고, JSON의 연결 ID·발행자·구독자·토픽·타입·색상을 도면과 대조했다. crosswalk_ws·slow_ws에 카메라 입력이 없는지, slow_ws에 `/yolo/bump_sign`과 `/yolo/slow_sign` 두 입력이 들어오는지, 세 미션과 mux가 `/mission/lane`을 받는지, `/current_lane` 선은 발행자 없이 lane_ws에 연결되는지, mux의 `/cmd_vel` 출력이 Twist인지 확인했다. draw.io·SVG·PNG는 같은 최신 도면에서 내보낸다. 이번 문서 갱신의 검증 범위는 도면·문서·인터페이스 정합성이다. ROS 노드·실차 검증은 별도로 수행한다.
+## 설정에 따른 차이
 
-## 근거
+- Parking 실차 기본값은 `manual_mode_guard=true`, `parking_calibration_stop=true`, `exit_on_lane_reacquired=false`, `exit_curve_handoff=false`, `exit_curve_only=true`입니다. `/limo_status`는 구독하고 `/mission/lane`·`/lane_fusion/target`의 출차 인계 구독은 만들지 않습니다.
+- Parking은 `/lane_fusion/yellow_boundary`를 구독하지만 현재 deep 실행에는 발행자가 없습니다. 실차 설정의 `yellow_boundary_enabled=false`에서는 이 경계의 충돌 검사를 사용하지 않습니다.
+- Parking의 `assume_unobserved_free=true`는 미관측 구간을 빈 공간으로 취급하는 설정입니다. 미관측 구간을 항상 거부한다고 설명하지 않습니다.
+- `/lane_fusion/target`·`/lane_fusion/yellow_boundary`·`/lane_fusion/debug`는 fusion 인식 모드의 출력입니다. 현재 deep 모드의 출력으로 임의 연결하지 않습니다.
+- 현재 signal에는 10초 자동 해제가 없습니다. 초록 확인으로 정지를 해제합니다.
 
-작년 `/home/a/Downloads/AutoRace2025`의 사각형·화살표 구성을 참고했다. 올해 assets의 규정집(2026-10-08 초안_수정본), 미션 상세(2026-09-28 초안), 트랙 도면·지도에서 8개 미션과 주행 순서를 확인했다. 센서·YOLO Bool 의미·단일 페이지·명령 우선순위 규칙은 이번 사용자 지시를 반영했다.
+## visualization
 
-- [ROS CompressedImage 정의](https://github.com/ros2/common_interfaces/blob/humble/sensor_msgs/msg/CompressedImage.msg)
-- [ROS Bool 정의](https://github.com/ros2/common_interfaces/blob/humble/std_msgs/msg/Bool.msg)
-- [ROS AckermannDriveStamped 정의](https://github.com/ros-drivers/ackermann_msgs/blob/ros2/msg/AckermannDriveStamped.msg), [AckermannDrive 정의](https://github.com/ros-drivers/ackermann_msgs/blob/ros2/msg/AckermannDrive.msg)
+| 출력 그룹 | 토픽 | 타입 |
+| --- | --- | --- |
+| 영상 | `/yolo/debug/compressed` | `sensor_msgs/msg/CompressedImage` |
+| 차선 BEV | `/lane_deep/debug` | `sensor_msgs/msg/Image` |
+| 바닥 ROI | `/{slow,crosswalk,signal}/white_roi/debug/compressed` | `sensor_msgs/msg/CompressedImage` |
+| 바닥 ROI | 같은 prefix의 `ratio`, `detected` | `std_msgs/msg/Float32`, `std_msgs/msg/Bool` |
+| 주차 | `/parking/obstacles`, `target`, `slot_map`, `candidate_roi`, `lookahead` | `visualization_msgs/msg/MarkerArray` |
+| 주차 | `/parking/path`, `/parking/obstacle_memory` | `nav_msgs/msg/Path`, `sensor_msgs/msg/PointCloud2` |
+| 주차 상태 | `/parking/status`, `/parking/ldf` | `std_msgs/msg/String`, `std_msgs/msg/Float32` |
+| 주차 위치 | `/parking/localization/odometry`, `/parking/approach_odometry` | `nav_msgs/msg/Odometry` |
+| 콘 | `/cone_lane/roi_marker`, `/cone_lane/roi_points` | `visualization_msgs/msg/Marker` |
+| 콘 | `/cone_lane/{clusters,cone_centers,boundaries,control_points,center_path,center_spot,backup_path}` | `visualization_msgs/msg/MarkerArray` |
+| OBJ | `/objavoid_v3/markers`, `/objavoid_v3/path` | `visualization_msgs/msg/MarkerArray`, `nav_msgs/msg/Path` |
+| PID | `/lane_pid/command`, `/lane_pid/state` | `ackermann_msgs/msg/AckermannDriveStamped`, `std_msgs/msg/Float32MultiArray` |
+| 미션 표시 노드 | `/missions_viz/parking/*`, `/missions_viz/command_path` | 주차 원본과 같은 타입 / `visualization_msgs/msg/MarkerArray` |
 
-표기는 기존 도면의 ROS 2 형식을 유지했다. ROS 1을 쓰면 타입 표기의 `/msg/`를 제거하고 해당 버전에 맞게 설정한다.
+웹/RViz/mission_visualizer는 선택 실행입니다. 명령·센서·상태를 관측하는 분기는 원래 발행자를 복제하지 않습니다. `/cone_lane/control_status`는 Marker 타입이지만 bringup 시작 검사에도 사용하므로 표시 전용 목록으로만 분류하지 않습니다.
+
+Legacy 뷰어의 `/lane_fusion/debug`·`/lane_fusion/fork_debug`와 현재 deep BEV를 구분합니다. 실제 deep BEV는 `/lane_deep/debug`이며 legacy 웹은 이를 직접 구독하지 않습니다. 장애물 전용 웹에는 실행·속도 등 제어 기능도 있으므로 모든 웹을 읽기 전용이라고 부르지 않습니다.
