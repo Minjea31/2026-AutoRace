@@ -1,6 +1,20 @@
 parking_node:
   ros__parameters:
-    recognition_frames: 3
+    recognition_frames: 2
+    exit_on_lane_reacquired: true
+    exit_lane_timeout_sec: 0.25
+    exit_lane_min_confidence: 0.10
+    white_roi_enabled: true
+    white_roi_left: 0.050
+    white_roi_right: 0.950
+    white_roi_top: 0.961
+    white_roi_bottom: 1.000
+    white_roi_minimum_ratio: 0.08
+    white_image_topic: /camera/color/image_raw/compressed
+    white_image_timeout_sec: 0.30
+    white_image_hz: 10.0
+    lane_white_config: ''
+    lane_white_node: ''  # thresholds come from mission_vision.yaml
     sign_timeout: 0.5
     scan_timeout: 0.5
     base_frame: base_link
@@ -27,6 +41,13 @@ parking_node:
     # All observed returns still participate in collision checks in this area.
     initial_clear_radius: 0.30
     allow_reverse: false
+    # Observe along the lane before turning; never enter on a partial route.
+    require_complete_entry_path: true
+    search_enabled: true
+    search_speed: 0.10
+    search_max_distance: 1.5
+    search_timeout: 20.0
+    search_resume_scans: 2
     # Cruise speed magnitude; departure uses negative speed along the inbound trace.
     parking_speed: 1.0
     parking_hold_seconds: 3.0

@@ -67,6 +67,8 @@ def empty_area_center(polygon,objects):
 
 def box_pose_free(x,y,yaw,objects,cfg):
     """Separating-axis test against every known candidate object's full box."""
+    if not cfg.obstacle_collision_check_enabled:
+        return True
     c,s=math.cos(yaw),math.sin(yaw)
     length=cfg.vehicle_length/2+cfg.clearance
     width=cfg.vehicle_width/2+cfg.clearance
@@ -88,7 +90,7 @@ def available_headings(center,objects,cfg,origin,checker):
     headings.sort(key=lambda a:(abs(wrap(a-origin[2])),a))
     transform=inverse(origin);result=[]
     for angle in headings:
-        if not box_pose_free(*center,angle,objects,cfg):continue
+        if cfg.block_occupied_slots and not box_pose_free(*center,angle,objects,cfg):continue
         local=compose(transform,(*center,angle))
         if checker.free(local,allow_unknown=True):result.append(local[2])
     return tuple(result)
@@ -101,46 +103,36 @@ def automatic_goals(scan,clusters,cfg,origin,details,map_hint=None):
         from .slot_map import fit_slot_map,rotation
         merged=physical_objects(world,cfg,right_only=False)
         objects=[(indices,c) for indices,c in merged if cfg.min_cluster_size<=max(c.bounds[1]-c.bounds[0],c.bounds[3]-c.bounds[2])<=cfg.max_cluster_size]
-        layout=fit_slot_map(objects,cfg,map_hint)
+        layout=fit_slot_map(objects,cfg,map_hint,sensor_origin=compose(origin,scan.sensor_pose)[:2],
+                            object_yaw=cfg.row_yaw+origin[2])
         details['slot_map']=layout;details['target_center_method']='six_slot_map'
         details['enclosure_objects']=len(objects);details['enclosure_detected']=layout is not None
-        from .slot_map import pair_map_hypotheses
-        layouts=[layout] if layout is not None else pair_map_hypotheses(objects,cfg)
-        details['full_slot_map_matched']=bool(layout and layout.get('method')=='metric_six_slot_template')
-        details['pair_map_hypotheses']=sum(m.get('method')=='two_object_row_template' for m in layouts)
+        details['full_slot_map_matched']=layout is not None
+        details['pair_map_hypotheses']=0
         goals=[]
-        if layouts:
+        if layout is not None:
             from .regions import with_occupied_slots
             transform=inverse(origin)
-            for registered in layouts:
-                partial_pair=registered.get('method')=='two_object_row_template'
-                source=with_occupied_slots(scan,registered,origin,cfg)
-                checker=CollisionChecker(source,cfg)
-                for cell in registered['cells']:
-                    if not cell['eligible_empty'] or not roi_contains(cell['center'],cfg):continue
-                    local=compose(transform,(*cell['center'],0.))
-                    options=available_headings(cell['center'],objects,cfg,origin,checker)
-                    if partial_pair and not options:continue
-                    goals.append(Gap(local[0],local[1],options[0] if options else 0.,cfg.slot_width,-1,-1,
-                        support_ids=tuple(registered['support_ids']),confirmed=registered['locked'],kind='pair_midpoint' if partial_pair else 'enclosed_center',
-                        heading_options=options,stop_tolerance=cfg.pair_stop_tolerance if partial_pair else cfg.center_stop_tolerance,
-                        slot_id=-1 if partial_pair else cell['id'],bay_yaw=registered['yaw'],
-                        parking_grid=None if partial_pair else {'origin':registered['origin'],'yaw':registered['yaw'],
-                            'width':cfg.slot_columns*cfg.slot_width+(cfg.slot_columns+1)*cfg.slot_border,
-                            'depth':cfg.slot_rows*cfg.slot_depth+(cfg.slot_rows+1)*cfg.slot_border}))
-            goals.sort(key=lambda g:(not bool(g.heading_options),g.x<0,math.hypot(g.x,g.y)))
-            if goals:
-                pair=goals[0].kind=='pair_midpoint'
-                details['slot_map']=(next(m for m in layouts if set(m['support_ids'])==set(goals[0].support_ids)) if pair else layout)
-                details['_pair_maps']=[m for m in layouts if m.get('method')=='two_object_row_template']
-                details['target_center_method']='two_object_row_template' if pair else 'six_slot_map'
-                details['target_mode']='pair_midpoint' if pair else 'enclosed_center'
-                details['enclosure_candidates']=len(goals)
-                details['slot_map_reason']='two_object_partial_match' if pair else 'ready'
-                return goals
-        details['slot_map_reason']='layout_not_matched'
-        # Unrelated remembered objects must not suppress a geometrically valid
-        # pair. Every object and point still participates in clearance checks.
+            source=with_occupied_slots(scan,layout,origin,cfg)
+            checker=CollisionChecker(source,cfg)
+            for cell in layout['cells']:
+                if not cell['eligible_empty'] or not roi_contains(cell['center'],cfg):continue
+                if cfg.fixed_parking_slot_id>=0 and (cell['id']!=cfg.fixed_parking_slot_id or not layout['locked']):continue
+                local=compose(transform,(*cell['center'],0.))
+                options=available_headings(cell['center'],objects,cfg,origin,checker)
+                goals.append(Gap(local[0],local[1],options[0] if options else 0.,cfg.slot_width,-1,-1,
+                    support_ids=tuple(layout['support_ids']),confirmed=layout['locked'],kind='enclosed_center',
+                    heading_options=options,stop_tolerance=cfg.center_stop_tolerance,
+                    slot_id=cell['id'],bay_yaw=layout['yaw'],
+                    parking_grid={'origin':layout['origin'],'yaw':layout['yaw'],
+                        'width':cfg.slot_columns*cfg.slot_width+(cfg.slot_columns+1)*cfg.slot_border,
+                        'depth':cfg.slot_rows*cfg.slot_depth+(cfg.slot_rows+1)*cfg.slot_border}))
+        goals.sort(key=lambda g:(not bool(g.heading_options),g.x<0,math.hypot(g.x,g.y)))
+        details['target_mode']='enclosed_center' if goals else 'none'
+        details['enclosure_candidates']=len(goals)
+        details['slot_map_reason']='ready' if goals else 'layout_not_matched'
+        # Grid mode never starts parking from a pair or an unrelated enclosure.
+        return goals
     merged=physical_objects(world,cfg)
     objects=[(indices,cluster) for indices,cluster in merged if cfg.min_cluster_size<=max(cluster.bounds[1]-cluster.bounds[0],cluster.bounds[3]-cluster.bounds[2])<=cfg.max_cluster_size]
     details['enclosure_objects']=len(objects);details['enclosure_detected']=False

@@ -44,7 +44,7 @@ def test_real_scan_report_carries_filtered_candidate_count_and_matching_reason(s
     package = Path(__file__).resolve().parents[1]
     cfg_data = yaml.safe_load((package/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     cfg = Settings(**{f.name: cfg_data[f.name] for f in fields(Settings) if f.name in cfg_data})
-    cfg = __import__('dataclasses').replace(cfg,automatic_target_selection=False,slot_map_enabled=False)
+    cfg = __import__('dataclasses').replace(cfg,automatic_target_selection=False,slot_map_enabled=False,obstacle_min_cluster_size=.12)
     data = json.loads((package/'test/data/limo_pro_stationary_scans.json').read_text())['scans'][sample]
     report = build_plan_report(Scan(**data), cfg)
     details = report['diagnostics']

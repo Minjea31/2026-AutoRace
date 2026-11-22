@@ -141,3 +141,44 @@ def test_new_occupied_target_is_invalidated_instead_of_retaining_its_old_goal():
     result=build_plan_report(scan,config,old,layout_hint=details['slot_map'],recovery_allowed=False)
     assert result['diagnostics']['goal_invalidated_by_slot_map']
     assert result['goal'] is None and not result['path']
+
+
+@pytest.mark.parametrize('empty', range(6))
+@pytest.mark.parametrize('yaw', [0., .2, -.25])
+def test_single_empty_mode_all_positions(empty,yaw):
+    config=cfg(single_empty_slot=True,block_occupied_slots=True)
+    objs,truth=scene(tuple(i for i in range(6) if i!=empty),yaw=yaw)
+    layout=fit_slot_map(objs,config)
+    assert layout and layout['locked']
+    eligible=[c for c in layout['cells'] if c['eligible_empty']]
+    assert len(eligible)==1
+    assert eligible[0]['center']==pytest.approx(truth[empty],abs=1e-6)
+    details={}
+    goals=automatic_goals(snapshot(objs),[c for _,c in objs],config,(0.,0.,0.),details)
+    assert len(goals)==1 and goals[0].confirmed
+    from autorace_parking.regions import with_occupied_slots
+    scan=with_occupied_slots(snapshot(objs),layout,(0.,0.,0.),config)
+    assert len(scan.occupied_slots)==5
+    assert all(r['half_size']==(.110,.161) for r in scan.occupied_slots)
+    from autorace_parking.core import CollisionChecker
+    from autorace_parking.regions import first_occupied_path_collision
+    checker=CollisionChecker(scan,config)
+    for region in scan.occupied_slots:
+        x,y,angle=region['pose']
+        assert not checker.free((x,y,angle),allow_unknown=True)
+        path=[(x-.5*math.cos(angle),y-.5*math.sin(angle),angle),
+              (x+.5*math.cos(angle),y+.5*math.sin(angle),angle)]
+        assert first_occupied_path_collision(checker,path,.02) is not None
+    # A remembered occupied layout survives temporary loss of returns.
+    held=fit_slot_map(objs[:2],config,layout)
+    assert held['locked']
+    assert sum(c['occupied'] for c in held['cells'])==5
+    assert [c['center'] for c in held['cells'] if c['eligible_empty']]==[eligible[0]['center']]
+    filled=fit_slot_map(objects(truth),config,layout)
+    assert not any(c['eligible_empty'] for c in filled['cells'])
+
+
+def test_single_empty_mode_waits_for_five_objects():
+    config=cfg(single_empty_slot=True)
+    objs,_=scene((0,2,3,5))
+    assert fit_slot_map(objs,config) is None

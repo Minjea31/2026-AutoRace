@@ -9,12 +9,15 @@ from autorace_parking.departure import lane_targets,single_reverse_route
 from autorace_parking.tracking import compose,inverse
 from autorace_parking.regions import with_occupied_slots
 from autorace_parking.diagnostics import operator_reason
+from autorace_parking.obstacle_memory import MemoryScan
 
 
 def scene():
     root=Path(__file__).resolve().parents[1]
     params=yaml.safe_load((root/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
     cfg=Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params})
+    # Exercise the optional checked planner, independent of the real profile.
+    cfg=replace(cfg,exit_collision_check_enabled=True)
     data=json.loads((root/'test/data/departure_recovery_trace.json').read_text());trace=[tuple(p) for p in data['trace']]
     pose=trace[-1];scan=Scan([math.inf]*361,-math.pi,math.pi/180,.01,12.)
     scan.points=[compose(inverse(pose),(x,y,0.))[:2] for x,y,_ in data['memory_cells']]
@@ -70,13 +73,36 @@ def test_no_route_through_a_newly_occupied_exit_corridor():
     assert not route and reason=='no_reverse_route'
 
 
-@pytest.mark.parametrize('new_obstacle',[False,True])
-def test_node_plans_departure_off_the_control_loop_and_checks_latest_map(new_obstacle):
+@pytest.mark.parametrize('margin,later_safe',[(0.,False),(.04,True)])
+def test_bag_exit_keeps_room_for_later_observed_obstacle_edges(margin,later_safe):
+    root=Path(__file__).resolve().parents[1]
+    params=yaml.safe_load((root/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
+    cfg=Settings(**{f.name:params[f.name] for f in fields(Settings) if f.name in params})
+    cfg=replace(cfg,exit_collision_check_enabled=True,exit_path_tracking_margin=margin,
+                path_clearance_weight=cfg.path_clearance_weight if margin else 0.)
+    data=json.loads((root/'test/data/departure_margin_20261110.json').read_text())
+    pose=tuple(data['pose']);trace=[tuple(p) for p in data['trace']];transform=inverse(pose)
+    def memory(points):
+        source=MemoryScan.__new__(MemoryScan)
+        source.__dict__=Scan([math.inf]*361,-math.pi,math.pi/180,.01,12.).__dict__.copy()
+        source.points=[compose(transform,(*p[:2],0.))[:2] for p in points]
+        return source
+    source=memory(data['points'])
+    route,reason=single_reverse_route(trace,pose,lane_targets(trace,pose,cfg,data['grid'],.05),source,cfg)
+    assert route and not reason
+    planned=CollisionChecker(source,replace(cfg,clearance=cfg.clearance+margin))
+    assert all(planned.free(compose(transform,p)) for p in route)
+    later=CollisionChecker(memory(data['later_points']),cfg)
+    assert all(later.free(compose(transform,p)) for p in route)==later_safe
+
+
+@pytest.mark.parametrize('obstacle_y',[None,0.,.235])
+def test_node_plans_departure_off_the_control_loop_and_checks_latest_map(obstacle_y):
     import rclpy
     from rclpy.parameter import Parameter
     from autorace_parking.node import ParkingNode
     rclpy.init();node=ParkingNode(parameter_overrides=[Parameter('localization_source',value='scan'),
-        Parameter('assume_unobserved_free',value=True)])
+        Parameter('assume_unobserved_free',value=True),Parameter('exit_path_tracking_margin',value=.04)])
     try:
         node.worker.shutdown(wait=True);pending=Future();submitted=[]
         class Worker:
@@ -90,11 +116,11 @@ def test_node_plans_departure_off_the_control_loop_and_checks_latest_map(new_obs
         node.queue_exit_plan([], (0.,0.,0.),[],scan,node.cfg)
         assert len(submitted)==1 and not pending.done()
         route=[(-i*.02,0.,0.) for i in range(51)]
-        if new_obstacle:scan.points=[(-.5,0.)]
+        if obstacle_y is not None:scan.points=[(-.5,obstacle_y)]
         pending.set_result((route,''));node.poll_exit_plan()
         assert node.exit_pending is None
-        assert node.follower.exit_route_ready is (not new_obstacle)
-        assert node.follower.exit_route_reason==('map_changed' if new_obstacle else '')
+        assert node.follower.exit_route_ready is (obstacle_y is None)
+        assert node.follower.exit_route_reason==('map_changed' if obstacle_y is not None else '')
     finally:node.destroy_node();rclpy.shutdown()
 
 

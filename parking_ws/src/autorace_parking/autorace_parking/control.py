@@ -9,8 +9,8 @@ from .core import (CollisionChecker, RecoveryCollisionChecker, Gap, cluster_poin
 from .tracking import compose, inverse
 from .enclosed import enclosed_goals
 from .targets import automatic_goals,update_geometry_goal,SEMANTIC_GOALS
-from .regions import with_occupied_slots,outside_grid
-from .departure import lane_targets,single_reverse_route
+from .regions import with_occupied_slots,outside_grid,first_path_collision
+from .departure import lane_targets,single_reverse_route,curve_only_route
 from .roi import candidate_view,contains as roi_contains
 
 
@@ -18,6 +18,57 @@ def local_goal(goal, pose):
     x, y, yaw = compose(inverse(pose), (goal.x, goal.y, goal.yaw))
     return replace(goal, x=x, y=y, yaw=yaw,
                    heading_options=tuple(wrap(a-pose[2]) for a in goal.heading_options))
+
+
+def entry_plan_settings(cfg,target,timeout=None):
+    """One footprint and entry policy for control planning and RViz planning."""
+    tolerance=target.stop_tolerance*.5 if target.stop_tolerance>0 else cfg.goal_tolerance
+    return replace(cfg,planning_timeout=cfg.planning_timeout if timeout is None else timeout,
+        require_goal_heading=True,clearance=cfg.clearance+cfg.path_tracking_margin,
+        goal_tolerance=min(cfg.goal_tolerance,tolerance),
+        resolution=min(cfg.resolution,.04),yaw_resolution=min(cfg.yaw_resolution,cfg.target_heading_step),
+        goal_yaw_tolerance=(math.pi if not cfg.require_goal_heading else min(cfg.goal_yaw_tolerance,cfg.target_heading_step*.5)),
+        allow_reverse=cfg.allow_reverse and not cfg.recovery_on_front_obstacle_only)
+
+
+def entry_motion_settings(cfg,goal=None):
+    reverse_checked=(cfg.validate_reverse_entry and cfg.auto_exit_after_parking
+                     and not cfg.max_steering_paths_only and (goal is None or goal.confirmed))
+    if reverse_checked:
+        reverse_radius=cfg.turn_radius/cfg.reverse_steering_response_scale
+        cfg=replace(cfg,min_turn_radius=max(cfg.min_turn_radius,reverse_radius),
+            path_tracking_margin=max(cfg.path_tracking_margin,cfg.exit_path_tracking_margin+cfg.entry_departure_reserve))
+    return cfg,reverse_checked
+
+
+def safe_progress_step(scan,cfg,goal,distance):
+    """A short collision-checked move while the complete route is recalculated."""
+    cfg,_=entry_motion_settings(cfg,goal)
+    checker=CollisionChecker(scan,cfg,known_free_poses=[(0.,0.,0.)])
+    curvatures=[0.]
+    if goal is not None:
+        desired=max(-1/cfg.turn_radius,min(1/cfg.turn_radius,
+            2*goal.y/max(goal.x**2+goal.y**2,.01)))
+        curvatures=[desired,0.,-1/cfg.turn_radius,1/cfg.turn_radius]
+        distance=min(distance,max(cfg.collision_step,math.hypot(goal.x,goal.y)))
+    best=None;blocked=None
+    for curvature in dict.fromkeys(curvatures):
+        if abs(curvature)>1e-8 and cfg.max_planning_turn_radius>0 and 1/abs(curvature)>cfg.max_planning_turn_radius+1e-8:
+            continue
+        if cfg.max_steering_paths_only and abs(curvature)>1e-8 and abs(abs(curvature)-1/cfg.turn_radius)>1e-8:
+            continue
+        path,valid=sample_candidate(checker,[(distance,curvature)],cfg)
+        if not valid:
+            if blocked is None:blocked=checker.last_block_detail or {'kind':checker.last_block}
+            continue
+        score=abs(curvature)
+        if goal is not None:
+            end=path[-1];remaining=math.hypot(goal.x-end[0],goal.y-end[1])
+            if remaining>=math.hypot(goal.x,goal.y)-.001:continue
+            score=remaining+.001*abs(curvature)
+        if best is None or score<best[0]:best=(score,path,curvature)
+    if best:return best[1],best[2],None
+    return [],0.,blocked or {'kind':'no_safe_progress'}
 
 
 def same_gap(goal, candidate, row_yaw):
@@ -216,6 +267,24 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
     goals = [goal] if goal is not None else visible_goals
     if cfg.slot_map_enabled and goal is not None:
         goals += [g for g in visible_goals if (g.kind,g.slot_id,g.support_ids)!=(goal.kind,goal.slot_id,goal.support_ids)]
+    if cfg.require_observed_parking_center and cfg.enclosed_space_detection:
+        def observed_center(g):
+            if g.kind not in SEMANTIC_GOALS:return True
+            if (cfg.single_empty_slot and g.slot_id>=0 and g.confirmed and len(set(g.support_ids))>=5):
+                details['single_empty_prior']=True
+                return True
+            if (cfg.fixed_slot_empty_known and g.slot_id==cfg.fixed_parking_slot_id
+                    and g.confirmed and len(set(g.support_ids))>=cfg.enclosure_confirm_objects):
+                details['fixed_empty_prior']=True
+                return True
+            return all(scan.visible(g.x+dx,g.y+dy) for dx,dy in ((0.,0.),(.06,0.),(-.06,0.),(0.,.06),(0.,-.06)))
+        visible=[g for g in goals if observed_center(g)]
+        details['unobserved_parking_centers']=len(goals)-len(visible)
+        if goals and not visible:
+            details['goal_confirmed']=False
+            details.pop('target',None)
+            if layout_hint is None:details['slot_map']=None
+        goals=visible
     details.update(input_points=len(scan.points), clusters=len(clusters), candidates=len(goals),
                    goal_reselected=goal_reselected,
                    ignored_small_clusters=scan.ignored_small_clusters, ignored_small_points=scan.ignored_small_points,
@@ -250,13 +319,6 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
         details['selected_pair'] = selected
 
     def finish(target, path, final, code):
-        pair_maps=details.pop('_pair_maps',[])
-        if target is not None and target.kind=='pair_midpoint':
-            matching=[m for m in pair_maps if set(m['support_ids'])==set(target.support_ids)]
-            if matching:
-                world=compose(origin,(target.x,target.y,0.))[:2]
-                details['slot_map']=min(matching,key=lambda m:math.dist(m['origin'],world))
-                details['target_center_method']='two_object_row_template'
         record_pair(target)
         details.update(reason_code=code, duration_s=time.monotonic()-started, path_poses=len(path))
         if (final and path and target is not None and not cfg.require_goal_heading
@@ -292,7 +354,9 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
         clearance = front_clearance(front_scan, cfg)
         details['front_clearance_m'] = clearance
         path_failure = bool(cfg.recovery_on_path_failure and failed_plans >= cfg.recovery_failure_count
-                            and (needs_reverse_for_goal(target,cfg) or (stalled_route and supported_recovery_target(target)))
+                            and (needs_reverse_for_goal(target,cfg) or (stalled_route and supported_recovery_target(target))
+                                 or (cfg.fixed_slot_empty_known and target is not None and target.confirmed
+                                     and details.get('entry_reserve_blocked')))
                             and math.hypot(target.x,target.y) > (target.stop_tolerance or cfg.goal_tolerance)
                             and code in ('budget_exceeded','no_observed_path','start_blocked'))
         details['recovery_trigger'] = 'path_failure' if path_failure else 'front_obstacle'
@@ -399,13 +463,11 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
                 continue
             remaining=deadline-time.monotonic()
             if remaining<=0:break
-            search_cfg=replace(cfg,planning_timeout=remaining/max(1,len(goals)-target_index),require_goal_heading=True,
-                clearance=cfg.clearance+cfg.path_tracking_margin,
-                goal_tolerance=min(cfg.goal_tolerance,target.stop_tolerance*.5),
-                resolution=min(cfg.resolution,.04),yaw_resolution=min(cfg.yaw_resolution,cfg.target_heading_step),
-                goal_yaw_tolerance=(math.pi if not cfg.require_goal_heading else min(cfg.goal_yaw_tolerance,cfg.target_heading_step*.5)),
-                allow_reverse=cfg.allow_reverse and not cfg.recovery_on_front_obstacle_only)
-            path=plan_path(scan,target,search_cfg,known_free_poses,clear_center)
+            search_cfg=entry_plan_settings(cfg,target,remaining/max(1,len(goals)-target_index))
+            details['entry_reserve_blocked']=any(abs(x)<=cfg.vehicle_length/2+search_cfg.clearance
+                and abs(y)<=cfg.vehicle_width/2+search_cfg.clearance for x,y in scan.points)
+            entry_scan=with_occupied_slots(scan,details.get('slot_map') or layout_hint,origin,cfg,target.slot_id)
+            path=plan_path(entry_scan,target,search_cfg,known_free_poses,clear_center)
             if path:
                 heading=min(target.heading_options,key=lambda a:abs(wrap(a-path[-1][2])))
                 return finish(replace(target,yaw=heading),path,True,'path_ready')
@@ -436,7 +498,8 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        path = plan_path(scan, target, replace(cfg, planning_timeout=remaining,
+        entry_scan=with_occupied_slots(scan,details.get('slot_map') or layout_hint,origin,cfg,target.slot_id)
+        path = plan_path(entry_scan, target, replace(cfg, planning_timeout=remaining,
                          allow_reverse=cfg.allow_reverse and not cfg.recovery_on_front_obstacle_only),
                          known_free_poses, clear_center)
         if path:
@@ -448,11 +511,61 @@ def build_plan(scan, cfg, goal=None, origin=(0., 0., 0.), diagnostics=None, know
 def build_plan_report(scan, cfg, goal=None, origin=(0., 0., 0.), known_free_poses=(), recovery_allowed=True,
                       blind_reverse_remaining=None, validate_goal=False, front_scan=None, failed_plans=0,stalled_route=False,layout_hint=None):
     """Process-worker interface with operator diagnostics and the normal plan."""
+    report_started=time.monotonic()
     details = {}
-    target, path, final = build_plan(scan, cfg, goal, origin, diagnostics=details,
+    # The entry must fit the measured reverse steering authority too.
+    cfg,reverse_checked=entry_motion_settings(cfg,goal)
+    primary_cfg=replace(cfg,planning_timeout=cfg.planning_timeout*.7) if reverse_checked else cfg
+    target, path, final = build_plan(scan, primary_cfg, goal, origin, diagnostics=details,
                                    known_free_poses=known_free_poses, recovery_allowed=recovery_allowed,
                                    blind_reverse_remaining=blind_reverse_remaining, validate_goal=validate_goal, front_scan=front_scan,
                                    failed_plans=failed_plans,stalled_route=stalled_route,layout_hint=layout_hint)
+    if reverse_checked and not path and target is None and details.get('goal_confirmed') and details.get('target'):
+        d=details['target']
+        target=Gap(d['x'],d['y'],d['yaw'],.5,0,1,confirmed=True,
+            kind=details.get('target_kind','legacy'),parking_grid=details.get('parking_grid'),
+            support_ids=tuple(details.get('support_ids',())),slot_id=details.get('slot_id',-1),
+            stop_tolerance=details.get('target_stop_tolerance',0.))
+    if (reverse_checked and not path and target is not None and target.confirmed
+            and target.kind=='enclosed_center' and not cfg.require_goal_heading
+            and cfg.parking_center_adjustment>0 and details.get('reason_code') in ('center_pose_blocked','no_observed_path','budget_exceeded')):
+        # A few centimetres inside the same bay can satisfy the departure margin.
+        # Only analytic single-arc candidates; no additional hybrid searches.
+        from .core import position_arc_candidates
+        limit=cfg.parking_center_adjustment
+        radius=max(cfg.turn_radius,cfg.preferred_turn_radius)
+        search=replace(cfg,min_turn_radius=radius,clearance=cfg.clearance+cfg.path_tracking_margin)
+        checker=CollisionChecker(scan,search,known_free_poses,inverse(origin)[:2])
+        nominal=(target.x,target.y)
+        for i in range(8):
+            if time.monotonic()-report_started>=cfg.planning_timeout:break
+            angle=i*math.pi/4
+            alternative=replace(target,x=nominal[0]+limit*math.cos(angle),
+                y=nominal[1]+limit*math.sin(angle))
+            for length,parts in position_arc_candidates(alternative,search):
+                if cfg.max_entry_path_length>0 and length>cfg.max_entry_path_length:continue
+                candidate,valid=sample_candidate(checker,parts,search)
+                if valid:
+                    target,path,final=replace(alternative,yaw=candidate[-1][2]),candidate,True
+                    details.update(reason_code='path_ready',path_poses=len(path),
+                        target_nominal_center=list(nominal),target_center_offset_m=limit,
+                        target={'x':target.x,'y':target.y,'yaw':target.yaw})
+                    break
+            if path:break
+    if reverse_checked and final and path and target is not None and target.parking_grid is not None:
+        padding=replace(cfg,clearance=cfg.clearance+cfg.exit_grid_margin)
+        details['departure_history_unverified']=not bool(known_free_poses)
+        if known_free_poses and not any(outside_grid(compose(origin,p),target.parking_grid,padding) for p in known_free_poses):
+            path,final=[],False
+            details.update(reason_code='entry_departure_unavailable',path_poses=0)
+    details['duration_s']=time.monotonic()-report_started
+    if reverse_checked and final and path and target is not None:
+        # Free geometric heading remains available to the one-arc planner;
+        # arrival confirms the actual chosen endpoint heading, not an unrelated bay yaw.
+        target = replace(target,yaw=path[-1][2],stop_tolerance=min(.015,target.stop_tolerance or cfg.center_stop_tolerance))
+        details['target']['yaw'] = target.yaw
+        details['target_stop_tolerance'] = target.stop_tolerance
+        details['reverse_entry_checked'] = True
     return {'goal': target, 'path': path, 'final': final, 'diagnostics': details}
 
 
@@ -481,6 +594,10 @@ class Follower:
         self.exit_path = []
         self.exit_route_reason = ''
         self.exit_last_plan = -math.inf
+        self.exit_plan_attempts = 0
+        self.exit_retry_started = None
+        self.exit_retry_used = 0.
+        self.exit_retry_exhausted = False
         self.exit_targets = []
         self.exit_planner = None
         self.goal = None
@@ -496,6 +613,7 @@ class Follower:
         self.exit_prepared = False
         self.exit_route_ready = True
         self.exit_started_at = None
+        self.exit_handoff_hold = False
         self.last_collision = None
         self.route_blocked = False
         self.exiting = self.exited = False
@@ -625,6 +743,41 @@ class Follower:
         c,s=math.cos(angle),math.sin(angle)
         return goal.x+c*x-s*y-x,goal.y+s*x+c*y-y
 
+    def exit_curve_complete(self, pose, final_arrival=False):
+        """Lane handoff must wait for all remaining reverse turning."""
+        if (not self.parked or not self.exiting or self.recovering or self.exited
+                or not self.path or not all(math.isfinite(x) for x in pose)):
+            return False
+        lane_yaw = self.entry_trace[0][2] if self.entry_trace else self.path[-1][2]
+        tolerance = self.cfg.exit_arrival_yaw_tolerance if final_arrival else self.exit_heading_tolerance
+        if abs(wrap(pose[2]-lane_yaw)) > tolerance:
+            return False
+        if (not self.cfg.exit_curve_only and self.goal is not None and self.goal.parking_grid is not None
+                and not outside_grid(pose, self.goal.parking_grid, self.cfg)):
+            return False
+        remaining_turn = remaining_reverse = 0.
+        reverse_endpoint = None
+        for i in range(len(self.path)-1):
+            if math.dist(self.path[i][:2], self.path[i+1][:2]) > 1e-6 and self.path_direction(i) < 0:
+                reverse_endpoint = self.path[i+1]
+        for i in range(max(0, min(self.index, len(self.path)-1)), len(self.path)-1):
+            a, b = self.path[i:i+2]
+            if math.dist(a[:2], b[:2]) < 1e-6:
+                continue
+            if self.path_direction(i) < 0:
+                remaining_reverse += math.dist(a[:2], b[:2])
+                if max(abs(wrap(a[2]-lane_yaw)), abs(wrap(b[2]-lane_yaw))) > tolerance:
+                    return False
+                remaining_turn += abs(wrap(b[2]-a[2]))
+        # Early lane handoff may omit the aligned straight tail. Independent
+        # endpoint arrival still requires the original 7 cm reverse tolerance.
+        if self.cfg.exit_curve_handoff and not final_arrival:
+            origin=self.entry_trace[0] if self.entry_trace else self.path[-1]
+            lateral=-math.sin(lane_yaw)*(pose[0]-origin[0])+math.cos(lane_yaw)*(pose[1]-origin[1])
+            return remaining_turn<=tolerance and abs(lateral)<=self.cfg.exit_lane_tolerance
+        return (remaining_turn <= tolerance and remaining_reverse <= .07
+                and (reverse_endpoint is None or math.dist(pose[:2], reverse_endpoint[:2]) <= .07))
+
     def prepare_exit(self, pose, now, scan=None):
         # Keep vehicle headings unchanged: reverse waypoint order and velocity,
         # rather than turning the vehicle by pi. Stop at the last recorded
@@ -652,6 +805,11 @@ class Follower:
         self.exit_targets=lane_targets(self.entry_trace,pose,self.cfg,grid,self.exit_heading_tolerance)
         if scan is not None and self.cfg.continuous_replanning and len(self.path)>1:
             self.rebuild_exit(pose,now,scan)
+        if self.cfg.exit_curve_only and self.exit_route_ready:
+            trimmed=curve_only_route(self.path)
+            self.exit_route_ready=bool(trimmed)
+            self.path=trimmed or [pose]
+            if not trimmed:self.exit_route_reason='single_arc_unavailable'
         self.exit_path=self.path.copy() if self.exit_route_ready else []
         self.exit_path_length = sum(math.hypot(b[0]-a[0], b[1]-a[1])
                                     for a,b in zip(self.path, self.path[1:]))
@@ -666,22 +824,42 @@ class Follower:
 
     def rebuild_exit(self,pose,now,scan):
         self.exit_last_plan=now
+        if self.exit_retry_started is None:self.exit_retry_started=now
+        if ((self.exit_plan_attempts >= self.cfg.exit_max_plan_attempts and self.exit_route_reason != 'planning')
+                or self.exit_retry_used+now-self.exit_retry_started >= self.cfg.exit_retry_timeout):
+            self.exit_route_ready=False
+            self.exit_retry_exhausted=True
+            self.exit_route_reason='retry_limit'
+            return False
         if self.measured_speed>.03:
             self.exit_route_ready=False
             self.exit_route_reason='stopping'
             return False
-        planner=self.exit_planner or single_reverse_route
-        result=planner(self.entry_trace,pose,self.exit_targets,scan,self.cfg)
+        if self.exit_route_reason != 'planning':self.exit_plan_attempts += 1
+        if self.exit_planner is not None:
+            result=self.exit_planner(self.entry_trace,pose,self.exit_targets,scan,self.cfg)
+        else:
+            result=single_reverse_route(self.entry_trace,pose,self.exit_targets,scan,self.cfg,
+                self.goal.parking_grid if self.goal is not None else None)
         if result is None:
             self.exit_route_ready=False
             self.exit_route_reason='planning'
             return False
-        return self.accept_exit_route(*result)
+        return self.accept_exit_route(*result,now=now)
 
-    def accept_exit_route(self,route,reason):
+    def accept_exit_route(self,route,reason,now=None):
+        if route and self.cfg.exit_curve_only:
+            route=curve_only_route(route)
+            if not route:reason='single_arc_unavailable'
         self.exit_route_reason=reason
         self.exit_route_ready=bool(route)
         if not route:return False
+        if self.exit_retry_started is not None:
+            stamp=now if now is not None else max(self.exit_last_plan,self.previous_sample[1] if self.previous_sample else self.exit_last_plan)
+            self.exit_retry_used+=max(0.,stamp-self.exit_retry_started)
+        # A successful short route must not replenish the departure retry budget.
+        self.exit_retry_started=None
+        self.exit_retry_exhausted=False
         self.path=route
         self.exit_path=route.copy()
         self.exit_path_length=sum(math.dist(a[:2],b[:2]) for a,b in zip(route,route[1:]))
@@ -694,6 +872,8 @@ class Follower:
     def command(self, scan, pose, new_scan=False, now=None, obstacle_scan=None):
         now = time.monotonic() if now is None else now
         self.observe_pose(pose, now, new_scan)
+        if self.exit_handoff_hold and self.exiting and not self.exited:
+            return self.stop('EXIT_LANE_STOPPING',now)
         self.lookahead_point = None
         self.lookahead_distance = self.lookahead + min(.15, self.measured_speed*.2)
         # A control tick without a new observation cannot clear an obstacle
@@ -738,6 +918,7 @@ class Follower:
             horizon = max(.25,self.measured_speed*.3+self.measured_speed**2/(2*self.deceleration))
             distance = 0.
             previous = (0.,0.,0.)
+            previous_checked=previous
             for point in self.path[self.index:]:
                 local = compose(transform,point)
                 length = math.hypot(local[0]-previous[0],local[1]-previous[1])
@@ -749,10 +930,11 @@ class Follower:
                         sample = (previous[0]+fraction*(local[0]-previous[0]),
                                   previous[1]+fraction*(local[1]-previous[1]),
                                   wrap(previous[2]+fraction*wrap(local[2]-previous[2])))
-                        if not checker.free(sample):
+                        if not checker.free(sample) or not checker.transition_free(previous_checked,sample):
                             self.last_collision=checker.last_block_detail
                             return self.stop('ROUTE_BLOCKED',now)
-                elif not checker.free(local):
+                        previous_checked=sample
+                elif not checker.free(local) or not checker.transition_free(previous_checked,local):
                     self.last_collision=checker.last_block_detail
                     return self.stop('ROUTE_BLOCKED',now)
                 distance += length
@@ -760,6 +942,10 @@ class Follower:
                 previous = local
         if self.exited:
             return self.stop('EXITED', now)
+        if self.parked and self.goal is None:
+            self.exit_route_ready = False
+            self.exit_route_reason = 'missing_parking_goal'
+            return self.stop('EXIT_PATH_ERROR', now)
         if self.parked and not self.exiting:
             if self.cfg.auto_exit_after_parking and not self.exit_prepared:
                 self.prepare_exit(pose,now,scan if obstacle_scan is None else obstacle_scan)
@@ -775,20 +961,33 @@ class Follower:
             if now-self.exit_last_plan>=1.:
                 self.rebuild_exit(pose,now,scan if obstacle_scan is None else obstacle_scan)
             if not self.exit_route_ready:return self.stop('EXIT_PATH_ERROR',now)
+        if self.exiting and len(self.path) > 1 and self.motion_direction > 0:
+            # Departure never drives a remaining forward tail. Hold parking
+            # ownership until fresh lane detection can take over after the turn.
+            return self.stop('EXIT_CONFIRMING', now)
         if self.goal is None and not self.recovering:
             return self.stop('EXIT_PATH_ERROR' if self.exiting else ('PATH_HELD' if self.path else 'PLANNING'), now)
         if self.awaiting_target_path:
             return self.stop('PATH_HELD',now)
+        if self.exiting and self.path and self.exit_route_ready:
+            # Arrival checks use current route progress, just as tracking does.
+            # A stale index used to include already traversed reverse distance
+            # and reject arrival before the ordinary progress update below.
+            upper=min(self.segment_end+1,self.index+30)
+            if upper>self.index:
+                self.index=min(range(self.index,upper),key=lambda i:math.dist(self.path[i][:2],pose[:2]))
         goal = local_goal(self.goal, pose) if self.goal is not None else None
         # The fallback planner may legally end within its configured goal
         # tolerances. A stricter controller used to reject that endpoint and
         # discard the path, leaving a forward-only replan with no solution.
         semantic = goal is not None and goal.kind in SEMANTIC_GOALS
-        position_tolerance = .07 if self.exiting else ((goal.stop_tolerance if semantic else 0.) or self.parking_position_tolerance)
+        position_tolerance = (.03 if self.cfg.exit_curve_only else .07) if self.exiting else ((goal.stop_tolerance if semantic else 0.) or self.parking_position_tolerance)
         yaw_tolerance = self.cfg.exit_arrival_yaw_tolerance if self.exiting else self.cfg.goal_yaw_tolerance
         heading_ok = goal is not None and (abs(goal.yaw) <= yaw_tolerance if self.exiting or self.require_parking_heading else True)
         if self.exiting and self.entry_trace:
             heading_ok=heading_ok and abs(wrap(pose[2]-self.entry_trace[0][2]))<=self.cfg.exit_arrival_yaw_tolerance
+        if self.exiting:
+            heading_ok = heading_ok and self.exit_curve_complete(pose, final_arrival=True)
         if semantic and not self.exiting:
             heading_ok=(not self.require_parking_heading or bool(goal.heading_options and
                         min(abs(a) for a in goal.heading_options)<=yaw_tolerance))
@@ -811,8 +1010,8 @@ class Follower:
         arrived = (not self.recovering and goal is not None and last_segment
                    and (self.exiting or self.final_approach or (not semantic and not self.require_parking_heading))
                    and math.hypot(goal.x, goal.y) <= position_tolerance and heading_ok
-                   and (not self.cfg.arrival_use_rear_axle or rear_distance<=position_tolerance)
-                   and (not self.exiting or goal.parking_grid is None or outside_grid(pose,goal.parking_grid,self.cfg)))
+                   and (self.exiting or not self.cfg.arrival_use_rear_axle or rear_distance<=position_tolerance)
+                   and (not self.exiting or self.cfg.exit_curve_only or goal.parking_grid is None or outside_grid(pose,goal.parking_grid,self.cfg)))
         if new_scan:
             self.arrival_count = self.arrival_count + 1 if arrived and self.measured_speed < .03 else 0
         if arrived:
@@ -861,7 +1060,17 @@ class Follower:
                 self.set_segment(self.segment_end)
                 self.last_drive_direction = self.motion_direction
             return self.stop('CHANGING_DIRECTION', now)
-        endpoint_threshold = min(.065, position_tolerance*.5) if self.final_approach and not self.exiting else .065
+        terminal_margin=None
+        if self.final_approach and not self.exiting and semantic and path:
+            # The planner may end short of the exact center. Its endpoint
+            # error and the braking margin must fit INSIDE arrival tolerance;
+            # assigning half the tolerance to each left a rounding deadlock.
+            endpoint_error=math.hypot(path[-1][0]-goal.x,path[-1][1]-goal.y)
+            terminal_margin=max(.001,min(.003,position_tolerance-endpoint_error-.005))
+        endpoint_threshold = (terminal_margin if terminal_margin is not None else
+                              min(.065, position_tolerance*.5) if self.final_approach and not self.exiting else .065)
+        if self.exiting and self.cfg.exit_curve_only:
+            endpoint_threshold=min(endpoint_threshold,position_tolerance*.5)
         if self.recovering:
             endpoint_threshold = .025
         minimum_met=(not self.recovering or self.recovery_start_pose is None
@@ -934,6 +1143,7 @@ class Follower:
                         steering = math.copysign(self.cfg.steering_limit,delta)
                     break
         requested_steering = steering
+        steering_speed_limit = math.inf
         if self.max_steering_rate > 0:
             dt = max(0., min(.1, now-self.last_command_time)) if self.last_command_time is not None else .05
             change = self.max_steering_rate*dt
@@ -943,6 +1153,7 @@ class Follower:
             math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(path, path[1:]))
         # Reserve a scan/control interval for actuator response before braking.
         stop_margin = min(.06, position_tolerance*.5) if self.final_approach or self.exiting else .06
+        if terminal_margin is not None:stop_margin=min(stop_margin,terminal_margin)
         if cusp or self.recovering:
             stop_margin = .01
         braking = math.sqrt((self.deceleration * .2) ** 2 +
@@ -953,7 +1164,8 @@ class Follower:
             speed = min(speed, self.cfg.recovery_speed)
         if self.max_steering_rate > 0 and abs(requested_steering-steering) > .01:
             settling_time = abs(requested_steering-steering)/self.max_steering_rate
-            speed = min(speed, .005/settling_time)
+            steering_speed_limit = (.02 if self.cfg.respect_steering_settle_speed else .005)/settling_time
+            speed = min(speed, steering_speed_limit)
         distance = 0.0
         for a, b in zip(path, path[1:]):
             segment = math.hypot(b[0] - a[0], b[1] - a[1])
@@ -965,7 +1177,8 @@ class Follower:
                 next_steering = math.atan(self.cfg.wheelbase*signed_curvature/response_scale)
                 change_time = abs(next_steering-steering)/self.max_steering_rate
                 if change_time > .05 and distance > .02:
-                    speed = min(speed, max(.02, (distance-.02)/change_time))
+                    steering_speed_limit=min(steering_speed_limit,max(.02,(distance-.02)/change_time))
+                    speed = min(speed, steering_speed_limit)
             turn_speed = self.max_yaw_rate / max(curvature, 1e-6)
             speed = min(speed, math.sqrt(turn_speed ** 2 + 2 * self.deceleration *
                                         max(0., distance - self.measured_speed * .2)))
@@ -973,7 +1186,9 @@ class Follower:
         # Apply the floor to steering-related slowdown, preserving final braking.
         cruise_limit = min(self.speed, self.cfg.recovery_speed) if direction < 0 and not self.exiting else self.speed
         yaw_limit = self.max_yaw_rate * self.cfg.wheelbase / max(abs(math.tan(steering))*response_scale, 1e-6)
-        speed = min(cruise_limit, braking, yaw_limit, max(speed, min(self.min_turn_speed, cruise_limit)))
+        speed = min(cruise_limit, braking, yaw_limit,
+                    steering_speed_limit if self.cfg.respect_steering_settle_speed else math.inf,
+                    max(speed, min(self.min_turn_speed, cruise_limit)))
         terminal=(self.cfg.require_complete_entry_path and self.final_approach and not self.exiting
                   and goal is not None and math.hypot(goal.x,goal.y)<=self.lookahead)
         if terminal:
@@ -981,10 +1196,15 @@ class Follower:
             # does not assume cruising past a goal at which we will stop.
             speed=min(speed,max(.03,(math.hypot(goal.x,goal.y)-.8*position_tolerance)/
                                     max(.2,2*self.cfg.control_preview_time)))
+        if (not self.exiting and not self.recovering and goal is not None
+                and self.cfg.terminal_approach_speed>0
+                and math.hypot(goal.x,goal.y)<=self.cfg.terminal_approach_distance):
+            speed=min(speed,self.cfg.terminal_approach_speed)
         if (self.exiting and self.exit_started_at is not None and self.cfg.exit_start_speed>0
                 and now-self.exit_started_at<self.cfg.exit_steering_settle_time):
             speed=min(speed,self.cfg.exit_start_speed)
-        if self.cfg.require_complete_entry_path and self.cfg.continuous_replanning and speed>0:
+        if (self.cfg.require_complete_entry_path and self.cfg.continuous_replanning and speed>0
+                and (not self.exiting or self.cfg.exit_collision_check_enabled)):
             checker=(RecoveryCollisionChecker if self.recovering else CollisionChecker)(scan if obstacle_scan is None else obstacle_scan,
                                      replace(self.cfg,initial_clear_radius=self.cfg.max_range+1.))
             requested=response_scale*math.tan(steering)/self.cfg.wheelbase
@@ -996,15 +1216,17 @@ class Follower:
                     horizon=min(horizon,max(0.,math.hypot(goal.x,goal.y)-position_tolerance)+
                                 self.measured_speed*.2+self.cfg.collision_step/4)
                 count=max(1,math.ceil(horizon/self.cfg.collision_step))
-                blocked=any(not checker.free(advance((0.,0.,0.),direction*horizon*i/count,curvature))
-                            for curvature in (measured,requested,(measured+requested)/2) for i in range(count+1))
+                blocked=any(first_path_collision(checker,
+                    [advance((0.,0.,0.),direction*horizon*i/count,curvature) for i in range(count+1)],
+                    self.cfg.collision_step) for curvature in (measured,requested,(measured+requested)/2))
                 if not blocked:break
                 # A reverse departure retraces the measured entry but the
                 # steering still needs time to respond. Shorten the stopping
                 # horizon only by lowering commanded speed; actual speed and
                 # the full body/occupied-cell checks remain in every trial.
-                if self.exiting and speed>.030001:
-                    speed=max(.03,speed*.75)
+                minimum=.03 if self.exiting else .04
+                if (self.exiting or self.cfg.entry_obstacle_slowdown) and not self.recovering and speed>minimum+1e-6:
+                    speed=max(minimum,speed*.5)
                     continue
                 self.last_collision=checker.last_block_detail
                 if self.exiting:

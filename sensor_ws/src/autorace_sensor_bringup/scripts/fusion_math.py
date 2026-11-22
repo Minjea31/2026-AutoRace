@@ -11,8 +11,9 @@ def rotate_vector(vector, quaternion):
 
 
 class GyroCalibration:
-    def __init__(self, duration=2., max_bias=.05):
+    def __init__(self, duration=2., max_bias=.05, max_gap=.2):
         self.duration, self.max_bias = duration, max_bias
+        self.max_gap = max_gap
         self.samples = []
         self.bias = None
 
@@ -26,6 +27,8 @@ class GyroCalibration:
             return False
         if self.samples and stamp <= self.samples[-1][0]:
             return False
+        if self.samples and stamp-self.samples[-1][0] > self.max_gap:
+            self.samples.clear()
         self.samples.append((stamp, gyro))
         if stamp-self.samples[0][0] < self.duration or len(self.samples) < 20:
             return False

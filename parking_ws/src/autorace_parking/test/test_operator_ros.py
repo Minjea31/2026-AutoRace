@@ -44,21 +44,20 @@ def test_invalid_scan_keeps_specific_korean_explanation_in_status(node):
     msg.angle_increment = .1; msg.range_min = .01; msg.range_max = 12.; msg.ranges = [1.]*20
     node.on_scan(msg); node.tick()
     result = messages[-1]
-    assert result['state'] == 'WAITING_SCAN'
-    assert result['state_text'] == '라이다 수신 대기'
+    assert result['state'] == 'WAITING_EKF'
+    assert result['state_text'] == 'EKF 대기'
     assert '좌표계' in result['reason']
     assert 'Waiting' not in result['reason']
 
 
-def test_persistent_stop_is_repeated_in_korean_after_five_seconds(node):
+def test_same_state_and_error_are_not_repeated_every_tick(node):
     logger = Mock(); node.get_logger = lambda: logger
     activate(node); node.tick()
     before = logger.info.call_count
-    node.last_operator_log_wall = time.monotonic()-5.1
     node.tick()
-    assert logger.info.call_count == before+1
-    assert '정지 이유' in logger.info.call_args.args[0]
-    assert '라이다' in logger.info.call_args.args[0]
+    assert logger.info.call_count == before
+    assert '[주차] EKF 대기' in logger.info.call_args.args[0]
+    assert '라이다' in logger.warning.call_args.args[0]
 
 
 def test_recovery_plan_without_a_target_is_accepted_and_counted(node):
@@ -102,7 +101,7 @@ def test_clock_reset_reason_survives_return_to_waiting_sign(node):
     node.status_pub = SimpleNamespace(publish=lambda m: messages.append(json.loads(m.data)))
     activate(node); node.last_now = 30.
     node.tick()
-    assert messages[-1]['state'] == 'WAITING_SIGN'
+    assert messages[-1]['state'] == 'WAITING_EKF'
     assert '시각이 뒤로' in messages[-1]['reason']
     assert not node.activation.active
 
@@ -179,5 +178,9 @@ def test_true_after_five_seconds_restarts_from_new_scan_and_replans(node):
     assert node.scan is not None
     with patch.object(node.worker,'submit',return_value=Future()) as submit:
         node.tick()
-        assert submit.call_args.args[1] is node.scan
+        # planning_scan attaches per-frame region metadata to a shallow copy.
+        # The restarted mission must still use the new scan's measurements.
+        planned_scan=submit.call_args.args[1]
+        assert planned_scan.points == node.scan.points
+        assert planned_scan.ranges == node.scan.ranges
         assert submit.call_args.args[3] is None  # Start with no old goal.

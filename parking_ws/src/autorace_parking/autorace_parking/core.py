@@ -2,7 +2,7 @@
 
 This is a local path preview, not a controller or a persistent obstacle tracker.
 Optional compact-cluster filtering affects obstacles, not raw visibility rays.
-All retained returns participate in collision checks, even isolated/noisy points.
+Obstacle collision checks are independent of the retained recognition points.
 """
 from dataclasses import dataclass, replace
 from copy import copy
@@ -10,7 +10,7 @@ import heapq
 import math
 import time
 from collections import defaultdict
-from .regions import rectangles_intersect
+from .regions import rectangles_intersect,invalid_slot_entry
 
 
 def wrap(angle):
@@ -64,6 +64,7 @@ class Settings:
     steering_preview_time: float = 0.0
     visualization_period: float = 0.10
     block_occupied_slots: bool = False
+    obstacle_collision_check_enabled: bool = True
     exit_to_grid_edge: bool = True
     exit_grid_margin: float = 0.10
     exit_lane_tolerance: float = 0.10
@@ -75,6 +76,13 @@ class Settings:
     rear_axle_offset_x: float = -0.10
     rear_axle_offset_y: float = 0.0
     slot_map_enabled: bool = False
+    slot_object_box_enabled: bool = False
+    slot_object_length: float = .322
+    slot_object_width: float = .220
+    slot_object_fit_tolerance: float = .04
+    fixed_parking_slot_id: int = -1  # front/near-lane row, middle column is 4 in a 3x2 grid
+    single_empty_slot: bool = False  # one arbitrary empty cell, require five occupied cells
+    fixed_slot_empty_known: bool = False
     slot_initial_right_only: bool = True
     slot_columns: int = 3
     slot_rows: int = 2
@@ -87,6 +95,26 @@ class Settings:
     automatic_target_selection: bool = False
     pair_fallback_enabled: bool = True
     path_tracking_margin: float = 0.0
+    path_preferred_clearance: float = 0.0
+    path_clearance_weight: float = 0.0
+    path_clearance_candidates: int = 8
+    terminal_recovery_guard_distance: float = 0.0
+    terminal_approach_distance: float = 0.0
+    terminal_approach_speed: float = 0.0
+    respect_steering_settle_speed: bool = False
+    entry_obstacle_slowdown: bool = False
+    replan_while_following: bool = True
+    exit_path_tracking_margin: float = 0.0
+    exit_collision_check_enabled: bool = True
+    parking_center_adjustment: float = 0.0
+    entry_departure_reserve: float = .01
+    require_observed_parking_center: bool = False
+    validate_reverse_entry: bool = False
+    exit_max_plan_attempts: int = 3
+    exit_retry_timeout: float = 6.0
+    exit_curve_handoff: bool = False
+    exit_curve_only: bool = False
+    prefer_arc_finish_entry: bool = False
     max_entry_path_length: float = 0.0
     boundary_tolerance: float = 0.12
     target_heading_step: float = math.pi / 36
@@ -110,6 +138,10 @@ class Settings:
     steering_track: float = 0.172
     goal_from_observed_front: bool = False
     clearance: float = 0.10
+    yellow_boundary_enabled: bool = True
+    yellow_boundary_clearance: float = 0.02  # Painted lane boundary; obstacle margin stays independent.
+    entry_via_short_edge: bool = False
+    entry_from_left_only: bool = False
     initial_clear_radius: float = 0.30
     assume_unobserved_free: bool = False
     resolution: float = 0.06
@@ -122,6 +154,7 @@ class Settings:
     max_expansions: int = 10000
     allow_reverse: bool = False
     recovery_uses_memory_map: bool = False
+    recovery_margin_escape_enabled: bool = True
     recovery_min_distance: float = 0.0
     recovery_reverse_distance: float = 0.25
     recovery_on_front_obstacle_only: bool = False
@@ -156,7 +189,7 @@ class Settings:
 
 
 class Activation:
-    def __init__(self, required=3, timeout=0.5):
+    def __init__(self, required=2, timeout=0.5):
         self.required, self.timeout = required, timeout
         self.reset()
 
@@ -376,6 +409,17 @@ def find_gaps(clusters, cfg, origin=(0., 0., 0.), diagnostics=None):
     return sorted(gaps, key=lambda g: math.hypot(g.x, g.y))
 
 
+from functools import lru_cache
+from .yellow_boundary import YellowBoundary
+
+
+@lru_cache(maxsize=32)
+def footprint_samples(half_length, half_width):
+    nx,ny=math.ceil(2*half_length/.06),math.ceil(2*half_width/.06)
+    return tuple((half_length*(2*i/nx-1),half_width*(2*j/ny-1))
+                 for i in range(nx+1) for j in range(ny+1))
+
+
 class CollisionChecker:
     def __init__(self, scan, cfg, known_free_poses=(), initial_clear_center=(0., 0.)):
         scan = scan.filtered_obstacles(cfg)
@@ -398,15 +442,17 @@ class CollisionChecker:
             self.cells[math.floor(point[0] / 0.2), math.floor(point[1] / 0.2)].append(point)
         # Sample the whole footprint, including interior: a hidden hole/occlusion
         # inside the body must not be treated as free merely because corners fit.
-        nx, ny = math.ceil(2 * self.half_length / 0.06), math.ceil(2 * self.half_width / 0.06)
-        self.samples = [(self.half_length * (2 * i / nx - 1),
-                         self.half_width * (2 * j / ny - 1))
-                        for i in range(nx + 1) for j in range(ny + 1)]
+        self.samples = footprint_samples(self.half_length,self.half_width)
+        segments = getattr(scan,'yellow_segments',()) if cfg.yellow_boundary_enabled else ()
+        self.yellow = YellowBoundary(segments) if segments else None
+        self.entry_slot=getattr(scan,'entry_slot',None) if cfg.entry_via_short_edge else None
+        self.yellow_half_length = cfg.vehicle_length/2 + cfg.yellow_boundary_clearance
+        self.yellow_half_width = cfg.vehicle_width/2 + cfg.yellow_boundary_clearance
 
     def previously_free(self, x, y):
         for ix in range(math.floor((x - self.radius) / .2), math.floor((x + self.radius) / .2) + 1):
             for iy in range(math.floor((y - self.radius) / .2), math.floor((y + self.radius) / .2) + 1):
-                for px, py, c, s in self.known_cells[ix, iy]:
+                for px, py, c, s in self.known_cells.get((ix, iy), ()):
                     dx, dy = x - px, y - py
                     if (abs(c * dx + s * dy) <= self.half_length + 1e-8 and
                             abs(-s * dx + c * dy) <= self.half_width + 1e-8):
@@ -414,6 +460,8 @@ class CollisionChecker:
         return False
 
     def occupied_free(self,pose):
+        if not self.cfg.obstacle_collision_check_enabled:
+            return True
         for region in self.occupied_slots:
             if rectangles_intersect(pose,(self.half_length,self.half_width),region['pose'],region['half_size']):
                 self.last_block='occupied_slot'
@@ -421,6 +469,16 @@ class CollisionChecker:
                     'checked_pose':list(pose),'cell_center':list(region['pose'][:2])}
                 return False
         return True
+
+    def points_inside(self,pose):
+        """Measured points inside the vehicle rectangle, including its one margin."""
+        x,y,yaw=pose;c,s=math.cos(yaw),math.sin(yaw)
+        for ix in range(math.floor((x-self.radius)/.2),math.floor((x+self.radius)/.2)+1):
+            for iy in range(math.floor((y-self.radius)/.2),math.floor((y+self.radius)/.2)+1):
+                for px,py in self.cells.get((ix,iy),()):
+                    dx,dy=px-x,py-y
+                    if abs(c*dx+s*dy)<=self.half_length and abs(-s*dx+c*dy)<=self.half_width:
+                        yield px,py
 
     def free(self, pose, allow_unknown=False):
         self.last_block = ''
@@ -431,14 +489,16 @@ class CollisionChecker:
             self.last_block = 'outside_range'
             return False
         c, s = math.cos(yaw), math.sin(yaw)
-        for ix in range(math.floor((x - self.radius) / 0.2), math.floor((x + self.radius) / 0.2) + 1):
-            for iy in range(math.floor((y - self.radius) / 0.2), math.floor((y + self.radius) / 0.2) + 1):
-                for px, py in self.cells[ix, iy]:
-                    dx, dy = px - x, py - y
-                    if abs(c * dx + s * dy) <= self.half_length and abs(-s * dx + c * dy) <= self.half_width:
-                        self.last_block = 'obstacle'
-                        self.last_block_detail={'kind':'obstacle','point':[px,py],'checked_pose':list(pose)}
-                        return False
+        if self.yellow is not None and self.yellow.crosses(x,y,c,s,self.yellow_half_length,self.yellow_half_width):
+            self.last_block='yellow_boundary'
+            self.last_block_detail={'kind':'yellow_boundary','checked_pose':list(pose)}
+            return False
+        point=(next(self.points_inside(pose),None)
+               if self.cfg.obstacle_collision_check_enabled else None)
+        if point is not None:
+            self.last_block='obstacle'
+            self.last_block_detail={'kind':'obstacle','point':list(point),'checked_pose':list(pose)}
+            return False
         if allow_unknown or self.cfg.assume_unobserved_free:
             return True  # measured obstacle checks above always take priority
         for bx, by in self.samples:
@@ -450,6 +510,13 @@ class CollisionChecker:
             if not self.scan.visible(px, py) and not self.previously_free(px, py):
                 self.last_block = 'unknown_space'
                 return False
+        return True
+
+    def transition_free(self,start,end):
+        detail=invalid_slot_entry(self.entry_slot,start,end)
+        if detail is not None:
+            self.last_block,self.last_block_detail=detail['kind'],detail
+            return False
         return True
 
 
@@ -465,7 +532,8 @@ class RecoveryCollisionChecker(CollisionChecker):
         self.original=CollisionChecker(scan,cfg,*args)
         self.physical=CollisionChecker(scan,replace(cfg,clearance=0.),*args)
         self.escape_points=[]
-        if cfg.recovery_uses_memory_map and not cfg.recovery_left_when_goal_right and self.physical.free((0.,0.,0.),allow_unknown=True):
+        if (cfg.obstacle_collision_check_enabled and cfg.recovery_margin_escape_enabled and cfg.recovery_uses_memory_map
+                and not cfg.recovery_left_when_goal_right and self.physical.free((0.,0.,0.),allow_unknown=True)):
             self.escape_points=[p for p in scan.points if p[0]>=0 and
                 abs(p[0])<=cfg.vehicle_length/2+cfg.clearance and abs(p[1])<=cfg.vehicle_width/2+cfg.clearance]
         source=copy(scan);ignored=set(self.escape_points)
@@ -496,6 +564,8 @@ class RecoveryCollisionChecker(CollisionChecker):
 
 def front_clearance(scan, cfg):
     """Nearest retained return ahead of the front bumper in the vehicle corridor."""
+    if not cfg.obstacle_collision_check_enabled:
+        return None
     scan = scan.filtered_obstacles(cfg)
     half_width = cfg.vehicle_width/2+cfg.clearance
     return min((max(0., x-cfg.vehicle_length/2) for x, y in scan.points
@@ -641,7 +711,7 @@ def sample_candidate(checker, parts, cfg):
         count = max(1, math.ceil(length / cfg.collision_step))
         for i in range(1, count + 1):
             point = advance(pose, length * i / count, curvature)
-            if not checker.free(point):
+            if not checker.free(point) or not checker.transition_free(path[-1],point):
                 return path, False
             path.append(point)
         pose = path[-1]
@@ -692,6 +762,45 @@ def arc_candidates(goal, cfg):
     return sorted(candidates, key=lambda item: item[0])
 
 
+def path_clearance_costs(paths, points, cfg, tree=None):
+    """Bounded soft costs, batched into one nearest-neighbour query.
+
+    Full swept rectangular collision checks still decide feasibility. Up to
+    48 samples and 16 neighbours per path bound the additional work.
+    """
+    if (not paths or len(points)==0 or cfg.path_clearance_weight<=0
+            or cfg.path_preferred_clearance<=cfg.clearance):
+        return [0.]*len(paths)
+    import numpy as np
+    from scipy.spatial import cKDTree
+    points=np.asarray(points,dtype=float)
+    if tree is None:tree=cKDTree(points)
+    samples=[np.asarray(path,dtype=float)[np.unique(np.linspace(0,len(path)-1,min(48,len(path)),dtype=int))]
+             for path in paths]
+    poses=np.concatenate(samples)
+    _,nearest=tree.query(poses[:,:2],k=min(16,len(points)),workers=1)
+    nearest=nearest.reshape(len(poses),-1)
+    delta=points[nearest]-poses[:,None,:2]
+    c,s=np.cos(poses[:,2,None]),np.sin(poses[:,2,None])
+    x,y=c*delta[:,:,0]+s*delta[:,:,1],-s*delta[:,:,0]+c*delta[:,:,1]
+    gaps=np.hypot(np.maximum(abs(x)-cfg.vehicle_length/2,0.),
+                  np.maximum(abs(y)-cfg.vehicle_width/2,0.)).min(axis=1)
+    deficits=np.maximum(0.,1.-gaps/cfg.path_preferred_clearance)**2
+    costs=[];offset=0
+    for sample in samples:
+        n=len(sample)
+        fade=np.minimum(1.,np.linalg.norm(sample[:,:2]-sample[-1,:2],axis=1)/.25)
+        penalty=deficits[offset:offset+n]*fade
+        lengths=np.linalg.norm(np.diff(sample[:,:2],axis=0),axis=1)
+        costs.append(float(cfg.path_clearance_weight*np.sum(lengths*(penalty[1:]+penalty[:-1])/2)))
+        offset+=n
+    return costs
+
+
+def path_clearance_cost(path,points,cfg,tree=None):
+    return path_clearance_costs([path],points,cfg,tree)[0] if len(path)>1 else 0.
+
+
 def plan_path(scan, goal, cfg, known_free_poses=(), initial_clear_center=(0., 0.)):
     """Bounded hybrid A*: Ackermann arcs with swept rectangular footprint.
 
@@ -713,6 +822,18 @@ def plan_path(scan, goal, cfg, known_free_poses=(), initial_clear_center=(0., 0.
     deadline = time.monotonic() + cfg.planning_timeout
     analytic_deadline = (time.monotonic()+cfg.planning_timeout*.45
                          if goal.kind in ('enclosed_center','pair_midpoint') else deadline)
+    if (semantic and cfg.prefer_arc_finish_entry
+            and (not cfg.require_goal_heading or cfg.goal_yaw_tolerance>=math.pi-1e-6)):
+        # Straight approach followed by one same-direction arc ending at the
+        # center. Use the existing swept body/clearance check, never a shortcut.
+        radius=max(cfg.turn_radius,cfg.preferred_turn_radius)
+        if cfg.max_planning_turn_radius>0:radius=min(radius,cfg.max_planning_turn_radius)
+        if radius>=cfg.turn_radius-1e-9:
+            arc_cfg=replace(cfg,min_turn_radius=radius)
+            for length,parts in position_arc_candidates(goal,arc_cfg):
+                if length>path_limit:continue
+                path,valid=sample_candidate(checker,parts,cfg)
+                if valid and at_goal(path[-1]):return path
     candidates=parking_candidates(goal,cfg,include_arcs=True)
     blocked_straight=None
     if semantic and cfg.prefer_straight_entry:
@@ -722,7 +843,10 @@ def plan_path(scan, goal, cfg, known_free_poses=(), initial_clear_center=(0., 0.
             if not checker.free((distance,0.,0.)):
                 blocked_straight=distance
                 break
-    for length, parts in candidates:
+    preference=((semantic or goal.kind=='departure') and cfg.path_clearance_weight>0
+                and cfg.path_preferred_clearance>cfg.clearance
+                and math.hypot(goal.x,goal.y)>.25)
+    for candidate_index,(length,parts) in enumerate(candidates):
         if length>path_limit:continue
         # Reject only at a proven colliding pose on the shared initial straight.
         # This avoids repeatedly sampling the same blocked prefix for dozens of
@@ -731,6 +855,34 @@ def plan_path(scan, goal, cfg, known_free_poses=(), initial_clear_center=(0., 0.
                 and parts[0][0]>=blocked_straight-1e-10):continue
         path, valid = sample_candidate(checker, parts, cfg)
         if valid:
+            # Start with the original feasible solution. Score only its nearby
+            # alternatives; blocked scenes and already-roomy paths add no search.
+            if preference and checker.scan.points and time.monotonic()<analytic_deadline:
+                from scipy.spatial import cKDTree
+                tree=cKDTree(checker.scan.points)
+                current_cost=path_clearance_cost(path,checker.scan.points,cfg,tree)
+                if current_cost>1e-8:
+                    side=1 if goal.y>=0 else -1
+                    base=lambda parts:candidate_cost(parts,cfg)+cfg.entry_outward_penalty*outward_excursion(parts,side)
+                    alternatives=[];previews=[]
+                    for next_length,next_parts in candidates[candidate_index+1:]:
+                        if next_length>path_limit:continue
+                        if (blocked_straight is not None and next_parts and abs(next_parts[0][1])<1e-10
+                                and next_parts[0][0]>=blocked_straight-1e-10):continue
+                        pose=(0.,0.,0.);preview=[pose]
+                        for distance,curvature in next_parts:
+                            count=max(1,math.ceil(distance/.08))
+                            preview.extend(advance(pose,distance*i/count,curvature) for i in range(1,count+1))
+                            pose=preview[-1]
+                        alternatives.append(next_parts);previews.append(preview)
+                        if len(alternatives)>=cfg.path_clearance_candidates:break
+                    costs=path_clearance_costs(previews,checker.scan.points,cfg,tree)
+                    threshold=base(parts)+current_cost
+                    ranked=sorted(((base(p)+c,p) for p,c in zip(alternatives,costs)),key=lambda item:item[0])
+                    for cost,alternative in ranked:
+                        if cost>=threshold or time.monotonic()>analytic_deadline:break
+                        improved,free=sample_candidate(checker,alternative,cfg)
+                        if free:return improved
             return path
         if time.monotonic() > analytic_deadline:
             break
@@ -780,7 +932,7 @@ def plan_path(scan, goal, cfg, known_free_poses=(), initial_clear_center=(0., 0.
                 segment = []
                 for i in range(1, samples + 1):
                     new_pose = advance(pose, direction * step * i / samples, curvature)
-                    if not checker.free(new_pose):
+                    if not checker.free(new_pose) or not checker.transition_free(segment[-1] if segment else pose,new_pose):
                         break
                     segment.append(new_pose)
                 if len(segment) != samples:

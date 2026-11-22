@@ -10,7 +10,7 @@ from autorace_parking.tracking import ScanTracker, compose, inverse
 
 
 def test_three_true_frames_start_once_until_reset_false_and_timeout_reset_counts():
-    trigger = Activation()
+    trigger = Activation(required=3)
     for value, now in [(True, 0), (True, .1), (False, .2), (True, .3), (True, .4)]:
         assert not trigger.update(value, now)
     assert not trigger.update(True, 1.1)
@@ -216,13 +216,21 @@ def test_departure_corridor_covers_only_the_travelled_area_and_live_obstacles_wi
     assert not CollisionChecker(unknown, cfg, route).free((-.5, 0., 0.))
 
 
-def test_occluded_bay_approach_starts_straight_then_turns_right():
+@pytest.mark.parametrize('partial_entry', [False, True])
+def test_occluded_bay_requires_a_full_entry_unless_partial_approach_is_explicit(partial_entry):
     from limo_parking_sim.config import load_config
     from limo_parking_sim.model import Simulation
     sim = Simulation(load_config())
-    cfg = Settings(clearance=.04)
+    cfg = Settings(clearance=.04, require_complete_entry_path=not partial_entry)
     scan = Scan(sim.scan(), sim.angles[0], sim.angles[1]-sim.angles[0], .01, 64.)
-    goal, path, final = build_plan(scan, cfg)
+    diagnostics = {}
+    goal, path, final = build_plan(scan, cfg, diagnostics=diagnostics)
+    if not partial_entry:
+        assert not path and not final
+        assert diagnostics['partial_path_rejected']
+        assert diagnostics['candidates'] > 0 and diagnostics['target']['y'] < 0
+        assert diagnostics['reason_code'] in ('no_observed_path', 'budget_exceeded')
+        return
     assert goal.y < 0 and path and not final
     first_turn = next(p for p in path if abs(p[2]) > .01)
     assert first_turn[0] > .4
@@ -309,7 +317,9 @@ def test_simulator_straight_right_entry_and_turn_reverse_without_collision():
     from limo_parking_sim.config import load_config
     from limo_parking_sim.model import Simulation
     sim = Simulation(load_config())
-    cfg = Settings(clearance=.04)
+    # This Follower-only harness intentionally exercises legacy partial entry.
+    # ParkingNode's full-entry default and forward search use the node simulator.
+    cfg = Settings(clearance=.04, require_complete_entry_path=False)
     tracker, follower = ScanTracker(), Follower(cfg)
     start = sim.x, sim.y, sim.yaw
     parked_at = exiting_at = None
@@ -441,3 +451,13 @@ def test_position_only_planner_does_not_force_an_unnecessary_right_angle():
     for a,b in zip(path,path[1:]):
         length=math.hypot(b[0]-a[0],b[1]-a[1])
         if length>1e-6:assert abs(wrap(b[2]-a[2]))/length<=2.+1e-5
+
+
+def test_default_two_true_frames_start_parking_with_false_and_gap_resets():
+    trigger = Activation()
+    assert not trigger.update(True, 0.)
+    assert not trigger.update(False, .1)
+    assert not trigger.update(True, .2)
+    assert not trigger.update(True, 1.)
+    assert trigger.update(True, 1.1)
+    assert trigger.active and trigger.generation == 1

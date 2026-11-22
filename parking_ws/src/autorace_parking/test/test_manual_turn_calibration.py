@@ -8,11 +8,12 @@ from autorace_parking.core import Settings,Gap,Scan,CollisionChecker,wrap
 from autorace_parking.control import build_plan_report
 from autorace_parking.obstacle_memory import MemoryScan
 from autorace_parking.regions import with_occupied_slots
+from recorded_profiles import fixed_empty_recording
 
 
 def profile():
     values=yaml.safe_load((Path(__file__).resolve().parents[1]/'config/parking_real.yaml').read_text())['parking_node']['ros__parameters']
-    return Settings(**{f.name:values[f.name] for f in fields(Settings) if f.name in values})
+    return fixed_empty_recording(Settings(**{f.name:values[f.name] for f in fields(Settings) if f.name in values}))
 
 
 @pytest.mark.parametrize('initial',[False,True])
