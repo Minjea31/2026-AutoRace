@@ -49,45 +49,6 @@ odom 또는 라이다가 끊기면 경로를 버리지 않고 정지하며, 같�
 
 ![parking_ws 알고리즘 개념 그림](../docs/logic/parking_ws.svg)
 
-## 입력·출력 토픽
-
-| 방향 | 토픽 | 타입 | 내용 / 연결 |
-| --- | --- | --- | --- |
-| 입력 | `/yolo/parking_sign` | `std_msgs/msg/Bool` | 주차 표지 |
-| 입력 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 흰색 바닥 표시, floor gate 활성화 시 |
-| 입력 | `/scan` | `sensor_msgs/msg/LaserScan` | 장애물·빈 칸·정합 |
-| 입력 | `/odom` | `nav_msgs/msg/Odometry` | 원시 이동·정지 검사·출차 추적 |
-| 입력 | `/localization/imu` | `sensor_msgs/msg/Imu` | 정지·방향 검사 |
-| 입력 | `/odometry/filtered` | `nav_msgs/msg/Odometry` | EKF 융합 위치, fused 모드 |
-| 입력 | `/localization/health` | `std_msgs/msg/String` | 융합 준비·최신성, fused 모드 |
-| 입력 | `/parking/approach_start` | `std_msgs/msg/Header` | lane 접근 시작 시각, fused 모드 |
-| 입력 · 조건부 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | `exit_on_lane_reacquired=true`에서만; 현재 실차 false |
-| 입력 | `/mux/active_source` | `std_msgs/msg/String` | 제어 주체 |
-| 입력 · 조건부 | `/limo_status` | `limo_msgs/msg/LimoStatus` | `manual_mode_guard=true`일 때만; 현재 실차 true |
-| 입력 · 조건부 | `/lane_fusion/target` | `std_msgs/msg/Float32MultiArray` | `exit_on_lane_reacquired=true`에서만; 현재 false, deep 발행자도 없음 |
-| 입력 · deep에서 미연결 | `/lane_fusion/yellow_boundary` | `nav_msgs/msg/Path` | 노란 경계; 현재 deep 발행자 없음 |
-| 출력 | `/mission/parking/command_03` | `ackermann_msgs/msg/AckermannDriveStamped` | 주차·정지·출차 명령 → mux |
-| 출력 | `/parking/control_state` | `std_msgs/msg/String` | 제어 준비·소유·인계 상태 → mux·PID |
-| 출력 | `/parking/active` | `std_msgs/msg/Bool` | 주차 활성 → PID·관측 |
-| 출력 | `/parking/approach_ready` | `std_msgs/msg/Header` | 접근 준비 → lane PID |
-| 출력 | `/parking/lane_handoff` | `std_msgs/msg/Header` | 출차 후 lane 인계 → mux |
-| 출력 | `/parking_start`, `/parking/ready` | `std_msgs/msg/Bool`, `std_msgs/msg/Header` | 별도 fusion PID의 준비 정지/해제; deep PID는 구독하지 않음 |
-| 출력 · 관측 | `/parking/localization/odometry`, `/parking/approach_odometry` | `nav_msgs/msg/Odometry` | 주차 위치·접근 기준 상대 위치 |
-| 출력 · 관측 | `/parking/status` | `std_msgs/msg/String` | 주차 상태·진단 |
-| 출력 · 관측 | `/parking/path` | `nav_msgs/msg/Path` | 주차·출차 경로 |
-| 출력 · 관측 | `/parking/obstacle_memory` | `sensor_msgs/msg/PointCloud2` | 누적 장애물 지도 |
-| 출력 · 관측 | `/parking/obstacles`, `/parking/target`, `/parking/slot_map`, `/parking/candidate_roi`, `/parking/lookahead` | `visualization_msgs/msg/MarkerArray` | 장애물·목표·칸·ROI·추종점 |
-| 출력 · 관측 | `/parking/ldf` | `std_msgs/msg/Float32` | 추종 전방 거리 |
-
-위 미연결 입력은 노드가 구독을 만들더라도 현재 deep 실행에서 데이터가 오지 않는다는 뜻입니다.
-
-| 서비스 | 방향 | 타입 | 내용 |
-| --- | --- | --- | --- |
-| `/parking/reset` | 제공 | `std_srvs/srv/Trigger` | 미션 초기화 |
-| `/set_pose` | 호출 | `robot_localization/srv/SetPose` | 시작 시 EKF 자세 설정 |
-| `/localization/calibrate_gyro` | 조건부 호출 | `std_srvs/srv/Trigger` | `parking_calibration_stop` 활성화 시 정지 자이로 보정 |
-| `/<steering_driver_node>/get_parameters` | 선택 조회 | `rcl_interfaces/srv/GetParameters` | 드라이버 조향 보정 설정 조회 |
-
 ## References
 
 - [1] Y. Chen, G. Medioni, **Object Modeling by Registration of Multiple Range Images**, ICRA, 1991. [논문](https://graphics.stanford.edu/courses/cs164-09-spring/Handouts/paper_chenmedioni.pdf). 법선 방향 거리 최소화에 기반한 정합의 관련 연구입니다. 본 코드는 2D 점-직선 정합과 EKF/이동량 제약을 사용합니다.
@@ -182,65 +143,6 @@ rviz2 -d ~/2026-AutoRace/parking_ws/parking_real.rviz
 분석·검증 도구는 `tools/`, 회귀 테스트는 `src/autorace_parking/test/`에 있습니다.
 시뮬레이터 사용법은 [simul 문서](../simul/README.md)를 참고하세요.
 
-
-## 2026-11-10: 정지 보정과 가벼운 오류 복구
-
-실차 설정은 EKF 30 Hz / 제어 20 Hz를 유지합니다. EKF 노드를 주차 감지 때
-재시작하지 않습니다. 차선 PID에서 표지 2회 확인 시 접근 이벤트를 발행하고 정지합니다.
-parking은 `/localization/calibrate_gyro`를 감지당 한 번만 호출합니다.
-휠 정지 상태의 연속 2초 자이로 보정, 새 보정 세대의 정상 health 2개,
-그 이후 최신 EKF 위치를 모두 확인해야 `/parking/approach_ready`를 발행합니다.
-이 신호는 원래 접근 이벤트 시각과 정확히 일치해야 차선 PID가 수락합니다.
-보정 대기·실패 중에는 주차 mux 입력으로도 0 속도를 계속 발행합니다.
-준비 후 정지 입력을 명시적으로 해제하고 0.3 m/s 접근 제한을 10초간 적용합니다.
-바닥 흰선에 의한 주차 시작도 보정 준비 이후에만 허용됩니다.
-
-`parking_calibration_timeout` 기본 10초가 지나면 FAILED 상태로 남습니다.
-표지를 계속 보거나 늦은 health/서비스 응답이 와도 자동 재시도·출발하지 않습니다.
-차량을 정지시킨 후 `/parking/reset`을 명시적으로 호출하면 현재 접근에 대해 1회 재시도합니다.
-실차 프로필의 `parking_calibration_stop: true`는 parking과 두 lane PID 설정에 함께 적용해야 합니다.
-
-`localization_preserve_timeout: 1.0`은 짧은 단절에 정지한 채 기존 지도·경로를 보존합니다.
-최신 위치 2개와 단절 후 라이다 정합이 확인돼야 재개합니다. 위치 급변·잘못된 좌표계는
-기존과 같이 전체 재매칭하며, 긴 단절도 이전 지도를 폐기합니다.
-중복·역순 위치는 최신 정상 입력을 덮어쓰거나 지도를 초기화하지 않습니다.
-고정 키프레임의 cKDTree를 재사용하고, 스캔 군집 결과도 기억 지도 갱신에 재사용합니다.
-
-칸을 아직 찾지 못했지만 위치·라이다가 정상인 경우 `search_enabled: true`로 전진 탐색합니다.
-탐색은 0.10 m/s, 관측된 직진 차체 통로에 한하며, 새 장애물·미관측 구간·오래된 스캔에는 정지합니다.
-`no_observed_path`처럼 주차 경로가 없는 경우에도 이 저속 탐색을 사용합니다.
-기본 런치의 `parking.yaml`도 저속 탐색을 활성화하며, 노드 기본값은
-`require_complete_entry_path: true`입니다. 주차 끝까지 이어진 경로가 없는 상태에서
-부분 경로로 먼저 꺾어 들어가면 이후 전진 탐색도 막힐 수 있으므로, 전체 경로를
-확보하기 전에는 차로를 따라 관측된 직진 통로에서 탐색합니다. `SEARCH_LIMIT`의
-20초·1.5m 한도와 미관측 구간 정지는 유지합니다.
-확인할 전방 길이는 최소 15cm이며, 명령 속도와 실제 속도 중 큰 값의 센서·제어 지연 및
-제동 거리가 더 길면 그만큼 늘립니다. 이미 추종 중인 유효 경로는 탐색 명령으로 덮어쓰지 않습니다.
-탐색 한도는 `search_max_distance: 1.5` m와 `search_timeout: 20.0`초입니다.
-경로를 아직 확보하지 못한 채 한도에 도달하면 SEARCH_LIMIT을 표시하고 자동 계획 반복을 중단합니다.
-검증된 전진 경로를 수락하면 해당 탐색 구간의 시간·거리 예산과 통로 관측 캐시를 종료합니다.
-이전 탐색 한도는 확보한 경로의 장애물 정지 뒤 재계획·후진 복구를 막지 않습니다.
-이후 별도 탐색이 필요하면 최신 통로 관측과 새 예산을 요구하며, 센서 오류 복구만으로 진행 중인
-탐색 예산을 새로 주지는 않습니다. 새 미션/명시적 reset은 기존처럼 탐색을 초기화합니다.
-정지 여부는 두 스캔 사이의 휠·IMU 속도 기록까지 확인합니다. 스캔 도착 순간에 멈췄더라도
-그 사이의 짧은 전진 이동량을 버리지 않아 도착 확인 중 위치가 고정되는 현상을 방지합니다.
-로컬 폐루프 검증은 `tools/check_parking_search_sim.py`로 실행합니다. ROS 환경과 주차·시뮬레이터
-의존성을 준비한 뒤 `ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=187 python3 parking_ws/tools/check_parking_search_sim.py
---limited-view --fail-planning-for 2 --output /tmp/parking_search.json`을 사용합니다.
-이 검증은 논리 시계와 동기 계획을 쓰고 시작 보정을 생략하므로 실차 검증과 구분합니다.
-10 cm 안전 여유에서 들어갈 수 없는 과거의 좁은 배치는 공간 존재 여부와 별도로 거부합니다.
-
-최종 출차 도착은 exit_arrival_yaw_tolerance로 판정하며, 차선으로 일찍 제어권을 넘기는
-엄격한 exit_heading_tolerance와 구분합니다. 차선 인계의 회전 완료 검사는 유지합니다.
-
-검증 도구:
-- `tools/validate_approach_pipeline.py`: 격리 ROS 도메인에서 실제 C++ EKF·차선 PID·mux와 보정/실패/수동 재시도 검증.
-- `tools/check_parking_bag_model.py --through-exit`: bag 장애물 스냅샷의 폐루프 주차·출차 모형 검증.
-  `--clearance`는 검증에서만 사용하는 명시적 여유 변경이며 실차 설정을 수정하지 않습니다.
-- bag 센서 재생만으로는 새 제어의 실차 성공을 입증할 수 없습니다. 장애물 모델과 실차 결과를 구분합니다.
-
-정지 보정 모드에서는 cooldown이 지나도 같은 표지를 계속 보면 재보정하지 않습니다.
-다음 접근은 표지가 parking_slowdown_max_gap(기본 0.5초) 이상 사라졌다가 다시 2회 감지되어야 합니다.
 
 ## 2026-11-10 진입 경로와 종단 복구 보정
 

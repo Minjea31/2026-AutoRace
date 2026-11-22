@@ -8,25 +8,6 @@ ROS 2 Humble의 `autorace_slow` 패키지입니다. YOLO Bool 두 개와 lane �
 
 ![slow_ws 알고리즘 개념 그림](../docs/logic/slow_ws.svg)
 
-## 입력·출력 토픽
-
-| 방향 | 토픽 | 타입 | 내용 / 연결 |
-| --- | --- | --- | --- |
-| 입력 | `/yolo/slow_sign` | `std_msgs/msg/Bool` | 서행 표지 |
-| 입력 | `/yolo/bump_sign` | `std_msgs/msg/Bool` | 방지턱 표지, 현재 YOLO 발행 비활성 |
-| 입력 | `/lane_deep/zigzag` | `std_msgs/msg/UInt8` | 0=없음, 1=한쪽, 2=양쪽; zigzag 활성화 시 |
-| 입력 | `/yolo/crosswalk_sign` | `std_msgs/msg/Bool` | 지그재그 종료/재시작 억제 조건 |
-| 입력 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 표지판 이후 새 흰색 ROI |
-| 입력 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 조향·명령 유효성 |
-| 입력 | `/start_crosswalk`, `/start_signal` | `std_msgs/msg/Bool` | 횡단보도·신호등으로 제어 인계 |
-| 출력 | `/mission/slow/command_04` | `ackermann_msgs/msg/AckermannDriveStamped` | 감속 명령 → mux |
-| 출력 | `/slow/mission_active` | `std_msgs/msg/Bool` | 서행/방지턱 활성 → objavoid·웹 |
-| 출력 · 관측 | `/slow/white_roi/detected` | `std_msgs/msg/Bool` | 흰색 ROI 판정 |
-| 출력 · 관측 | `/slow/white_roi/ratio` | `std_msgs/msg/Float32` | 흰색 픽셀 비율 |
-| 출력 · 관측 | `/slow/white_roi/debug/compressed` | `sensor_msgs/msg/CompressedImage` | ROI 미리보기, 구독자가 있을 때 |
-
-`/lane_fusion_node/get_parameters`(`rcl_interfaces/srv/GetParameters`)로 HSV 값을 선택 조회합니다. 현재 deep 실행에서는 YAML 초기값을 사용합니다.
-
 ## References
 
 - [1] OpenCV, [Thresholding Operations using inRange](https://docs.opencv.org/4.x/da/d97/tutorial_threshold_inRange.html). HSV 마스크 연산 자료이며, 서행 상태기계와 지그재그 인계 정책은 자체 구현입니다.

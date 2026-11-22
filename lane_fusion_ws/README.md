@@ -18,39 +18,6 @@ MobileNetV3 + U-Net으로 차선을 분할하고, BEV 경계 추적과 중앙 �
 
 ![lane_fusion_ws 알고리즘 개념 그림](../docs/logic/lane_fusion_ws.svg)
 
-## 입력·출력 토픽
-
-### 현재 deep 모드
-
-| 방향 / 노드 | 토픽 | 타입 | 내용 / 연결 |
-| --- | --- | --- | --- |
-| 입력 · deep_mask | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 카메라 영상 |
-| 출력 · deep_mask → deep_lite·objavoid | `/lane_fusion/deep_mask` | `sensor_msgs/msg/Image` | `mono8`: 0=배경, 1=노랑, 2=흰색 |
-| 입력 · deep_lite | `/odom` | `nav_msgs/msg/Odometry` | 이전 경로의 이동 보정 |
-| 출력 · deep_lite | `/lane_deep/target` | `std_msgs/msg/Float32MultiArray` | 차선 기하·목표점 → lane_ws PID |
-| 출력 · deep_lite | `/lane_deep/zigzag` | `std_msgs/msg/UInt8` | 0/1/2 지그재그 판정 → slow |
-| 출력 · deep_lite | `/lane_deep/debug` | `sensor_msgs/msg/Image` | BEV 관측, `debug=true`일 때 |
-
-`/lane_fusion/deep_mask`는 시각화 전용이 아니라 차선·장애물 회피의 실제 인지 입력입니다. PID 입출력은 [lane_ws](../lane_ws/README.md#입력출력-토픽)에 정리합니다.
-
-### fusion 모드에서만 추가되는 연결
-
-| 방향 / 노드 | 토픽 | 타입 | 내용 |
-| --- | --- | --- | --- |
-| 입력 · fusion 인식 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | HSV 인식 영상 |
-| 입력 · fusion 인식 | `/lane_fusion/deep_mask` | `sensor_msgs/msg/Image` | 딥 경계 후보 |
-| 입력 · fusion 인식 | `/odom`, `/imu` | `nav_msgs/msg/Odometry`, `sensor_msgs/msg/Imu` | 지연된 마스크·유지 경로 이동 보정 |
-| 입력 · fusion 인식 | `/cone_lane/exit_lane_active` | `std_msgs/msg/Bool` | 콘 탈출 시 경계 역할 판단 보조 |
-| 출력 · fusion 인식 → fusion PID | `/lane_fusion/target` | `std_msgs/msg/Float32MultiArray` | 융합 차선 기하 |
-| 출력 · fusion 인식 | `/lane_fusion/yellow_boundary` | `nav_msgs/msg/Path` | 주차가 구독하는 노란 경계 |
-| 출력 · fusion 인식 | `/lane_fusion/debug` | `sensor_msgs/msg/Image` | `debug=true` 관측 영상 |
-| 입력 · fusion PID | `/parking_start` | `std_msgs/msg/Bool` | 주차 준비 정지 |
-| 입력 · fusion PID | `/parking/ready` | `std_msgs/msg/Header` | 주차 준비 완료 |
-| 출력 · fusion PID | `/mission/lane`, `/lane_fusion_pid/command` | `ackermann_msgs/msg/AckermannDriveStamped` | 차량 후보 / 관측 명령, 전자는 차량 출력 활성화 시 |
-| 출력 · fusion PID | `/lane_fusion_pid/state` | `std_msgs/msg/Float32MultiArray` | 제어 상태 |
-
-현재 deep 모드에서는 `/lane_fusion/target`, `/lane_fusion/yellow_boundary`, `/lane_fusion/debug`의 발행자가 없습니다. `/lane_fusion/fork_debug`도 현재 인식 노드에서 발행하지 않습니다.
-
 ## References
 
 - [1] O. Ronneberger, P. Fischer, T. Brox, **U-Net: Convolutional Networks for Biomedical Image Segmentation**, MICCAI, 2015. [논문](https://arxiv.org/abs/1505.04597). Skip connection을 사용하는 분할 디코더의 배경입니다.

@@ -8,21 +8,6 @@ ROS 2 Humble의 `autorace_crosswalk` 패키지입니다. `slow_ws`와 같은 흰
 
 ![crosswalk_ws 알고리즘 개념 그림](../docs/logic/crosswalk_ws.svg)
 
-## 입력·출력 토픽
-
-| 방향 | 토픽 | 타입 | 내용 / 연결 |
-| --- | --- | --- | --- |
-| 입력 | `/yolo/crosswalk_sign` | `std_msgs/msg/Bool` | 횡단보도 표지 감지 |
-| 입력 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 새 흰색 바닥 표시 검사 |
-| 입력 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 정지 중 유지할 차선 조향 |
-| 출력 | `/mission/crosswalk/command_01` | `ackermann_msgs/msg/AckermannDriveStamped` | 정지 명령 → mux |
-| 출력 | `/start_crosswalk` | `std_msgs/msg/Bool` | 첫 정지 시작 true → slow |
-| 출력 · 관측 | `/crosswalk/white_roi/detected` | `std_msgs/msg/Bool` | 흰색 ROI 판정 |
-| 출력 · 관측 | `/crosswalk/white_roi/ratio` | `std_msgs/msg/Float32` | 흰색 픽셀 비율 |
-| 출력 · 관측 | `/crosswalk/white_roi/debug/compressed` | `sensor_msgs/msg/CompressedImage` | ROI 미리보기, 구독자가 있을 때 |
-
-`/<lane_white_node>/get_parameters`(`rcl_interfaces/srv/GetParameters`, 기본 `/lane_fusion_node/get_parameters`)로 HSV 값을 조회할 수 있습니다. 현재 deep 실행에는 그 서버가 없으므로 lane YAML의 초기값을 사용합니다.
-
 ## References
 
 - [1] OpenCV, [Thresholding Operations using inRange](https://docs.opencv.org/4.x/da/d97/tutorial_threshold_inRange.html). HSV 범위로 흰색 마스크를 만드는 기본 연산이며, 정지 상태기계는 자체 구현입니다.
@@ -47,15 +32,6 @@ ROS 2 Humble의 `autorace_crosswalk` 패키지입니다. `slow_ws`와 같은 흰
 - 흰색 ROI 감지를 추가하며, 선 모양 판별·표지판 수신 시간 초과는 추가하지 않습니다. 정지 완료 후 10초가 지나면 자동으로 재감지를 허용합니다.
 - launch에서 `use_sim_time`을 지원하며 기본값은 기존 미션과 동일하게 true로 둡니다. 3초 측정에는 steady clock을 사용합니다.
 - README에 빌드·실행·토픽·수동 시험 방법을 기록합니다.
-
-### 검증 기준
-
-- true 1회에는 발행하지 않고, 연속 2회 이후 새 흰색 감지가 있어야 정지하는지 확인합니다.
-- true → false → true에서는 정지를 시작하지 않는지 확인합니다.
-- 조향 `0.2`, 속도 `1.0` 입력이 조향 `0.2`, 속도 `0.0`으로 출력되며, 정지 중 새 lane 조향도 반영되는지 확인합니다.
-- 정지 중 false에도 3초를 완료하고, 완료 후 10초 동안 감지를 무시하며, 이후 새 표지판·흰색 조건이 모두 충족될 때만 재정지하는지 확인합니다.
-- 표지판 확인 전 촬영·중복·오래된 영상·과도한 미래 시각·디코딩 실패 영상이 정지를 시작시키지 않는지 확인합니다.
-- ROS 영상·명령 토픽 연동과 패키지 빌드를 확인합니다.
 
 ### 전제
 

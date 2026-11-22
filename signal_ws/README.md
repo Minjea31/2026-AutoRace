@@ -8,21 +8,6 @@ ROS 2 Humble의 `autorace_signal` 패키지입니다. [신호·미션 토픽 규
 
 ![signal_ws 알고리즘 개념 그림](../docs/logic/signal_ws.svg)
 
-## 입력·출력 토픽
-
-| 방향 | 토픽 | 타입 | 내용 / 연결 |
-| --- | --- | --- | --- |
-| 입력 | `/yolo/signal` | `std_msgs/msg/Bool` | 빨강 false / 초록 true |
-| 입력 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 새 흰색 바닥 ROI |
-| 입력 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 정지 중 유지할 조향 |
-| 출력 | `/mission/signal/command_02` | `ackermann_msgs/msg/AckermannDriveStamped` | 정지 명령 → mux |
-| 출력 | `/start_signal` | `std_msgs/msg/Bool` | 첫 정지 시작 true → slow |
-| 출력 · 관측 | `/signal/white_roi/detected` | `std_msgs/msg/Bool` | 흰색 ROI 판정 |
-| 출력 · 관측 | `/signal/white_roi/ratio` | `std_msgs/msg/Float32` | 흰색 픽셀 비율 |
-| 출력 · 관측 | `/signal/white_roi/debug/compressed` | `sensor_msgs/msg/CompressedImage` | ROI 미리보기, 구독자가 있을 때 |
-
-HSV 파라미터는 `/lane_fusion_node/get_parameters`(`rcl_interfaces/srv/GetParameters`,노드명 변경 가능)로 선택 조회합니다. 현재 deep 실행에서는 서버가 없어 YAML 초기값을 사용합니다.
-
 ## References
 
 - [1] OpenCV, [Thresholding Operations using inRange](https://docs.opencv.org/4.x/da/d97/tutorial_threshold_inRange.html). 흰색 ROI의 HSV 임계값 처리 참고 자료입니다. 신호 상태기계는 자체 구현입니다.

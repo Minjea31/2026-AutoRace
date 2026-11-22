@@ -8,30 +8,6 @@ LiDAR 장애물과 딥 차선 마스크로 통과 가능한 틈을 구합니다.
 
 ![objavoid_ws 알고리즘 개념 그림](../docs/logic/objavoid_ws.svg)
 
-## 입력·출력 토픽
-
-| 방향 | 토픽 | 타입 | 내용 / 연결 |
-| --- | --- | --- | --- |
-| 입력 | `/scan` | `sensor_msgs/msg/LaserScan` | 장애물·통과 공간 관측 |
-| 입력 | `/odom` | `nav_msgs/msg/Odometry` | 차량 이동 |
-| 입력 | `/imu` | `sensor_msgs/msg/Imu` | 방향 적분, 현재 car06의 `yaw_source=imu` |
-| 입력 | `/lane_fusion/deep_mask` | `sensor_msgs/msg/Image` | 노란 경계·흰색 시작 조건, 차선 사용 시 |
-| 입력 | `/yolo/LR_sign` | `std_msgs/msg/Bool` | false=왼쪽/A, true=오른쪽/B |
-| 입력 | `/yolo/LR_detail` | `std_msgs/msg/Float32MultiArray` | 확정 표지판 박스·촬영 시각 |
-| 입력 | `/limo_status` | `limo_msgs/msg/LimoStatus` | 수동/자동 제어 모드 |
-| 입력 | `/mux/active_source` | `std_msgs/msg/String` | 실제 제어 주체 |
-| 입력 | `/slow/mission_active` | `std_msgs/msg/Bool` | 서행 중 시작 차단 |
-| 입력 | `/mission/slow/command_04` | `ackermann_msgs/msg/AckermannDriveStamped` | 최근 서행 명령 확인 |
-| 입력 · 외부 | `/objavoid_v3/activate` | `std_msgs/msg/Bool` | 수동 시작/중지 |
-| 입력 · 조건부 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | `fork_shape=true`에서만 구독; 현재 car06은 false |
-| 출력 · 통합 실행 | `/mission/objavoid/command_05` | `ackermann_msgs/msg/AckermannDriveStamped` | 회피 명령 → mux |
-| 출력 · 상태 | `/objavoid_v3/active`, `/objavoid_v3/done`, `/objavoid_v3/entrance_armed`, `/objavoid_v3/has_control` | `std_msgs/msg/Bool` | 활성·완료·입구 준비·제어 소유 |
-| 출력 · 상태 | `/objavoid_v3/state` | `std_msgs/msg/String` | 미션 상태·진단 |
-| 출력 · 관측 | `/objavoid_v3/markers` | `visualization_msgs/msg/MarkerArray` | 장애물·후보·경로 표시 |
-| 출력 · 관측 | `/objavoid_v3/path` | `nav_msgs/msg/Path` | 선택 경로 |
-
-단독 launch의 명령 기본값은 `/objavoid_v3/cmd`이며 통합 launch가 `/mission/objavoid/command_05`로 바꿉니다. `/start_crosswalk`는 현재 C++ 노드의 구독 토픽이 아닙니다.
-
 ## References
 
 - [1] M. Werling, J. Ziegler, S. Kammel, S. Thrun, **Optimal Trajectory Generation for Dynamic Street Scenarios in a Frenet Frame**, ICRA, 2010. [KIT 서지](https://publikationen.bibliothek.kit.edu/1000138243), [DOI](https://doi.org/10.1109/ROBOT.2010.5509799). 프레네 좌표와 다항식 궤적 생성의 관련 연구이며, 본 구현은 동적 교통 궤적 최적화 전체를 재현하지 않습니다.
@@ -204,21 +180,6 @@ ros2 topic pub --once /objavoid_v3/activate std_msgs/msg/Bool "{data: true}"
 | `boundary` / `section_end` | 사전 도로 경계, 구간 끝 |
 | `state` | `RUN/STOP/DONE: 원인`, 재계획 수, 통과 수 |
 
-## 4. 테스트 도구
-
-| 명령 | 내용 |
-| --- | --- |
-| `PYTHONNOUSERSITE=1 PYTHONPATH=src/autorace_objavoid_v3 python3 -m pytest -q src/autorace_objavoid_v3/test` | 단위 테스트 13개(5차식 경계조건, SAT 간격, Gap 폭 필터, 최소 크기 보정, 연속 차량 분리, 관측 격자, PD 수렴, YAML 일치) |
-| `PYTHONNOUSERSITE=1 bash -c 'source ../simul/env.sh >/dev/null && python tools/offline_sim.py scenarios/*.yaml'` | 개발용 빠른 폐루프(시뮬 운동·LiDAR 모델 import, ROS 없음, 시나리오당 3~8 s) |
-| `python3 tools/run_sim_tests.py --suite all` | **최종 검증**: headless Panda3D + 어댑터 + 실제 노드 + 평가기, 시험마다 격리 도메인(83~87) |
-| `python3 tools/run_sim_tests.py --suite compare --impl test\|team` | 같은 시나리오·평가기로 `objavoid_test`(worktree 설치본) / `objavoid_ws`(소스) 실행 |
-| `PYTHONNOUSERSITE=1 bash -c 'source ../simul/env.sh >/dev/null && python tools/bench.py'` | 계산 시간 벤치마크(무작위 7대 1000회, 최악값 포함) |
-| `python3 tools/make_scenarios.py` / `python3 tools/gen_config.py` | 시나리오 맵 생성(원본 맵 복사 후 장애물만 교체) / YAML 재생성 |
-
-- 고장 주입: `tools/fault_injector.py`. 스캔 누락 확률, 스캔·odom 차단 구간, 지연, 특정 영역 LiDAR 숨김(새 장애물 등장)을 넣는다.
-- 평가: `tools/evaluator.py`. 정답 자세로 차체-장애물 최소 거리, 노란선 여유, 충돌, 조향·조향률·진동, 명령 주기를 잰다.
-
-
 ## 중앙 섬 매핑 및 표지판 관측 회전 (C++ / car04)
 
 `fork_shape: true`는 노란 마스크+원본 HSV 관측으로 길이 1.687m, 폭 0.500m의 대칭 섬을 맞춥니다.
@@ -253,27 +214,6 @@ Ctrl+C로 이 실행에서 만든 프로세스만 종료합니다. 한 번만 �
 외곽선 후보를 제외하고 차량과 겹치는 가설은 거부합니다. 관측이 계속 맞지 않으면 확정을 풀고 재탐색합니다.
 일관된 새 관측은 위치·방향에 점진적으로 반영하며 짧은 가림에서는 기존 위치를 유지합니다.
 bag의 차량은 새 명령을 따라 움직이지 않으므로 인식·계획 검증에 사용합니다.
-
-### 빌드·검증
-
-```bash
-bash scripts/build.sh
-source /opt/ros/humble/setup.bash
-colcon test --packages-select autorace_objavoid_v3_cpp
-colcon test-result --verbose
-/usr/bin/python3 tools/validate_fork_replay.py ~/AutoRace_bag/rosbag2_2026_11_16-*/
-```
-
-재생용 Python은 `.replay-venv`의 시스템 Python 3.10과 ONNX Runtime을 사용합니다.
-모델은 기존 `lane_fusion_ws` ONNX를 사용하며 기존 전역 Python 환경은 변경하지 않습니다.
-
-도면 기준 형상은 obj 활성화부터 표시하고, 기존 외곽선·점선 정렬을 시작부터 사용합니다.
-섬 맞춤도 초반부터 시도하지만 시야 밖의 섬을 관측했다고 간주하지 않습니다.
-회색 섬은 도면상 초기 기준, 실제 관측점에 맞춘 육각형은 별도의 추정 결과입니다.
-평행선만으로 앞뒤 위치는 확정할 수 없으며 odom으로 이어가고 꼭짓점·사선 관측으로 보정합니다.
-저장소의 `simul/src/limo_parking_sim/assets/track_geometry.json`은 전체 CAD 참조 자료이며,
-현 구현은 전체 트랙의 절대 좌표를 복구하는 SLAM이 아니라 obj 활성화 기준의 국소 정합입니다.
-
 
 ### 노란 진입로 형상으로 자동 시작
 

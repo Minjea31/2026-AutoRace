@@ -8,15 +8,6 @@ ROS 영상과 OpenCV 행렬을 변환하고, 카메라 영상의 압축·복원�
 
 ![camera_compat_ws 알고리즘 개념 그림](../docs/logic/camera_compat_ws.svg)
 
-## 입력·출력 토픽
-
-이 워크스페이스 자체에는 독립 실행되는 주행 노드나 고정 토픽이 없습니다. 현재 시스템에서 라이브러리를 사용하는 영상 흐름은 다음과 같습니다.
-
-| 구분 | 토픽 / 데이터 | 타입 | 역할 |
-| --- | --- | --- | --- |
-| 영상 원본 | `/camera/color/image_raw` | `sensor_msgs/msg/Image` | 카메라 노드의 ROS 영상 ↔ OpenCV 변환 |
-| 압축 전송 | `/camera/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | 카메라 노드가 발행하고 인지 노드가 복원 |
-
 ## References
 
 학습·주행 알고리즘 논문 대신 사용하는 라이브러리의 원본을 참고합니다.

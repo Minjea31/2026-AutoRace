@@ -8,24 +8,6 @@ LiDAR 점을 군집화해 콘 후보를 찾고 좌우 경계를 연결합니다.
 
 ![cone_ws 알고리즘 개념 그림](../docs/logic/cone_ws.svg)
 
-## 입력·출력 토픽
-
-| 방향 | 토픽 | 타입 | 내용 / 연결 |
-| --- | --- | --- | --- |
-| 입력 | `/scan` | `sensor_msgs/msg/LaserScan` | 콘 후보 거리값 |
-| 입력 · TF | `/tf`, `/tf_static` | `tf2_msgs/msg/TFMessage` | 센서 변환·경로 메모리 좌표 변환 |
-| 입력 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 탈출 시 차선 명령 |
-| 입력 | `/mux/active_source` | `std_msgs/msg/String` | 실제 제어 주체 |
-| 출력 | `/mission/cone/command_06` | `ackermann_msgs/msg/AckermannDriveStamped` | 콘 경로 명령 → mux |
-| 출력 | `/cone_lane/exit_lane_active` | `std_msgs/msg/Bool` | 탈출 상태 → fusion 모드의 차선 인식 |
-| 출력 | `/cone_lane/control_status` | `visualization_msgs/msg/Marker` | 제어 상태 표시·bringup 시작 검사 |
-| 출력 · 관측 | `/cone_lane/roi_marker`, `/cone_lane/roi_points` | `visualization_msgs/msg/Marker` | ROI 경계·점 |
-| 출력 · 관측 | `/cone_lane/clusters`, `/cone_lane/cone_centers` | `visualization_msgs/msg/MarkerArray` | 군집·후보 중심 |
-| 출력 · 관측 | `/cone_lane/boundaries`, `/cone_lane/control_points` | `visualization_msgs/msg/MarkerArray` | 좌우 경계·제어 기준점 |
-| 출력 · 관측 | `/cone_lane/center_path`, `/cone_lane/center_spot`, `/cone_lane/backup_path` | `visualization_msgs/msg/MarkerArray` | 중앙 경로·단면·보조 경로 |
-
-현재 deep 모드의 deep_lite는 `/cone_lane/exit_lane_active`를 구독하지 않습니다. 이 연결은 fusion 모드에만 있습니다. `/cone_lane/control_status`는 Marker 타입이지만 표시 전용으로만 쓰이지는 않습니다.
-
 ## 상세 구현·개발 기록
 
 아래는 초기 Python ROI 구현부터의 기록입니다. 현재 실차의 실행 파일·입출력은 위 C++ 요약을 기준으로 봅니다.

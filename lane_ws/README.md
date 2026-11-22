@@ -13,25 +13,6 @@
 
 ![lane_ws 알고리즘 개념 그림](../docs/logic/lane_ws.svg)
 
-## 입력·출력 토픽
-
-현재 deep 실행의 PID 연결입니다. bare PID의 `target_topic` 기본값은 `/lane_lite/target`이지만 통합 launch가 아래처럼 바꿉니다.
-
-| 방향 | 토픽 | 타입 | 내용 / 연결 |
-| --- | --- | --- | --- |
-| 입력 | `/lane_deep/target` | `std_msgs/msg/Float32MultiArray` | 중앙 경로·목표점·신뢰도 ← deep_lite |
-| 입력 | `/odom` | `nav_msgs/msg/Odometry` | 주차 표지 이동 조건 검사, guard 활성화 시 |
-| 입력 | `/yolo/parking_sign` | `std_msgs/msg/Bool` | 주차 접근 감속 시작 |
-| 입력 | `/parking/approach_ready` | `std_msgs/msg/Header` | 접근 준비 확인 |
-| 입력 | `/parking/control_state` | `std_msgs/msg/String` | 주차 제어 상태 |
-| 입력 | `/parking/active` | `std_msgs/msg/Bool` | 주차 활성 상태 |
-| 출력 | `/mission/lane` | `ackermann_msgs/msg/AckermannDriveStamped` | 기본 차선 명령 → mux, `enable_vehicle_output=true`일 때 |
-| 출력 | `/parking/approach_start` | `std_msgs/msg/Header` | 접근 시작 시각 → parking·mux |
-| 출력 | `/lane_pid/command` | `ackermann_msgs/msg/AckermannDriveStamped` | 계산한 명령 관측·튜닝 |
-| 출력 | `/lane_pid/state` | `std_msgs/msg/Float32MultiArray` | 제어 오차·상태 관측 |
-
-HSV 인식 노드를 별도로 실행하면 `/camera/color/image_raw/compressed`(`CompressedImage`)와 `/odom`(`Odometry`)을 받아 `/lane_lite/target`(`Float32MultiArray`)을 발행합니다. `debug=true`에서는 `/lane_lite/debug`(`Image`)도 발행합니다. 타입의 패키지는 각각 `sensor_msgs`, `nav_msgs`, `std_msgs`, `sensor_msgs`입니다.
-
 ## References
 
 - [1] K. J. Åström, R. M. Murray, **Feedback Systems**, 2008, Chapter 10: PID Control. [저자 공개 자료](https://www.cds.caltech.edu/~murray/FBS/PID_Control.html). PID·미분 필터·적분 포화 처리의 배경이며 오차 결합과 주차 상태 처리는 자체 구현입니다.
