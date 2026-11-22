@@ -46,9 +46,9 @@ PyTorch와 Ultralytics는 실제 노드를 실행하는 Python 환경에 설치�
 | --- | ---: |
 | slow | 3600 |
 | bump | 3800 |
-| parking | 3900 |
+| parking | 2000 |
 | crosswalk | 3200 |
-| left / right | 3400 |
+| left / right | 500 (원본 영상 박스 면적, confidence 0.65 이상) |
 
 현재 기본 모델은 제공된 `best.pt`에서 변환한 TensorRT **`best.engine`**입니다. 입력은 고정 `(1,3,640,640)`, batch 1이며 내부 FP16 최적화와 FP32 입출력을 사용합니다. 목표 출력은 10Hz입니다. `best.pt`와 `best.onnx`도 함께 보관합니다. 엔진은 Jetson Orin / TensorRT 10.3에서 생성했으며 다른 GPU·TensorRT 환경에서는 대상 장치에서 다시 빌드해야 합니다.
 
@@ -113,18 +113,14 @@ python yolo_ws/train/train_baseline_model.py
 ros2 run yolo_detect yolo_detect --ros-args -p image_transport:=compressed -p image_topic:=/camera/color/image_raw/compressed
 ```
 
-모든 유효한 YOLO bbox에 대해 매 추론마다 원본 영상 좌표를 영상 경계로 제한한
-정수 픽셀 기준 가로(`width`), 세로(`height`), 면적(`area`)을 터미널에 출력합니다.
-같은 클래스의 bbox가 여러 개면 각각 출력하며 confidence·면적 조건 탈락 및 OCR 거부 bbox도 포함합니다.
-`class`는 OCR 변경 전 YOLO 클래스입니다. 예:
+검출 로그는 confidence·면적·연속 검출 조건을 통과해 검출 신호를 실제 발행한 경우에만 출력합니다.
+`class`, `output_topic`, `confidence`(동일 클래스의 최고값), `published` 값을 표시합니다.
+일반 표지판의 미검출 `False` 상태와 미발행 BBox는 출력하지 않습니다.
+좌회전은 `/yolo/LR_sign=False`가 유효한 발행이므로 로그를 출력합니다. 예:
 
 ```text
-BBox: class=bump; confidence=0.850; width=80px; height=60px; area=4800px^2
+Detection: class=parking; output_topic=/yolo/parking_sign; confidence=0.950; published=True
 ```
-
-confidence·면적 기준을 통과한 클래스마다 매 추론에서 `class`, `output_topic`,
-`confidence`(동일 클래스의 최고값), 실제 발행 여부를 출력합니다.
-연속 프레임 확인 전, 좌우 동시 확인, 추론 중 영상 만료 시 미발행 이유를 표시합니다.
 시작 후 또는 마지막 영상 수신 후 `camera_timeout_sec`(기본 2초)가 지나면 ERROR를
 출력하고, 미수신이 계속되면 5초 간격으로 반복합니다. 수신 재개 시 INFO를 출력합니다.
 오류는 ROS 로그로 보고하며 노드를 종료하지 않습니다. 감시는 시뮬레이션 시간이 정지해도 동작합니다.
@@ -132,36 +128,58 @@ confidence·면적 기준을 통과한 클래스마다 매 추론에서 `class`,
 ## 검출 화면
 
 `src/yolo_detect.py` 상단의 `SHOW_IMAGE = True`이면 검출 박스, 클래스와 confidence를 표시합니다.
-`False`이면 화면을 끕니다. A/B가 읽힌 bbox는 OCR이 결정한 좌·우 방향으로 표시합니다.
-다른 클래스의 bbox는 기존 YOLO 결과를 그대로 표시합니다.
+`False`이면 화면을 끕니다. bbox는 YOLO 결과를 그대로 표시합니다.
 실제 토픽 발행에는 클래스별 confidence·면적·연속 프레임 조건이 추가 적용됩니다.
 `q`, `Esc`, 창 닫기는 화면만 닫고, Ctrl+C는 노드를 종료합니다. 디스플레이가 없는 환경에서는 화면을 자동으로 끕니다.
 
 ## A/B로 좌·우 방향 결정
 
-`left_right_yolo` 파라미터의 기본값은 코드 상단 `LEFT_RIGHT_YOLO = True`입니다. YOLO가 만든 bbox에서 A가 읽히면
-원래 클래스에 관계없이 `left`, B가 읽히면 `right`로 지정합니다.
-예를 들어 YOLO가 `parking` 또는 `right`라고 예측해도 A가 읽히면
-`left / A` bbox로 바뀌고 `/yolo/LR_sign`에 `false`를 바로 발행합니다.
-B는 `right / B`로 표시하고 `true`를 바로 발행합니다.
-A/B로 결정한 방향에도 **최소 3400px² 면적 조건**을 적용합니다. 추가 YOLO 클래스별 confidence 조건과
-연속 2프레임 확인은 적용하지 않습니다. 입력은 YOLO가 반환한 bbox를 사용합니다.
-영상 시각 유효성 검사는 유지하며 같은 프레임에 A/B가 모두 있으면 방향 발행을 생략합니다.
+A/B는 YOLO 클래스로만 정합니다(OCR 없음, 2026-11-10 제거). `left`=A → `/yolo/LR_sign=False`,
+`right`=B → `True`. 다른 클래스와 같이 confidence 0.65 이상, **면적 500px² 이상**, 연속 2프레임
+확인을 거칩니다. 같은 프레임에 좌·우가 모두 확정되면 방향 발행을 생략합니다.
+먼 거리에서 좌우 방향을 먼저 확보하도록 면적 기준을 500px²로 낮췄습니다.
 
-A/B가 없는 다른 클래스는 기존 YOLO bbox와 발행 조건을 유지합니다.
-YOLO가 좌·우로 예측했지만 글자를 못 읽은 bbox는 방향을 발행하지 않습니다.
-`left_right_yolo=false`이면 A/B OCR과 bbox 강제 지정을 건너뛰고 기존 YOLO 클래스와
-연속 프레임 확인을 사용합니다. 코드 상단의 `LEFT_RIGHT_YOLO = False`로 기본값을
-바꾸거나 실행 시 지정할 수 있습니다.
+`/yolo/LR_sign`을 발행할 때마다 확정한 bbox를 `/yolo/LR_detail`(`Float32MultiArray`)로 함께 보냅니다:
+`[right(1)/left(0), 면적px², 가로, 세로, YOLO confidence, x0, y0, x1, y1, stamp_sec, stamp_nanosec]`
+(원본 영상 픽셀). 차선 퓨전 노드의 갈림길 스냅샷이 사용합니다.
 
-```bash
-ros2 run yolo_detect yolo_detect --ros-args -p left_right_yolo:=false
-python3 yolo_ws/src/yolo_detect.py --ros-args -p left_right_yolo:=false
-```
 
-OCR은 제공된 파란 표지판의 흰 A/B 글자와 OpenCV 글꼴을 기준으로 만든 경량 템플릿
-문자 인식입니다. 추가 OCR 패키지나 모델 다운로드는 필요하지 않습니다.
-`OCR_MIN_SCORE`(기본 0.80), `OCR_MIN_MARGIN`(기본 0.08)으로 유사도와 A/B 점수 차이를
-조정합니다. `OCR` 점수는 글자 모양 유사도이며 확률이 아닙니다.
-화면에는 `left / A YOLO:0.90 OCR:0.93` 형태로 표시합니다.
-실제 주행의 기울기·흐림·조명에 맞게 기준을 조정할 수 있습니다.
+## 웹 YOLO 검출 화면
+
+`/yolo/debug/compressed`는 원본 카메라와 별도로 bbox를 그린 JPEG입니다.
+bbox 아래 작은 글씨로 최종 클래스, bbox 가로×세로, 면적(px²)을 표시합니다.
+해당 bbox가 개별 confidence·면적 조건을 통과하고 실제 클래스 검출 신호가 발행된 프레임은 클래스별 색상,
+조건 탈락·연속 검출 대기·방향 모호성 등 미발행 bbox는 회색입니다.
+LEFT의 `/yolo/LR_sign=False`는 정상 방향 발행으로 취급합니다.
+구독자가 있을 때만 그리기·JPEG 인코딩을 수행합니다. Bool 검출 신호와 터미널 로그 정책은 유지합니다.
+웹 뷰어는 '카메라' 원본과 'YOLO 검출'을 별도 패널로 표시합니다.
+
+## 8클래스 신호등 모델과 TensorRT 실행 (2026-11-12)
+
+`model/best.pt`, `best.onnx`, `best.engine`은 YOLO26n 200 epoch 학습 결과입니다.
+클래스 ID는 `0=slow, 1=bump, 2=crosswalk, 3=left, 4=right, 5=parking, 6=red, 7=green`입니다.
+모델 원본은 `/home/a/annotation/bbox/models/yolo26n_red_green_200ep.pt`이며,
+SHA-256은 `c2b39d49797a7d606576e7f3ff52746871731cc72e0675eb901e7941eacf8683`입니다.
+기본 경로는 계속 `model/best.engine`을 사용합니다.
+
+`/yolo/signal`은 `std_msgs/msg/Bool`이며 **빨강=False, 초록=True**입니다.
+confidence 0.60 이상, 원본 영상 bbox 면적 2000px² 이상인 신호등이 서로 다른 영상에서
+2회 연속 검출되어야 발행합니다. 빨강·초록 동시 검출 시에는 발행하지 않고 확인 횟수를 초기화합니다.
+미검출·반복 영상·만료 영상·추론 오류 때도 신호등 메시지를 발행하지 않습니다.
+미검출에 False를 발행하면 빨간불로 해석되므로 일반 표지판의 주기적 presence 발행과 구분합니다.
+빨강 False의 로그와 디버그 bbox 색상도 실제 신호등 발행으로 처리합니다.
+`signal_ws`의 기존 구독 코드와 같은 의미이며 실제 거리·조명에서 검출 기준은 추가 확인이 필요합니다.
+
+엔진은 대상 Jetson의 TensorRT 10.3에서 생성한 FP16 최적화 결과를 복원했습니다.
+고정 입력은 **1×3×640×640**, batch 1, workspace 512MiB, FP32 입출력입니다.
+`~/LANE_FPS_OPTIMIZATION.md`의 이전 480×640 엔진 예제와 입력 크기가 다릅니다.
+이 모델에는 `IMAGE_SIZE=640`, `rect=False`를 사용하며 해상도와 기존 표지판 면적 기준을 유지합니다.
+카메라 수신은 별도 callback group과 2스레드 executor에서 수행합니다.
+최신 영상과 수신 시각을 한 쌍으로 교체하고 추론·상태 갱신은 같은 callback group에서 순차 실행합니다.
+OpenCV 창 처리는 main thread에서 수행해 Qt 창이 executor worker thread 사이를 이동하지 않게 합니다.
+시작 시 backend를 미리 준비한 뒤 10Hz 추론 타이머를 생성합니다.
+화면이 필요 없으면 `--ros-args -p show_image:=false`를 사용합니다.
+
+원격 교체 전 백업, 검증 스크립트와 결과는 `/home/wego/yolo_update_20261112_215156/`에 있습니다.
+소스와 모델을 바꾼 뒤 설치본에도 적용하려면 `yolo_ws`에서 ROS 환경을 source하고
+`colcon build --packages-select yolo_detect`를 실행한 뒤 YOLO 노드를 재시작합니다.

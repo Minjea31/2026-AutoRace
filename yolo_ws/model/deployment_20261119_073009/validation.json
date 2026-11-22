@@ -1,0 +1,117 @@
+{
+  "passed": true,
+  "source": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b.pt",
+  "engine": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b_fp16.engine",
+  "source_sha256": "0ebaaa7ba0dfa269f80637b47feb414b9b9148cb07c7957114731cb45c03306a",
+  "engine_sha256": "23dfe30a6da885a5f087d7557442fcf66f375a0a2df6e5a2d45ec5d288f17189",
+  "classes": [
+    "slow",
+    "bump",
+    "crosswalk",
+    "left",
+    "right",
+    "parking",
+    "red",
+    "green"
+  ],
+  "sample_count": 6,
+  "matched_high_confidence_boxes": 7,
+  "minimum_iou": 0.9911600947380066,
+  "maximum_confidence_difference": 0.008348286151885986,
+  "timings": {
+    "pytorch": {
+      "median_predict_ms": 39.95313799896394,
+      "iterations": 20
+    },
+    "tensorrt_fp16": {
+      "median_predict_ms": 14.481926498774556,
+      "iterations": 20
+    }
+  },
+  "samples": [
+    {
+      "image": "01_12_05_31_54s.jpg",
+      "pt_boxes": 1,
+      "engine_boxes": 1,
+      "matches": [
+        {
+          "name": "left",
+          "iou": 0.9980348944664001,
+          "pt_confidence": 0.8677895069122314,
+          "engine_confidence": 0.86767578125
+        }
+      ]
+    },
+    {
+      "image": "02_12_05_31_70s.jpg",
+      "pt_boxes": 1,
+      "engine_boxes": 1,
+      "matches": [
+        {
+          "name": "right",
+          "iou": 0.9959554076194763,
+          "pt_confidence": 0.9351509809494019,
+          "engine_confidence": 0.93505859375
+        }
+      ]
+    },
+    {
+      "image": "03_12_05_31_121s.jpg",
+      "pt_boxes": 2,
+      "engine_boxes": 2,
+      "matches": [
+        {
+          "name": "green",
+          "iou": 0.9911600947380066,
+          "pt_confidence": 0.492723286151886,
+          "engine_confidence": 0.484375
+        }
+      ]
+    },
+    {
+      "image": "04_12_03_46_38.7s.jpg",
+      "pt_boxes": 5,
+      "engine_boxes": 5,
+      "matches": [
+        {
+          "name": "slow",
+          "iou": 0.9949600100517273,
+          "pt_confidence": 0.9557510614395142,
+          "engine_confidence": 0.9560546875
+        }
+      ]
+    },
+    {
+      "image": "05_12_13_40_8.2s.jpg",
+      "pt_boxes": 1,
+      "engine_boxes": 1,
+      "matches": [
+        {
+          "name": "parking",
+          "iou": 0.9952632188796997,
+          "pt_confidence": 0.9488309621810913,
+          "engine_confidence": 0.9482421875
+        }
+      ]
+    },
+    {
+      "image": "06_12_02_35_29.8s.jpg",
+      "pt_boxes": 3,
+      "engine_boxes": 3,
+      "matches": [
+        {
+          "name": "slow",
+          "iou": 0.9956901669502258,
+          "pt_confidence": 0.7547575831413269,
+          "engine_confidence": 0.7490234375
+        },
+        {
+          "name": "crosswalk",
+          "iou": 0.9920780062675476,
+          "pt_confidence": 0.7415206432342529,
+          "engine_confidence": 0.74169921875
+        }
+      ]
+    }
+  ]
+}

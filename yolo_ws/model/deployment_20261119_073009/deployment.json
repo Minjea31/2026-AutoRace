@@ -1,0 +1,71 @@
+{
+  "status": "deployed",
+  "source_sha256": "0ebaaa7ba0dfa269f80637b47feb414b9b9148cb07c7957114731cb45c03306a",
+  "backup_directory": "/home/wego/2026-AutoRace/yolo_ws/model/deployment_20261119_073009/backups",
+  "files": [
+    {
+      "source": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b.pt",
+      "target": "/home/wego/2026-AutoRace/yolo_ws/model/best.pt",
+      "backup": "/home/wego/2026-AutoRace/yolo_ws/model/deployment_20261119_073009/backups/model/best.pt",
+      "previous_sha256": "c2b39d49797a7d606576e7f3ff52746871731cc72e0675eb901e7941eacf8683",
+      "new_sha256": "0ebaaa7ba0dfa269f80637b47feb414b9b9148cb07c7957114731cb45c03306a",
+      "staged": "/home/wego/2026-AutoRace/yolo_ws/model/.best.pt.deploy_20261119_073009"
+    },
+    {
+      "source": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b_fp16.engine",
+      "target": "/home/wego/2026-AutoRace/yolo_ws/model/best.engine",
+      "backup": "/home/wego/2026-AutoRace/yolo_ws/model/deployment_20261119_073009/backups/model/best.engine",
+      "previous_sha256": "e4f2dcd94ab22998d0ac7c7b2163796a0c51c3d2893f8f853dbfafa473228082",
+      "new_sha256": "23dfe30a6da885a5f087d7557442fcf66f375a0a2df6e5a2d45ec5d288f17189",
+      "staged": "/home/wego/2026-AutoRace/yolo_ws/model/.best.engine.deploy_20261119_073009"
+    },
+    {
+      "source": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b_fp16.onnx",
+      "target": "/home/wego/2026-AutoRace/yolo_ws/model/best.onnx",
+      "backup": "/home/wego/2026-AutoRace/yolo_ws/model/deployment_20261119_073009/backups/model/best.onnx",
+      "previous_sha256": "335645f577d140547899cbe634e3fb323d4c6ae18ebd96cd3d95d2fa2edc5338",
+      "new_sha256": "6c8323c02c4e29e95b10174f4e406a525c3db30a527fbef3a9c708e0927d4f7c",
+      "staged": "/home/wego/2026-AutoRace/yolo_ws/model/.best.onnx.deploy_20261119_073009"
+    },
+    {
+      "source": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b_fp16.optimization.json",
+      "target": "/home/wego/2026-AutoRace/yolo_ws/model/best.optimization.json",
+      "backup": null,
+      "previous_sha256": null,
+      "new_sha256": "41fc5b4efcda1c782f16bf5d844c314d9d9494fe506bd649375cb1aaaa61220c",
+      "staged": "/home/wego/2026-AutoRace/yolo_ws/model/.best.optimization.json.deploy_20261119_073009"
+    },
+    {
+      "source": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b.pt",
+      "target": "/home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/best.pt",
+      "backup": "/home/wego/2026-AutoRace/yolo_ws/model/deployment_20261119_073009/backups/install/yolo_detect/share/yolo_detect/model/best.pt",
+      "previous_sha256": "c2b39d49797a7d606576e7f3ff52746871731cc72e0675eb901e7941eacf8683",
+      "new_sha256": "0ebaaa7ba0dfa269f80637b47feb414b9b9148cb07c7957114731cb45c03306a",
+      "staged": "/home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/.best.pt.deploy_20261119_073009"
+    },
+    {
+      "source": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b_fp16.engine",
+      "target": "/home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/best.engine",
+      "backup": "/home/wego/2026-AutoRace/yolo_ws/model/deployment_20261119_073009/backups/install/yolo_detect/share/yolo_detect/model/best.engine",
+      "previous_sha256": "e4f2dcd94ab22998d0ac7c7b2163796a0c51c3d2893f8f853dbfafa473228082",
+      "new_sha256": "23dfe30a6da885a5f087d7557442fcf66f375a0a2df6e5a2d45ec5d288f17189",
+      "staged": "/home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/.best.engine.deploy_20261119_073009"
+    },
+    {
+      "source": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b_fp16.onnx",
+      "target": "/home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/best.onnx",
+      "backup": "/home/wego/2026-AutoRace/yolo_ws/model/deployment_20261119_073009/backups/install/yolo_detect/share/yolo_detect/model/best.onnx",
+      "previous_sha256": "335645f577d140547899cbe634e3fb323d4c6ae18ebd96cd3d95d2fa2edc5338",
+      "new_sha256": "6c8323c02c4e29e95b10174f4e406a525c3db30a527fbef3a9c708e0927d4f7c",
+      "staged": "/home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/.best.onnx.deploy_20261119_073009"
+    },
+    {
+      "source": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b_fp16.optimization.json",
+      "target": "/home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/best.optimization.json",
+      "backup": null,
+      "previous_sha256": null,
+      "new_sha256": "41fc5b4efcda1c782f16bf5d844c314d9d9494fe506bd649375cb1aaaa61220c",
+      "staged": "/home/wego/2026-AutoRace/yolo_ws/install/yolo_detect/share/yolo_detect/model/.best.optimization.json.deploy_20261119_073009"
+    }
+  ]
+}

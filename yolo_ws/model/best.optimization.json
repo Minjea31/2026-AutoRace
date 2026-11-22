@@ -1,0 +1,94 @@
+{
+  "source": "/home/wego/2026-AutoRace/yolo_ws/model/autorace_real_v2_20261119_noflip_2_0ebaaa7b.pt",
+  "source_sha256": "0ebaaa7ba0dfa269f80637b47feb414b9b9148cb07c7957114731cb45c03306a",
+  "shape": [
+    1,
+    3,
+    640,
+    640
+  ],
+  "workspace_mib": 512,
+  "internal_precision": "fp16",
+  "io_precision": "fp32",
+  "dynamic": false,
+  "nms": false,
+  "opset": 17,
+  "metadata": {
+    "description": "Ultralytics YOLO26n model trained on /home/a/2026-AutoRace/yolo_ws/train/dataset_autorace_real_v2_20261119_721/data.yaml",
+    "author": "Ultralytics",
+    "date": "2026-11-19T07:30:48.887101",
+    "version": "8.4.78",
+    "license": "AGPL-3.0 License (https://ultralytics.com/license)",
+    "docs": "https://docs.ultralytics.com",
+    "stride": 32,
+    "task": "detect",
+    "batch": 1,
+    "imgsz": [
+      640,
+      640
+    ],
+    "names": {
+      "0": "slow",
+      "1": "bump",
+      "2": "crosswalk",
+      "3": "left",
+      "4": "right",
+      "5": "parking",
+      "6": "red",
+      "7": "green"
+    },
+    "args": {
+      "data": null,
+      "batch": 1,
+      "fraction": 1.0,
+      "half": false,
+      "int8": false,
+      "dynamic": false,
+      "simplify": false,
+      "opset": 17,
+      "nms": false
+    },
+    "channels": 3,
+    "end2end": true
+  },
+  "environment": {
+    "python": "3.10.18",
+    "torch": "2.8.0",
+    "ultralytics": "8.4.78",
+    "onnx": "1.17.0",
+    "gpu": "Orin"
+  },
+  "onnx_only": false,
+  "references": [
+    "/home/wego/LANE_FPS_OPTIMIZATION.md",
+    "/home/wego/lane_fps_optimization.patch"
+  ],
+  "engine": {
+    "tensorrt": "10.3.0",
+    "io_tensors": [
+      {
+        "name": "images",
+        "shape": [
+          1,
+          3,
+          640,
+          640
+        ],
+        "dtype": "DataType.FLOAT",
+        "mode": "TensorIOMode.INPUT"
+      },
+      {
+        "name": "output0",
+        "shape": [
+          1,
+          300,
+          6
+        ],
+        "dtype": "DataType.FLOAT",
+        "mode": "TensorIOMode.OUTPUT"
+      }
+    ]
+  },
+  "elapsed_sec": 432.904,
+  "created_at": "2026-11-19T07:37:53.637664+09:00"
+}

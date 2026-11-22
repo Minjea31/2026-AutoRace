@@ -1,14 +1,21 @@
-# Split paths are relative to this YAML file's directory.
-train: dataset/train/images
-val: dataset/valid/images
-test: dataset/test/images
-
-nc: 6
-names: ['bump', 'crosswalk', 'left', 'parking', 'right', 'slow']
-
+# Local v2 dataset; class IDs match the platform best.engine.
+path: /home/wego/2026-AutoRace/yolo_ws/train/dataset_autorace_real_v2_20261119_721
+train: train/images
+val: val/images
+test: test/images
+nc: 8
+names:
+- slow
+- bump
+- crosswalk
+- left
+- right
+- parking
+- red
+- green
 roboflow:
   workspace: clothoid-ryhpb
-  project: autorace-pehs7
-  version: 1
-  license: MIT
-  url: https://universe.roboflow.com/clothoid-ryhpb/autorace-pehs7/dataset/1
+  project: autorace-real-20261117-04-06
+  version: 2
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/clothoid-ryhpb/autorace-real-20261117-04-06/dataset/2
