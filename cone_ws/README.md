@@ -287,7 +287,7 @@ y 부호 기반 좌우 분류의 한계도 남는다.
 ## 중앙 경로 오차 제어
 
 노드 내부의 검증된 center_path를 사용해 20Hz로
-`/mission/cone/command_04`에 `ackermann_msgs/msg/AckermannDriveStamped`를 발행한다.
+`/mission/cone/command_06`에 `ackermann_msgs/msg/AckermannDriveStamped`를 발행한다.
 별도 패키지·파일·중앙 경로 구독자는 추가하지 않았다. ackermann_msgs 의존성을 선언했다.
 
 차량 전방 기준점 `(control_reference_x, 0)`을 중앙 경로의 전방 진행 선분에 투영한다.
@@ -309,6 +309,15 @@ y 부호 기반 좌우 분류의 한계도 남는다.
 | control_timeout | 0.20 | 스캔의 ROS 시간·수신 경과 시간 상한(s) |
 | control_max_path_distance | 0.50 | 전방 기준점에서 사용 가능한 경로까지 최대 거리(m) |
 
+실차 YAML의 `planner_async: true`는 커브 경로 생성을 별도 프로세스로 실행한다.
+제어 노드는 결과를 기다리지 않고 최신 측정 경로 또는 유효한 기억 경로를 사용한다.
+계산 중에는 다음 입력을 최신 1개로 교체하며, 스캔 시간·수신 시간이
+`control_timeout`을 넘거나 경로 파라미터가 바뀐 결과는 사용하지 않는다.
+결과는 계산 당시 odom 변환을 보존해 현재 스캔의 base_link 좌표계로 옮긴다.
+`planner_budget_sec: 0.06`은 후보 탐색의 시간 예산이며, 초과하면 유효한
+측정 경로를 반환한다. 두 파라미터는 시작 시에만 설정하며,
+`planner_async: false`로 기존 동기 계산을 선택할 수 있다.
+
 숫자 파라미터는 양의 유한수이며 최대 조향은 pi/2 미만이다. YAML 또는 실행 중
 `ros2 param set /cone_lane_roi control_speed 0.1` 등으로 조정한다.
 
@@ -323,7 +332,7 @@ TF 실패나 스캔 중단 동안에는 활성 상태를 유지하며 정지 명
 장기적인 미션 종료 판단은 별도 상태 관리가 필요하다.
 
 ```bash
-ros2 topic echo /mission/cone/command_04
+ros2 topic echo /mission/cone/command_06
 ```
 
 시뮬레이터에서 cone 미션 토픽을 선택하거나 기존 autorace_mux를 연결해야 차량에 전달된다.

@@ -41,7 +41,7 @@ Visualization Manager:
       Namespaces: {}
     - Class: rviz_default_plugins/Marker
       Name: ROI points (green)
-      Enabled: true
+      Enabled: false
       Topic:
         Value: /cone_lane/roi_points
         Reliability Policy: Reliable
@@ -51,7 +51,7 @@ Visualization Manager:
       Namespaces: {}
     - Class: rviz_default_plugins/MarkerArray
       Name: All scan clusters (individual colors)
-      Enabled: true
+      Enabled: false
       Topic:
         Value: /cone_lane/clusters
         Reliability Policy: Reliable
@@ -82,10 +82,30 @@ Visualization Manager:
         Depth: 1
       Namespaces: {}
     - Class: rviz_default_plugins/MarkerArray
-      Name: Center path and cross sections
+      Name: Live center path (green)
       Enabled: true
       Topic:
         Value: /cone_lane/center_path
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Center spot (yellow sections, magenta points)
+      Enabled: false
+      Topic:
+        Value: /cone_lane/center_spot
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Backup path (orange)
+      Enabled: true
+      Topic:
+        Value: /cone_lane/backup_path
         Reliability Policy: Reliable
         Durability Policy: Volatile
         History Policy: Keep Last
@@ -101,9 +121,19 @@ Visualization Manager:
         History Policy: Keep Last
         Depth: 1
       Namespaces: {}
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Control points (projection cyan, reference white)
+      Enabled: true
+      Topic:
+        Value: /cone_lane/control_points
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+      Namespaces: {}
     - Class: rviz_default_plugins/TF
       Name: TF
-      Enabled: true
+      Enabled: false
       Frames:
         All Enabled: true
       Show Axes: true

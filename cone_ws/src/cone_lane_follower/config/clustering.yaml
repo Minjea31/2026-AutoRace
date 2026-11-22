@@ -1,35 +1,53 @@
 cone_lane_roi:
   ros__parameters:
+    planner_async: true
+    planner_budget_sec: 0.06
     cluster_threshold: 0.10
     min_cluster_points: 2
     max_cluster_width: 0.28
     cluster_point_size: 0.05
     cone_center_size: 0.08
+    # wheelbase 0.20 m / tan(mux steering limit 0.65 rad)
+    center_min_turn_radius: 0.2630871384
+    # Temporary: 0 bypasses path radius rejection; 1 restores it.
+    center_turn_radius_check: 0.0
     center_sample_step: 0.05
     center_min_width: 0.10
     center_max_width: 1.50
     center_max_gap: 0.30
     center_max_turn: 75.0
     center_smoothing_weight: 0.25
-    center_width_timeout: 30.0
     center_width_relative_tolerance: 0.25
-    boundary_connect_distance: 0.50
-    boundary_max_turn: 80.0
+    boundary_connect_distance: 0.35
+    boundary_max_turn: 100.0
     boundary_initial_max_turn: 110.0
     boundary_direction_window: 3
     boundary_distance_weight: 1.0
-    boundary_direction_weight: 2.0
-    control_speed: 0.4
-    control_reference_x: 0.25
+    boundary_direction_weight: 0.0  # Choose nearest admissible point; no direction score
+    control_speed: 0.6
+    steering_gain: 0.6  # Steering slowdown fraction (0..1)
+    curvature_gain: 0.5  # Curvature slowdown fraction (0..1)
+    control_reference_x: 0.30
     control_lateral_gain: 2.0
     control_heading_gain: 1.0
     control_max_steering: 1.3962634015954636  # 80 degrees in radians
     control_speed_reference_steering: 0.48  # Full slowdown at about 27.5 degrees
-    control_max_steering_rate: 1.0
+    control_max_steering_rate: 5.0
     control_timeout: 0.50
     control_memory_tf_timeout: 0.20
     control_max_path_distance: 0.50
-    control_memory_speed: 0.15
+    control_memory_speed: 0.3
     control_memory_goal_tolerance: 0.08
     control_memory_recovery_distance: 0.15
     control_exit_timeout: 1.50
+    # Cone exit (exit wait + exit_lane_hold_sec after the mission ends): pass the
+    # /mission/lane command (speed and steering) through at cone priority.
+    # exit_lane_speed > 0 = on (the value no longer caps the speed), 0.0 = off (yield).
+    exit_lane_speed: 0.3
+    exit_lane_hold_sec: 1.0
+    exit_lane_timeout: 0.25
+    # Front-clear exit: no candidate cone ahead of exit_front_x (m, base_link) for
+    # exit_front_scans scans while only the memory path remains -> skip it and follow
+    # the lane steering at once (needs a fresh lane command). 0 scans = off.
+    exit_front_x: 0.2
+    exit_front_scans: 2.0

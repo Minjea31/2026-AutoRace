@@ -6,28 +6,30 @@ import time
 import rclpy
 from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import Point
-from rcl_interfaces.msg import SetParametersResult
+from rcl_interfaces.msg import SetParametersResult, ParameterDescriptor
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
+from cone_lane_follower.async_planner import AsyncPlanner, check_budget
 from cone_lane_follower.path_memory import PathMemory
+from cone_lane_follower.corner_offset import offset as corner_offset, curvature as path_curvature
 
 
-ROI_DEFAULTS = dict(roi_x_min=-0.3, roi_x_max=1.5, roi_y_min=-0.8, roi_y_max=0.8)
+ROI_DEFAULTS = dict(roi_x_min=-0.3, roi_x_max=1.0, roi_y_min=-0.8, roi_y_max=0.8)
 CLUSTER_DEFAULTS = dict(cluster_threshold=0.10, min_cluster_points=2,
                         max_cluster_width=0.28, cluster_point_size=0.05,
                         cone_center_size=0.08)
 
 
-CENTER_DEFAULTS = dict(center_sample_step=0.05, center_min_width=0.10,
+CENTER_DEFAULTS = dict(center_min_turn_radius=0.2630871384, center_sample_step=0.05, center_min_width=0.10,
                        center_max_width=1.50, center_max_gap=0.30,
                        center_max_turn=75.0, center_smoothing_weight=0.25,
-                       center_width_timeout=30.0, center_width_relative_tolerance=0.25)
+                       center_width_relative_tolerance=0.25)
 
 
 BOUNDARY_DEFAULTS = dict(boundary_connect_distance=0.30, boundary_max_turn=80.0,
@@ -51,6 +53,15 @@ class RoiNode(Node):
         super().__init__('cone_lane_roi', **kwargs)
         for name, default in {**ROI_DEFAULTS, **CLUSTER_DEFAULTS, **CENTER_DEFAULTS, **BOUNDARY_DEFAULTS, **CONTROL_DEFAULTS}.items():
             self.declare_parameter(name, default)
+        startup_only = ParameterDescriptor(read_only=True)
+        self.declare_parameter('planner_async', False, startup_only)
+        self.declare_parameter('planner_budget_sec', .06, startup_only)
+        budget = self.get_parameter('planner_budget_sec').value
+        if not math.isfinite(budget) or budget <= 0:
+            raise ValueError('planner_budget_sec must be finite and > 0')
+        self.async_planner = AsyncPlanner() if self.get_parameter('planner_async').value else None
+        self.measured_center_path = []
+        self.planned_snapshot = None
         reason = self.validate_roi(self.roi_bounds())
         if reason:
             raise ValueError(reason)
@@ -69,13 +80,16 @@ class RoiNode(Node):
         self.clusters_pub = self.create_publisher(MarkerArray, '/cone_lane/clusters', 1)
         self.centers_pub = self.create_publisher(MarkerArray, '/cone_lane/cone_centers', 1)
         self.boundaries_pub = self.create_publisher(MarkerArray, '/cone_lane/boundaries', 1)
+        self.control_points_pub = self.create_publisher(MarkerArray, '/cone_lane/control_points', 1)
         self.center_pub = self.create_publisher(MarkerArray, '/cone_lane/center_path', 1)
+        self.center_spot_pub = self.create_publisher(MarkerArray, '/cone_lane/center_spot', 1)
+        self.backup_pub = self.create_publisher(MarkerArray, '/cone_lane/backup_path', 1)
         self.center_pairs, self.center_points, self.center_path = [], [], []
         self.center_path_mode = 'Invalid'
         self.projection_status = 'not_attempted'
         self.left_boundary, self.right_boundary = [], []
         self.command_pub = self.create_publisher(
-            AckermannDriveStamped, '/mission/cone/command_04', 1)
+            AckermannDriveStamped, '/mission/cone/command_06', 1)
         self.control_engaged = False
         self.control_fault = False
         self.control_scan_stamp = None
@@ -84,6 +98,9 @@ class RoiNode(Node):
         self.last_steering = 0.
         self.control_mode = 'Idle'
         self.control_stop_reason = None
+        self.path_diagnostics = {}
+        self.last_logged_state = None
+        self.command_speed = self.command_steering = 0.
         self.path_memory = PathMemory()
         self.memory_scan_stamp = None
         self.memory_local_path = []
@@ -99,8 +116,13 @@ class RoiNode(Node):
         self.width_mission_active = False
         self.all_clusters, self.candidate_clusters = [], []
         self.boundary_candidate_clusters = []
+        # Keep only the newest scan while path generation is busy.
+        scan_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST, depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE)
         self.scan_sub = self.create_subscription(
-            LaserScan, '/scan', self.scan_callback, qos_profile_sensor_data)
+            LaserScan, '/scan', self.scan_callback, scan_qos)
         self.last_warning = -math.inf
         self.outline_timer = self.create_timer(0.2, self.publish_roi_marker)
         self.control_timer = self.create_timer(.05, self.control_tick)
@@ -153,6 +175,11 @@ class RoiNode(Node):
         return ''
 
     def scan_callback(self, msg):
+        stamp_ns = Time.from_msg(msg.header.stamp).nanoseconds
+        age = (self.get_clock().now().nanoseconds-stamp_ns)/1e9
+        # A stale queued scan must not refresh the watchdog or start expensive work.
+        if stamp_ns > 0 and age > self.get_parameter('control_timeout').value:
+            return
         if (self.control_received is None or time.monotonic()-self.control_received
                 > self.get_parameter('control_timeout').value):
             self.mission_exit_since = None
@@ -406,8 +433,6 @@ class RoiNode(Node):
                 t = (target-total)/length
                 result.append(tuple(a[k]+t*(b[k]-a[k]) for k in range(3)))
                 target += step
-                if len(result) >= 1000:
-                    return []  # Reject excessive sampling rather than silently bridge a gap.
             total += length
         if math.dist(result[-1][:2], line[-1][:2]) > 1e-8:
             result.append(line[-1])
@@ -576,7 +601,7 @@ class RoiNode(Node):
             p = tuple((1.-weight)*path[i][k]+weight*(path[i-1][k]+path[i+1][k])/2 for k in range(3))
             if safe_segment(path[i-1], p) and safe_segment(p, path[i+1]):
                 path[i] = p
-        for a, b, c in zip(path, path[1:], path[2:]):
+        for i, (a, b, c) in enumerate(zip(path, path[1:], path[2:])):
             u, v = (b[0]-a[0], b[1]-a[1]), (c[0]-b[0], c[1]-b[1])
             cosine = (u[0]*v[0]+u[1]*v[1])/max(1e-12, math.hypot(*u)*math.hypot(*v))
             if math.degrees(math.acos(max(-1., min(1., cosine)))) > max_turn:
@@ -611,10 +636,7 @@ class RoiNode(Node):
     def lane_width_is_fresh(self, p):
         if self.lane_width_mean is None or self.lane_width_updated is None:
             return False
-        steady, ros = self.lane_width_updated
-        return (p['center_min_width'] <= self.lane_width_mean <= p['center_max_width']
-                and 0 <= time.monotonic()-steady <= p['center_width_timeout']
-                and 0 <= (self.get_clock().now().nanoseconds-ros)/1e9 <= p['center_width_timeout'])
+        return p['center_min_width'] <= self.lane_width_mean <= p['center_max_width']
 
     @staticmethod
     def point_near_boundary(point, line, tolerance):
@@ -629,6 +651,7 @@ class RoiNode(Node):
         return False
 
     def update_center_path(self, stamp):
+        self.path_diagnostics = {}
         self.projection_status = 'not_attempted'
         if not self.mission_cone or not self.width_mission_active:
             self.reset_lane_width()
@@ -641,7 +664,8 @@ class RoiNode(Node):
         self.center_points = [tuple((a[k]+b[k])/2 for k in range(3)) for a, b in self.center_pairs]
         self.center_path = self.smooth_center_path(
             self.center_points, self.left_boundary, self.right_boundary,
-            p['center_smoothing_weight'], p['center_max_gap'], p['center_max_turn'])
+            p['center_smoothing_weight'], p['center_max_gap'], p['center_max_turn'],
+            self.path_diagnostics)
         self.center_path_mode = 'Normal Sections' if self.center_path else 'Invalid'
         # Learn perpendicular widths only from valid measured cross sections.
         # Endpoint projections can overestimate width and are excluded from learning.
@@ -651,64 +675,217 @@ class RoiNode(Node):
             widths = [math.dist(a[:2], b[:2]) for a, b in self.center_pairs]
             mean = sum(widths)/len(widths)
             if max(widths)-min(widths) <= mean*p['center_width_relative_tolerance']:
-                # Expired measurements do not bias a newly observed lane width.
+                # Reset unavailable or out-of-range measurements before learning.
                 if not self.lane_width_is_fresh(p):
                     self.lane_width_mean, self.lane_width_samples = None, 0
                 total = (self.lane_width_mean or 0.)*self.lane_width_samples + sum(widths)
                 self.lane_width_samples += len(widths)
                 self.lane_width_mean = total/self.lane_width_samples
                 self.lane_width_updated = (time.monotonic(), self.get_clock().now().nanoseconds)
-            # Reject noisy measurements without discarding or refreshing the
-            # previously trusted width; its original expiry still applies.
-        if not self.center_path and both_boundaries_valid:
-            projection_diagnostics = {}
-            pairs = self.match_projected_sections(
-                self.left_boundary, self.right_boundary, p['center_sample_step'],
-                p['center_min_width'], p['center_max_width'], diagnostics=projection_diagnostics)
-            centers = [tuple((a[k]+b[k])/2 for k in range(3)) for a, b in pairs]
-            path = self.smooth_center_path(
-                centers, self.left_boundary, self.right_boundary,
-                p['center_smoothing_weight'], p['center_max_gap'], p['center_max_turn'],
-                diagnostics=projection_diagnostics)
-            if path:
-                self.center_pairs, self.center_points, self.center_path = pairs, centers, path
-                self.center_path_mode = 'Nearest Projection'
-                self.projection_status = 'success'
-            else:
-                self.projection_status = 'failed: '+', '.join(
-                    f'{reason}={count}' for reason, count in projection_diagnostics.items())
-        if not both_boundaries_valid:
-            self.projection_status = 'not_attempted: requires_3_points_per_boundary'
-        if (self.mission_cone and not self.control_fault and not self.center_path
-                and (len(self.left_boundary) >= 3) != (len(self.right_boundary) >= 3)):
-            if not self.lane_width_is_fresh(p):
-                self.center_path_mode = 'Width Unavailable or Stale'
-                self.publish_center_path_markers(stamp)
-                return
-            left_visible = len(self.left_boundary) >= 3
-            boundary = self.left_boundary if left_visible else self.right_boundary
-            signed_width = -self.lane_width_mean if left_visible else self.lane_width_mean
-            refs = self.sample_boundary(boundary, p['center_sample_step'])
-            opposite = self.offset_boundary(boundary, signed_width, p['center_sample_step'])
-            observed_opposite = self.right_boundary if left_visible else self.left_boundary
-            if any(not self.point_near_boundary(
-                    point, opposite, self.lane_width_mean*p['center_width_relative_tolerance'])
-                   for point in observed_opposite):
+            # Reject noisy measurements while preserving the previously trusted width.
+        self.measured_center_path = list(self.center_path)
+        if self.async_planner is None:
+            self.center_path = self.unified_path(
+                self.left_boundary, self.right_boundary, self.center_pairs,
+                self.center_path, self.lane_width_mean, p, self.path_diagnostics)
+            self.center_path_mode = 'Unified' if self.center_path else 'Invalid'
+        elif not self.mission_cone or self.lane_width_mean is None:
+            self.async_planner.reset()
+            self.planned_snapshot = None
+        else:
+            try:
+                tf = self.memory_transform('odom', 'base_link', Time.from_msg(stamp))
+            except (TransformException, ValueError):
+                tf = None
+            payload = (list(self.left_boundary), list(self.right_boundary),
+                       list(self.center_pairs), list(self.center_path), self.lane_width_mean,
+                       p, self.get_parameter('planner_budget_sec').value)
+            self.async_planner.request(payload, (
+                Time.from_msg(stamp).nanoseconds, tf, p, time.monotonic()))
+            self.use_async_path()
+        if (not self.center_path and self.lane_width_mean is not None
+                and (len(self.left_boundary) >= 3) != (len(self.right_boundary) >= 3)
+                and self.left_boundary and self.right_boundary):
+            if 'width_conflict' in self.path_diagnostics:
                 self.center_path_mode = 'Boundary Width Conflict'
-                self.publish_center_path_markers(stamp)
-                return
-            pairs = list(zip(refs, opposite)) if left_visible else list(zip(opposite, refs))
-            centers = [tuple((a[k]+b[k])/2 for k in range(3)) for a, b in pairs]
-            path = self.smooth_center_path(
-                centers, refs if left_visible else opposite, opposite if left_visible else refs,
-                p['center_smoothing_weight'], p['center_max_gap'], p['center_max_turn'])
-            if path:
-                self.center_pairs, self.center_points, self.center_path = pairs, centers, path
-                self.center_path_mode = 'Left Boundary Offset' if left_visible else 'Right Boundary Offset'
         self.publish_center_path_markers(stamp)
+
+    @staticmethod
+    def unified_path(left, right, pairs, measured, width, p, diagnostics=None):
+        diagnostics = diagnostics if diagnostics is not None else {}
+        valid = [(line, side) for line, side in ((left, -1.), (right, 1.))
+                 if len(line) >= 3]
+        if not valid or width is None:
+            diagnostics['offset_unavailable'] = 'requires boundary >=3 points and learned width'
+            return measured
+        def distance(line):
+            return min(RoiNode.segment_projection((0., 0., 0.), a, b)[0]
+                       for a, b in zip(line, line[1:]))
+        if not pairs:
+            line, side = min(valid, key=lambda item: distance(item[0]))
+            opposite = right if side == -1. else left
+            for point in opposite if len(opposite) < 3 else ():
+                candidates = []
+                for a, b in zip(line, line[1:]):
+                    dist, t, q = RoiNode.segment_projection(point, a, b)
+                    dx, dy = b[0]-a[0], b[1]-a[1]
+                    length = math.hypot(dx, dy)
+                    if length > 1e-9:
+                        candidates.append((dist, side*(dx*(point[1]-q[1])-dy*(point[0]-q[0]))/length))
+                if candidates:
+                    dist, inward = min(candidates)
+                    if inward <= 0 or abs(dist-width) > width*p['center_width_relative_tolerance']:
+                        diagnostics['width_conflict'] = (f'point={point} width={width:.3f}m '
+                            f'distance={dist:.3f}m inward={inward:.3f}m '
+                            f'allowed=[{width*(1-p["center_width_relative_tolerance"]):.3f}, '
+                            f'{width*(1+p["center_width_relative_tolerance"]):.3f}]m')
+                        return []
+            diagnostics['offset_side'] = 'left boundary -> right normal' if side == -1 else 'right boundary -> left normal'
+            path = corner_offset(line, side*width/2, p['center_sample_step'],
+                                 p['center_min_turn_radius'], RoiNode, p, diagnostics)
+            diagnostics['offset_length_m'] = sum(math.dist(a,b) for a,b in zip(path,path[1:]))
+            return path if RoiNode.offset_safe(path, valid, diagnostics) and RoiNode.valid_center_geometry(path, p, diagnostics) else []
+        if not measured:
+            return []  # Ambiguous/invalid observed overlap is not a missing boundary.
+        # Arc positions of the final measured section on both ordered boundaries.
+        tails = []
+        for index, (line, side) in enumerate(((left, -1.), (right, 1.))):
+            if len(line) < 3:
+                continue
+            refs = RoiNode.sample_boundary(line, p['center_sample_step'])
+            point = pairs[-1][index]
+            hits = [(RoiNode.segment_projection(point, a, b), i)
+                    for i, (a, b) in enumerate(zip(refs, refs[1:]))]
+            (dist, t, q), i = min(hits, key=lambda hit: hit[0][0])
+            remaining = math.dist(q, refs[i+1])+sum(math.dist(a, b)
+                        for a, b in zip(refs[i+1:], refs[i+2:]))
+            tails.append((remaining, line, side, i, t))
+        if len(tails) != 2:
+            return measured
+        short, long = sorted(tails, key=lambda item: item[0])
+        # Sample discretization is not evidence of an unobserved tail.
+        if long[0]-short[0] <= p['center_sample_step']:
+            return measured
+        _, line, side, i, t = long
+        offset = corner_offset(line, side*width/2, p['center_sample_step'],
+                               p['center_min_turn_radius'], RoiNode, p, diagnostics)
+        if not offset:
+            return measured
+        target = RoiNode.offset_boundary(line, side*width/2, p['center_sample_step'])[i]
+        cut = min(range(len(offset)), key=lambda j: math.dist(offset[j], target))
+        tail = offset[cut+1:]
+        diagnostics['offset_side'] = 'left boundary -> right normal' if side == -1 else 'right boundary -> left normal'
+        diagnostics['offset_length_m'] = sum(math.dist(a,b) for a,b in zip(tail,tail[1:]))
+        if len(tail) < 2:
+            return measured
+        for count in range(3, max(len(measured), len(tail))+1):
+            check_budget(p)
+            start = max(0, len(measured)-count)
+            end = min(len(tail)-1, count-1)
+            bridge = RoiNode.quintic_bridge(measured, start, tail, end, p['center_sample_step'])
+            combined = measured[:start]+bridge+tail[end+1:]
+            if (bridge and RoiNode.offset_safe(combined, valid, diagnostics)
+                    and RoiNode.valid_center_geometry(combined, p, diagnostics)
+                    and max(path_curvature(combined), default=0.) <= 1/p['center_min_turn_radius']):
+                diagnostics['join'] = f'success window_samples={count}'
+                return combined
+        diagnostics['join'] = 'failed; retained measured sections'
+        return measured
+
+    @staticmethod
+    def segment_projection(point, a, b):
+        dx, dy = b[0]-a[0], b[1]-a[1]
+        norm = dx*dx+dy*dy
+        t = max(0., min(1., ((point[0]-a[0])*dx+(point[1]-a[1])*dy)/norm)) if norm else 0.
+        q = tuple(a[k]+t*(b[k]-a[k]) for k in range(3))
+        return math.dist(point[:2], q[:2]), t, q
+
+    @staticmethod
+    def offset_safe(path, boundaries, diagnostics=None):
+        for line, side in boundaries:
+            segments = list(zip(line, line[1:]))
+            for point in path:
+                (distance, t, q), a, b = min(
+                    [(RoiNode.segment_projection(point, a, b), a, b) for a, b in segments],
+                    key=lambda item: item[0][0])
+                # Only enforce side over the observed finite span.
+                dx, dy = b[0]-a[0], b[1]-a[1]
+                raw = ((point[0]-a[0])*dx+(point[1]-a[1])*dy)/(dx*dx+dy*dy)
+                if 0 <= raw <= 1 and side*(dx*(point[1]-q[1])-dy*(point[0]-q[0])) <= 0:
+                    if diagnostics is not None:
+                        diagnostics['outside_boundary'] = f'point={point} boundary_side={side:+.0f}'
+                    return False
+            if any(RoiNode.segments_cross(a, b, c, d)
+                   for a, b in zip(path, path[1:]) for c, d in segments):
+                if diagnostics is not None:
+                    diagnostics['boundary_crossing'] = f'boundary_side={side:+.0f}'
+                return False
+        return True
+
+    @staticmethod
+    def quintic_bridge(first, i, second, j, step):
+        def derivatives(path, index):
+            lo, hi = max(0, index-1), min(len(path)-1, index+1)
+            length = math.dist(path[lo], path[hi])
+            if length < 1e-9:
+                return None
+            tangent = [(path[hi][k]-path[lo][k])/length for k in range(3)]
+            curvature = [0., 0., 0.]
+            if 0 < index < len(path)-1:
+                a, b, c = path[index-1:index+2]
+                u, v = math.dist(a, b), math.dist(b, c)
+                if min(u, v) > 1e-9:
+                    curvature = [2*((c[k]-b[k])/v-(b[k]-a[k])/u)/(u+v) for k in range(3)]
+            return tangent, curvature
+        left, right = derivatives(first, i), derivatives(second, j)
+        length = math.dist(first[i], second[j])
+        if left is None or right is None or length < 1e-9:
+            return []
+        coefficients = []
+        for k in range(3):
+            a, b, c = first[i][k], left[0][k]*length, left[1][k]*length*length/2
+            d = second[j][k]-a-b-c
+            e = right[0][k]*length-b-2*c
+            f = right[1][k]*length*length-2*c
+            coefficients.append((a, b, c, 10*d-4*e+f/2, -15*d+7*e-f, 6*d-3*e+f/2))
+        samples = max(2, math.ceil(length/step)*4)
+        curve = [tuple(sum(coef[n]*(m/samples)**n for n in range(6))
+                       for coef in coefficients) for m in range(samples+1)]
+        return RoiNode.sample_boundary(curve, step)
+
+    @staticmethod
+    def valid_center_geometry(path, p, diagnostics=None):
+        if len(path) < 2 or not all(math.isfinite(v) for q in path for v in q):
+            return False
+        segments = list(zip(path, path[1:]))
+        for i, (a,b) in enumerate(segments):
+            gap = math.dist(a[:2], b[:2])
+            if gap > p['center_max_gap']:
+                if diagnostics is not None:
+                    diagnostics['gap'] = f'segment={i}->{i+1} distance={gap:.4f}m limit={p["center_max_gap"]:.4f}m'
+                return False
+        for i, (a, b, c) in enumerate(zip(path, path[1:], path[2:])):
+            u, v = (b[0]-a[0], b[1]-a[1]), (c[0]-b[0], c[1]-b[1])
+            norm = math.hypot(*u)*math.hypot(*v)
+            if norm < 1e-12 or math.degrees(math.acos(max(-1., min(1.,
+                    (u[0]*v[0]+u[1]*v[1])/norm)))) > p['center_max_turn']:
+                if diagnostics is not None:
+                    angle = math.degrees(math.acos(max(-1., min(1., (u[0]*v[0]+u[1]*v[1])/norm)))) if norm >= 1e-12 else None
+                    diagnostics['turn'] = f'point={i+1} xy={b[:2]} angle={angle}deg limit={p["center_max_turn"]}deg'
+                return False
+        for i, (a, b) in enumerate(segments):
+            for j in range(i+2, len(segments)):
+                c, d = segments[j]
+                if RoiNode.segments_cross(a, b, c, d):
+                    if diagnostics is not None:
+                        diagnostics['self_crossing'] = f'segments={i}->{i+1}, {j}->{j+1}'
+                    return False
+        return True
 
     def publish_center_path_markers(self, stamp):
         markers = self.marker_array(stamp)
+        backup = self.marker_array(stamp)
+        spots = self.marker_array(stamp)
         for name, points, kind, color, size in (
                 ('cross_sections', [p for pair in self.center_pairs for p in pair], Marker.LINE_LIST, (1., 1., 0.), .01),
                 ('center_points', self.center_points, Marker.POINTS, (1., 0., 1.), .05),
@@ -723,11 +900,20 @@ class RoiNode(Node):
             marker.scale.x = marker.scale.y = size
             marker.color.r, marker.color.g, marker.color.b = color
             marker.lifetime = Duration(seconds=.5).to_msg()
-            markers.markers.append(marker)
+            target = (backup if name == 'remembered_path' else
+                      spots if name in ('cross_sections', 'center_points') else markers)
+            target.markers.append(marker)
         self.center_pub.publish(markers)
+        self.backup_pub.publish(backup)
+        self.center_spot_pub.publish(spots)
 
     @staticmethod
     def path_errors(path, reference_x, max_distance=0.50):
+        geometry = RoiNode.path_control_geometry(path, reference_x, max_distance)
+        return geometry[:2] if geometry is not None else None
+
+    @staticmethod
+    def path_control_geometry(path, reference_x, max_distance=0.50):
         """Return signed lateral metres and heading radians at a forward reference point.
 
         Project (reference_x, 0) onto the closest forward-directed finite segment.
@@ -747,13 +933,14 @@ class RoiNode(Node):
             if x <= 0:
                 continue
             lateral = (dx*y-dy*(x-reference_x))/length
-            choices.append((math.hypot(x-reference_x, y), lateral, math.atan2(dy, dx)))
+            choices.append((math.hypot(x-reference_x, y), lateral, math.atan2(dy, dx), x, y, a, b))
         if not choices:
             return None
-        distance, lateral, heading = min(choices)
-        return (lateral, heading) if distance <= max_distance else None
+        selected = min(choices, key=lambda choice: choice[:3])
+        return selected[1:] if selected[0] <= max_distance else None
 
     def publish_drive(self, speed, steering):
+        self.command_speed, self.command_steering = speed, steering
         message = AckermannDriveStamped()
         message.header.frame_id = 'base_link'
         message.header.stamp = self.get_clock().now().to_msg()
@@ -761,6 +948,9 @@ class RoiNode(Node):
         self.command_pub.publish(message)
 
     def clear_path_memory(self):
+        if self.async_planner is not None:
+            self.async_planner.reset()
+            self.planned_snapshot = None
         self.path_memory.clear()
         self.memory_scan_stamp = None
         self.memory_local_path = []
@@ -807,7 +997,8 @@ class RoiNode(Node):
             self.path_memory.replace_from_vehicle(
                 points, local, self.get_parameter('control_memory_recovery_distance').value)
         else:
-            self.path_memory.store(points)
+            self.path_memory.refresh(points, lambda path: self.valid_center_geometry(
+                path, {name: self.get_parameter(name).value for name in CENTER_DEFAULTS}))
         self.memory_scan_stamp = self.control_scan_stamp
         self.memory_status = self.path_memory.update_reason
         self.memory_update_reason = self.path_memory.update_reason
@@ -828,6 +1019,7 @@ class RoiNode(Node):
         """Stop immediately and reset steering."""
         if reason in ('tf_error', 'mission_inactive'):
             self.clear_path_memory()
+        self.publish_control_points()
         self.publish_drive(0., 0.)
         self.last_steering = 0.
         self.control_mode = 'Stopped'
@@ -859,6 +1051,7 @@ class RoiNode(Node):
         dt = .05 if self.last_control_tick is None else max(0., min(.1, steady-self.last_control_tick))
         self.last_control_tick = steady
         if not self.control_engaged:
+            self.publish_control_points()
             self.clear_path_memory()
             self.mission_exit_since = None
             self.last_steering = 0.
@@ -897,6 +1090,8 @@ class RoiNode(Node):
                 self.clear_path_memory()
             self.stop_control(reason)
             return
+        if self.async_planner is not None:
+            self.use_async_path()
         errors = self.path_errors(self.center_path, p['control_reference_x'], p['control_max_path_distance'])
         live_errors = errors
         memory_reason = None
@@ -908,7 +1103,7 @@ class RoiNode(Node):
             if memory_reason is None and self.path_errors(
                     previous, p['control_reference_x'], p['control_max_path_distance']) is None:
                 memory_reason = 'memory_'+self.path_stop_reason(previous, p['control_reference_x'])
-        if live_errors is not None and memory_reason in (None, 'memory_goal_reached'):
+        if live_errors is not None:
             self.remember_live_path()
             if self.path_memory.finished:
                 self.remember_live_path(replace=True)
@@ -932,6 +1127,9 @@ class RoiNode(Node):
                 memory_reason = memory_reason or 'memory_'+self.path_stop_reason(
                     remaining, p['control_reference_x'])
                 self.memory_status = memory_reason
+        if live_errors is not None:
+            errors = live_errors
+            self.memory_following = False
         self.publish_center_path_markers(self.get_clock().now().to_msg())
         if errors is None and len(self.candidate_clusters) <= 3:
             if self.mission_exit_since is None:
@@ -965,12 +1163,87 @@ class RoiNode(Node):
         self.last_steering = max(-limit, min(limit, self.last_steering))
         # Saturate slowdown independently of the permitted steering range.
         slowdown = min(1., abs(target)/p['control_speed_reference_steering'])
-        speed = p['control_speed']*(1.-.7*slowdown)
+        speed = p['control_speed']*(1.-.25*slowdown)
+        active_path = self.memory_local_path if self.memory_following else self.center_path
+        self.publish_control_points(active_path)
+        peak_curvature = max(path_curvature(active_path), default=0.)
+        if peak_curvature > 1e-9:
+            corner_ratio = min(1., peak_curvature*self.get_parameter('center_min_turn_radius').value)
+            speed = min(speed, p['control_speed']*(1.-.25*corner_ratio))
         if self.memory_following:
             speed = min(speed, p['control_memory_speed'])
         self.control_mode = 'Memory Path Feedback' if self.memory_following else 'Path Feedback'
         self.control_stop_reason = None
         self.publish_drive(speed, self.last_steering)
+
+    def use_async_path(self):
+        # Measured sections are immediately available; never wait for the child.
+        self.center_path = list(self.measured_center_path)
+        self.center_path_mode = 'Measured (planner pending)' if self.center_path else 'Invalid'
+        result = self.async_planner.poll()
+        if result is not None:
+            metadata, (path, diagnostics) = result
+            stamp_ns, to_odom, parameters, received = metadata
+            self.path_diagnostics.update(diagnostics)
+            if path and to_odom is not None:
+                self.planned_snapshot = (
+                    self.transform_points(path, to_odom), stamp_ns, parameters, received)
+            else:
+                self.planned_snapshot = None
+        if self.planned_snapshot is None:
+            return
+        odom_path, stamp_ns, parameters, received = self.planned_snapshot
+        timeout = self.get_parameter('control_timeout').value
+        age = (self.get_clock().now().nanoseconds-stamp_ns)/1e9
+        current_parameters = {name: self.get_parameter(name).value for name in CENTER_DEFAULTS}
+        if (not 0 <= age <= timeout or not 0 <= time.monotonic()-received <= timeout
+                or parameters != current_parameters):
+            self.planned_snapshot = None
+            return
+        try:
+            # Keep the same scan-time base frame used by measured paths and
+            # remember_live_path; do not label a current-pose path as an older scan.
+            scan_time = Time(nanoseconds=self.control_scan_stamp)
+            to_base = self.memory_transform('base_link', 'odom', scan_time)
+            self.center_path = self.transform_points(odom_path, to_base)
+            self.center_path_mode = 'Unified (worker)'
+        except (TransformException, ValueError):
+            self.path_diagnostics['planner_tf'] = 'unavailable; retained measured path'
+
+    def destroy_node(self):
+        if self.async_planner is not None:
+            self.async_planner.close()
+        return super().destroy_node()
+
+    def publish_control_points(self, path=None):
+        markers = self.marker_array()
+        geometry = self.path_control_geometry(
+            path or [], self.get_parameter('control_reference_x').value,
+            self.get_parameter('control_max_path_distance').value)
+        if geometry is not None:
+            _, heading, x, y, a, b = geometry
+            reference_x = self.get_parameter('control_reference_x').value
+            for namespace, position, color in (
+                    ('reference', (reference_x, 0.), (1., 1., 1.)),
+                    ('projection', (x, y), (0., 1., 1.))):
+                marker = self.new_marker(namespace, Marker.SPHERE)
+                marker.pose.position = Point(x=float(position[0]), y=float(position[1]), z=.06)
+                marker.scale.x = marker.scale.y = marker.scale.z = .08
+                marker.color.r, marker.color.g, marker.color.b = color
+                marker.lifetime = Duration(seconds=.2).to_msg()
+                markers.markers.append(marker)
+            for namespace, points, color in (
+                    ('selected_segment', [a, b], (1., .5, 0.)),
+                    ('projection_error', [(reference_x, 0.), (x, y)], (1., 1., 1.)),
+                    ('path_heading', [(x, y), (x+.2*math.cos(heading), y+.2*math.sin(heading))],
+                     (0., 1., 1.))):
+                marker = self.new_marker(namespace, Marker.LINE_STRIP)
+                marker.points = [Point(x=float(q[0]), y=float(q[1]), z=.06) for q in points]
+                marker.scale.x = .025
+                marker.color.r, marker.color.g, marker.color.b = color
+                marker.lifetime = Duration(seconds=.2).to_msg()
+                markers.markers.append(marker)
+        self.control_points_pub.publish(markers)
 
     def marker_array(self, stamp=None):
         # Each topic owns its MarkerArray; DELETEALL cannot clear the ROI Marker topics.
@@ -1028,12 +1301,37 @@ class RoiNode(Node):
                 f'  Path update: {self.memory_update_reason}\n'
                 f'  Control    : active={self.control_engaged} | state={self.control_mode}\n'
                 f'  Stop reason: {self.control_stop_reason or "None"}\n'
-                f'  Projection : {self.projection_status}')
+                f'  Projection : {self.projection_status}\n'
+                f'  Boundaries : left={len(self.left_boundary)} right={len(self.right_boundary)}\n'
+                f'  Geometry   : sections={len(self.center_pairs)} width={self.lane_width_mean}m '
+                f'live_length={self.path_length(self.center_path):.2f}m\n'
+                f'  Diagnostics: {self.diagnostic_summary()}\n'
+                f'  Backup     : stored_points={len(self.path_memory.points)} '
+                f'remaining={self.path_length(self.memory_local_path):.2f}m '
+                f'following={self.memory_following}\n'
+                f'  Command    : speed={self.command_speed:.3f}m/s '
+                f'steering={math.degrees(self.command_steering):+.1f}deg')
+
+    def diagnostic_summary(self):
+        if not self.path_diagnostics:
+            return 'none'
+        return '\n               '.join(f'{key}: {value}' for key, value in self.path_diagnostics.items())
+
+    @staticmethod
+    def path_length(path):
+        return sum(math.dist(a[:2], b[:2]) for a, b in zip(path, path[1:]))
 
     def publish_control_log(self):
         self.get_logger().info(self.control_log_summary())
 
     def publish_control_status(self):
+        state = (self.mission_cone, self.control_mode, self.control_stop_reason,
+                 tuple(k for k in self.path_diagnostics if k in
+                       ('width_conflict', 'turn', 'gap', 'boundary_crossing', 'outside_boundary')))
+        if state != self.last_logged_state:
+            self.get_logger().info(f'[CONE transition] {self.last_logged_state} -> {state}')
+            self.last_logged_state = state
+            self.publish_control_log()
         marker = self.new_marker('control_status', Marker.TEXT_VIEW_FACING)
         b = self.roi_bounds()
         marker.pose.position = Point(x=(b['roi_x_min']+b['roi_x_max'])/2,
@@ -1080,6 +1378,9 @@ def main(args=None):
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except rclpy._rclpy_pybind11.RCLError:
+        if rclpy.ok():
+            raise
     finally:
         if node is not None:
             node.destroy_node()
