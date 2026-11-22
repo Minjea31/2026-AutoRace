@@ -66,18 +66,3 @@
 | 공통 | [mux_ws](mux_ws/) | 미션 command 우선순위 선택. 유효한 미션 command가 없으면 `/mission/lane` 선택. 최종 차량 제어 `/cmd_vel` 발행 |
 | 공통 | [sensor_ws](sensor_ws/) | 카메라·라이다 등 센서 데이터 수집 및 처리 |
 | 공통 | [yolo_ws](yolo_ws/) | 방지턱·지그재그·보행자 표지판·갈림길·신호등·주차 인지 결과를 Bool 토픽으로 발행 |
-
-모든 워크스페이스는 아래와 같은 폴더 구조를 사용합니다. `src/init.txt`는 빈 `src` 폴더를 Git에 유지하기 위한 파일입니다.
-
-```text
-<workspace>/
-├── README.md
-└── src/
-    └── init.txt
-```
-
-차선 주행(HSV / 딥 라이트 / 퓨전) 실행 방법과 차 업데이트·빌드 순서는 [차선 실행 방법](docs/LANE_RUN.md)에 정리되어 있습니다.
-
-대회 규정집, 미션 상세 문서 및 트랙 도면은 [assets](assets/) 폴더에 있습니다.
-
-지도 순서에 따른 미션 수행 내용, 판정 기준 및 표지판은 [미션별 정리](misson.md)에서 확인할 수 있습니다.
