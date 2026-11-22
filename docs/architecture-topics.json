@@ -208,7 +208,7 @@
     "target": "mux_ws",
     "topics": [
       {
-        "name": "/mission/cone/command_04",
+        "name": "/mission/cone/command_05",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
@@ -252,7 +252,7 @@
     "target": "mux_ws",
     "topics": [
       {
-        "name": "/mission/objavoid/command_05",
+        "name": "/mission/objavoid/command_04",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
@@ -266,7 +266,7 @@
     "target": "slow_ws",
     "topics": [
       {
-        "name": "/yolo/slow_sign",
+        "name": "/yolo/bump_sign",
         "type": "std_msgs/msg/Bool"
       }
     ],
@@ -275,12 +275,12 @@
   },
   {
     "page": "전체 흐름",
-    "id": "yolo-zigzag-to-slow",
+    "id": "yolo-slow-to-slow",
     "source": "yolo_ws",
     "target": "slow_ws",
     "topics": [
       {
-        "name": "/yolo/zigzag",
+        "name": "/yolo/slow_sign",
         "type": "std_msgs/msg/Bool"
       }
     ],

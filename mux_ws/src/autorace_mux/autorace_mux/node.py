@@ -3,12 +3,14 @@
 from dataclasses import fields
 from functools import partial
 import math
+import json
 import signal
 from threading import Event
 import time
 
 from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import Twist
+from std_msgs.msg import Header, String
 from rcl_interfaces.msg import ParameterDescriptor
 import rclpy
 from rclpy.clock import Clock, ClockType
@@ -17,6 +19,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.signals import SignalHandlerOptions
 
+from autorace_mux.parking_guard import ParkingGuard
 from autorace_mux.core import Arbitrator, Config, INPUTS, TwistConverter
 
 
@@ -47,11 +50,33 @@ class MuxNode(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE)
         self._publisher = self.create_publisher(Twist, output, qos)
+        source_topic = self.declare_parameter(
+            'active_source_topic', '/mux/active_source', descriptor).value
+        if not source_topic or source_topic in (*topics.values(), output):
+            raise ValueError('Active source topic must be nonempty and differ from command topics')
+        source_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST, depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self._source_publisher = self.create_publisher(String, source_topic, source_qos)
+        self._input_topics = topics
+        self._output_topic = output
         self._subscriptions = [
             self.create_subscription(
                 AckermannDriveStamped, topic, partial(self._receive, name), qos)
             for name, topic in topics.items()
         ]
+        self._parking_release_stamp = 0
+        self._parking_lane_mode = 'normal'
+        self._parking_lane_hold_until = 0.0
+        self._parking_session_stamp = 0
+        self._last_release_clock = None
+        handoff = self.declare_parameter('parking_handoff_topic', '/parking/lane_handoff', descriptor).value
+        self._parking_handoff_subscription = self.create_subscription(Header, handoff, self._release_parking, qos)
+        self.parking_guard = ParkingGuard()
+        self.parking_guard_enabled = self.declare_parameter('parking_guard_enabled',False,descriptor).value
+        self.create_subscription(String,'/parking/control_state',self._parking_state,qos)
+        self.create_subscription(Header,'/parking/approach_start',self._parking_start,qos)
         self._last_source = None
         self._last_warning = {}
         # Continue the watchdog even if /clock pauses when use_sim_time=true.
@@ -60,7 +85,83 @@ class MuxNode(Node):
             1.0 / self.config.publish_rate_hz, self._publish, clock=self._steady_clock)
         self.get_logger().info(
             f'Mux ready: default={topics["lane"]}, output={output}, '
-            f'timeout={self.config.input_timeout_sec:.3f}s')
+            f'timeout={self.config.input_timeout_sec:.3f}s, active_source={source_topic}')
+
+    def _parking_start(self, message):
+        now = self._clock_ns()
+        if self._lane_hold_active():
+            return
+        stamp = message.stamp.sec*1_000_000_000+message.stamp.nanosec
+        if (message.stamp.sec < 0 or not 0 <= message.stamp.nanosec < 1_000_000_000
+                or stamp <= self._parking_release_stamp or stamp < self._parking_session_stamp):
+            return
+        if self.parking_guard.arm(stamp*1e-9,time.monotonic(),now*1e-9):
+            self._begin_parking(stamp)
+
+    def _parking_state(self, message):
+        try:
+            state = json.loads(message.data)
+            now = self._clock_ns()
+            stamp = state.get('stamp')
+            if isinstance(stamp,bool) or not isinstance(stamp,(float,int)) or not math.isfinite(stamp):
+                return
+            stamp_ns = round(stamp*1e9)
+            # A delayed DRIVE/HOLD heartbeat cannot undo a completed handoff.
+            if stamp_ns <= self._parking_release_stamp or stamp_ns < self._parking_session_stamp:
+                return
+            if self._lane_hold_active() and state.get('phase') not in ('RELEASE','RESET'):
+                return
+            if not self.parking_guard.receive(state,time.monotonic(),now*1e-9):
+                return
+            phase = state['phase']
+            if phase == 'RELEASE' and state['ready']:
+                self._finish_parking_handoff(stamp_ns)
+            elif phase == 'RESET' and state['ready']:
+                if self._parking_lane_mode != 'normal':
+                    self._finish_parking_handoff(stamp_ns,hold_lane=False)
+            elif phase in ('HOLD','APPROACH','DRIVE','FAILED'):
+                self._begin_parking(stamp_ns)
+        except (ValueError,TypeError,AttributeError):
+            return
+
+    def _lane_hold_active(self):
+        return self._parking_lane_mode == 'lane' and time.monotonic() < self._parking_lane_hold_until
+
+    def _begin_parking(self, stamp):
+        if self._lane_hold_active():
+            return
+        if self._parking_lane_mode != 'parking':
+            self._parking_session_stamp = stamp
+        self._parking_lane_mode = 'parking'
+        self._discard_other_missions()
+
+    def _discard_other_missions(self):
+        for source, _ in INPUTS:
+            if source not in ('parking','lane'):
+                self.arbitrator.discard(source)
+
+    def _finish_parking_handoff(self, stamp, hold_lane=True):
+        if hold_lane and self._parking_lane_mode != 'lane':
+            self._parking_lane_hold_until = time.monotonic()+10.0
+        self._parking_release_stamp = stamp
+        self._parking_lane_mode = 'lane'
+        self._discard_other_missions()
+        self.arbitrator.discard('parking')
+        # Either the stamped handoff or RELEASE heartbeat may arrive first.
+        self.parking_guard.receive(dict(stamp=stamp*1e-9,phase='RELEASE',ready=True),
+            time.monotonic(),self._clock_ns()*1e-9)
+        self._publish()
+
+    def _allowed_sources(self):
+        if self._parking_lane_mode == 'lane':
+            return ('lane',)
+        if self._parking_lane_mode == 'parking':
+            # The sign-to-floor approach is the sole lane exception while
+            # parking is armed. DRIVE/failed/expired parking never falls through.
+            if self.parking_guard_enabled and self.parking_guard.phase == 'APPROACH':
+                return ('parking','lane')
+            return ('parking',)
+        return None
 
     def _warn_rejected(self, source, reason):
         now = time.monotonic()
@@ -68,7 +169,37 @@ class MuxNode(Node):
             self.get_logger().warning(f'Ignoring {source}: {reason}')
             self._last_warning[source] = now
 
+    def _clock_ns(self):
+        now = self.get_clock().now().nanoseconds
+        if self._last_release_clock is not None and now < self._last_release_clock:
+            self._parking_release_stamp = 0
+            self._parking_lane_mode = 'normal'
+            self._parking_lane_hold_until = 0.0
+            self._parking_session_stamp = 0
+            self.parking_guard = ParkingGuard(self.parking_guard.timeout)
+        self._last_release_clock = now
+        return now
+
+    def _release_parking(self, message):
+        now = self._clock_ns()
+        stamp = message.stamp.sec * 1_000_000_000 + message.stamp.nanosec
+        if (message.stamp.sec < 0 or not 0 <= message.stamp.nanosec < 1_000_000_000
+                or stamp <= self._parking_release_stamp or stamp < self._parking_session_stamp
+                or not -self.config.future_tolerance_sec <= (now - stamp) / 1e9 < self.config.input_timeout_sec):
+            return
+        self._finish_parking_handoff(stamp)
+
     def _receive(self, source, message):
+        now = self._clock_ns()
+        if source == 'parking' and self._lane_hold_active():
+            self.arbitrator.discard(source)
+            return
+        stamp_ns = message.header.stamp.sec * 1_000_000_000 + message.header.stamp.nanosec
+        if source == 'parking' and self._parking_release_stamp > 0 and 0 <= stamp_ns <= self._parking_release_stamp:
+            return
+        if self._parking_lane_mode != 'normal' and source not in ('parking','lane'):
+            self.arbitrator.discard(source)
+            return
         drive = message.drive
         values = (drive.speed, drive.steering_angle, drive.steering_angle_velocity,
                   drive.acceleration, drive.jerk)
@@ -81,27 +212,49 @@ class MuxNode(Node):
         accepted, reason = self.arbitrator.receive(
             source, drive.speed, drive.steering_angle,
             stamp.sec * 1_000_000_000 + stamp.nanosec,
-            time.monotonic(), self.get_clock().now().nanoseconds)
+            time.monotonic(), now)
         if not accepted:
             self._warn_rejected(source, reason)
+        elif source == 'parking':
+            if self._parking_lane_mode == 'lane':
+                # Parking stops publishing permanently at handoff. A newer valid
+                # parking command belongs to an explicitly restarted run.
+                self._begin_parking(stamp_ns)
+            self._parking_session_stamp = max(self._parking_session_stamp,stamp_ns)
 
     def _publish(self):
         now = time.monotonic()
-        candidate = self.arbitrator.select(now, self.get_clock().now().nanoseconds)
+        ros_now = self._clock_ns()
+        candidate = self.arbitrator.select(now, ros_now, self._allowed_sources())
+        if self.parking_guard_enabled:
+            candidate = self.parking_guard.apply(candidate,now,self._clock_ns()*1e-9)
         speed, yaw_rate = self.converter.convert(candidate, now)
         message = Twist()
         message.linear.x = speed
         message.angular.z = yaw_rate
         self._publisher.publish(message)
-        source = candidate.source if candidate else 'STOP (no fresh input)'
+        source = candidate.source if candidate else 'stop'
+        self._source_publisher.publish(String(data=source))
         if source != self._last_source:
-            self.get_logger().info(f'Selected: {source}')
-            self._last_source = source
+            if candidate:
+                label, input_topic = source, self._input_topics[source]
+            else:
+                reason = 'parking guard' if self.parking_guard_enabled and self.parking_guard.armed else 'no fresh input'
+                label, input_topic = f'STOP ({reason})', 'none'
+            self.get_logger().info(
+                f'Selected: {label} | input={input_topic} | output={self._output_topic} | '
+                f'speed={speed:.3f} m/s, yaw_rate={yaw_rate:.3f} rad/s')
+        self._last_source = source
 
     def stop(self):
         self._timer.cancel()
         self._publisher.publish(Twist())
+        self._source_publisher.publish(String(data='stop'))
+        if self._last_source != 'stop':
+            self.get_logger().info('Selected: STOP (shutdown)')
+        self._last_source = 'stop'
         self._publisher.wait_for_all_acked(Duration(seconds=0.2))
+        self._source_publisher.wait_for_all_acked(Duration(seconds=0.2))
 
 
 def main(args=None):

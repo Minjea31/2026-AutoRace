@@ -11,7 +11,6 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/autorace_mux']),
         ('share/autorace_mux', ['package.xml']),
         ('share/autorace_mux/launch', glob('launch/*.launch.py')),
-        ('share/autorace_mux/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

@@ -10,9 +10,9 @@ INPUTS = (
     ('crosswalk', '/mission/crosswalk/command_01'),
     ('signal', '/mission/signal/command_02'),
     ('parking', '/mission/parking/command_03'),
-    ('cone', '/mission/cone/command_04'),
+    ('slow', '/mission/slow/command_04'),
     ('objavoid', '/mission/objavoid/command_05'),
-    ('slow', '/mission/slow/command_08'),
+    ('cone', '/mission/cone/command_06'),
     ('lane', '/mission/lane'),
 )
 
@@ -24,18 +24,20 @@ class Config:
     future_tolerance_sec: float = 0.05
     require_stamp: bool = True
     wheelbase_m: float = 0.2
-    max_forward_speed_mps: float = 0.5
+    max_forward_speed_mps: float = 0.8
     max_reverse_speed_mps: float = 0.3
-    max_steering_angle_rad: float = 0.4886921906
-    max_yaw_rate_rps: float = 1.5
+    max_steering_angle_rad: float = 0.65
+    max_yaw_rate_rps: float = 2.5
     max_acceleration_mps2: float = 1.0
     max_deceleration_mps2: float = 2.0
+    steering_limit_enabled: bool = False
+    yaw_rate_limit_enabled: bool = False
 
     def __post_init__(self):
         for name, value in vars(self).items():
-            if name == 'require_stamp':
+            if name in ('require_stamp', 'steering_limit_enabled', 'yaw_rate_limit_enabled'):
                 if not isinstance(value, bool):
-                    raise ValueError('require_stamp must be a bool')
+                    raise ValueError(f'{name} must be a bool')
                 continue
             if isinstance(value, bool) or not math.isfinite(value):
                 raise ValueError(f'{name} must be finite')
@@ -63,6 +65,11 @@ class Arbitrator:
     def discard(self, source: str):
         self._candidates.pop(source, None)
 
+    def discard_through(self, source: str, stamp_ns: int):
+        candidate = self._candidates.get(source)
+        if candidate is not None and candidate.stamp_ns <= stamp_ns:
+            self.discard(source)
+
     def _observe_clock(self, ros_now_ns: int):
         # A bag/simulation reset must not resurrect candidates from the old clock.
         if self._last_ros_ns is not None and ros_now_ns < self._last_ros_ns:
@@ -85,8 +92,10 @@ class Arbitrator:
         reason = ''
         if not all(math.isfinite(x) for x in (speed, steering_angle, received_at)):
             reason = 'non-finite command'
-        elif speed < 0 and source != 'parking':
-            reason = 'reverse is allowed only for parking'
+        elif abs(steering_angle) >= math.pi / 2:
+            reason = 'steering must be strictly between -pi/2 and pi/2'
+        elif speed < 0 and source not in ('parking', 'objavoid'):
+            reason = 'reverse is allowed only for parking and objavoid'
         if reason:
             self.discard(source)
             return False, reason
@@ -101,9 +110,11 @@ class Arbitrator:
             source, speed, steering_angle, stamp_ns, received_at)
         return True, ''
 
-    def select(self, steady_now: float, ros_now_ns: int) -> Optional[Candidate]:
+    def select(self, steady_now: float, ros_now_ns: int, allowed_sources=None) -> Optional[Candidate]:
         self._observe_clock(ros_now_ns)
         for source, _ in INPUTS:
+            if allowed_sources is not None and source not in allowed_sources:
+                continue
             candidate = self._candidates.get(source)
             if candidate is None:
                 continue
@@ -138,8 +149,10 @@ class TwistConverter:
         increasing = abs(target) > abs(self._speed)
         step = (cfg.max_acceleration_mps2 if increasing else cfg.max_deceleration_mps2) * dt
         self._speed += max(-step, min(target - self._speed, step))
-        angle = max(-cfg.max_steering_angle_rad,
-                    min(candidate.steering_angle, cfg.max_steering_angle_rad))
+        angle = candidate.steering_angle
+        if cfg.steering_limit_enabled:
+            angle = max(-cfg.max_steering_angle_rad, min(angle, cfg.max_steering_angle_rad))
         yaw_rate = self._speed * math.tan(angle) / cfg.wheelbase_m
-        yaw_rate = max(-cfg.max_yaw_rate_rps, min(yaw_rate, cfg.max_yaw_rate_rps))
+        if cfg.yaw_rate_limit_enabled:
+            yaw_rate = max(-cfg.max_yaw_rate_rps, min(yaw_rate, cfg.max_yaw_rate_rps))
         return self._speed, yaw_rate

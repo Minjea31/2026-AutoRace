@@ -1,115 +1,85 @@
 # mux_ws
 
-ROS 2 Humble용 `autorace_mux` 패키지입니다. 저장된 [draw.io](../docs/2026_AutoRace.drawio)의 미션 명령 6개와 기본 차선 명령을 받고, 선택한 명령을 `/cmd_vel` (`geometry_msgs/msg/Twist`)로 차량에 직접 발행합니다. **기본값은 `/mission/lane`입니다.**
-
-## 입력과 선택 규칙
-
-모든 입력 타입은 `ackermann_msgs/msg/AckermannDriveStamped`입니다. 우선순위는 토픽에 붙은 숫자에 따라 고정하며, 메시지 도착 순서로 바꾸지 않습니다.
-
-| 우선순위 | 입력 토픽 |
-| --- | --- |
-| 01 | `/mission/crosswalk/command_01` |
-| 02 | `/mission/signal/command_02` |
-| 03 | `/mission/parking/command_03` |
-| 04 | `/mission/cone/command_04` |
-| 05 | `/mission/objavoid/command_05` |
-| 08 | `/mission/slow/command_08` |
-| DEFAULT | `/mission/lane` |
-
-1. 최신 유효 미션 중 번호가 가장 작은 명령을 선택합니다. **속도 0인 미션도 활성 정지 명령**으로 선택합니다.
-2. 미션이 없거나 모두 만료되면 최신 유효 lane 명령을 선택합니다.
-3. lane도 없거나 만료되면 선속도·각속도 0을 계속 발행합니다.
-
-미션 노드는 비활성·완료 시 발행을 멈추고, 수행 중에는 주기 발행해야 합니다. 발행 중단 후 기본 0.25초가 지나면 다음 후보나 lane으로 복귀합니다. `lane_ws`만 `/mission/lane`을 발행하며, mux는 이 토픽이나 미션 상태 토픽을 발행하지 않습니다. 방지턱·지그재그는 같은 slow 입력을 사용하고, LR는 기존 lane 구조를 유지합니다.
-
-## 유효성 검사와 출력
-
-- 수신 후 경과 시간과 `header.stamp`의 나이가 모두 timeout 미만이어야 합니다. 기본적으로 빈 stamp를 거부하므로 발행자는 매 메시지의 `header.stamp`를 현재 ROS 시각으로 채워야 합니다. 미래 stamp는 기본 0.05초까지만 허용합니다.
-- NaN/Inf, 오래된 stamp, 허용 범위를 벗어난 미래 stamp, 주차 이외의 후진 명령은 거부합니다. 이런 입력은 해당 소스의 이전 후보도 제거합니다. 단, 다른 수치 검사를 통과한 같은 소스의 양수 stamp가 저장된 후보보다 과거이면, timeout 여부를 검사하기 전에 무시해 최신 후보를 유지합니다. 무시한 메시지는 최신 후보의 유효 시간을 연장하지 않습니다.
-- 후진은 parking 입력만 허용합니다. 범위를 넘는 속도·조향각은 설정한 한계로 제한합니다.
-- `linear.x = speed`, `angular.z = speed * tan(steering_angle) / wheelbase`로 변환합니다. 입력 조향각 단위는 rad, 출력은 m/s와 rad/s입니다. 속도 0에서는 각속도도 0입니다.
-- 일반 속도 변경에는 설정한 가속·감속 한계를 적용하고, 방향 전환은 속도 0을 거칩니다. 선택된 정지 명령과 timeout 정지는 감속 램프를 건너뛰고 즉시 0을 발행합니다.
-- `drive.speed`와 `drive.steering_angle`을 출력 계산에 사용합니다. `steering_angle_velocity`, `acceleration`, `jerk` 필드는 유한값인지 검사하지만 개별 메시지의 제한값으로 사용하지 않습니다. 가감속 한계는 mux 설정값을 사용합니다.
-- 수신 timeout과 출력 타이머는 steady clock을 사용해 `/clock`이 멈춰도 정지합니다. ROS 시각이 뒤로 이동하면 이전 후보를 비웁니다. SIGINT/SIGTERM 종료 시 마지막 정지 Twist를 발행합니다.
-
-입출력 QoS는 Reliable / Volatile / KeepLast(1)입니다. 구현은 [core.py](src/autorace_mux/autorace_mux/core.py)와 [node.py](src/autorace_mux/autorace_mux/node.py)에 있습니다.
+lane과 미션 노드의 주행 명령을 받아 우선순위가 가장 높은 유효 명령 하나를 선택하고, 차량용 `/cmd_vel`로 변환합니다.
+입력은 `ackermann_msgs/msg/AckermannDriveStamped`, 출력은 `geometry_msgs/msg/Twist`입니다.
 
 ## 빌드와 실행
 
-Humble 환경에서 필요한 의존성을 설치한 뒤 이 워크스페이스만 빌드합니다.
+```bash
+cd ~/2026-AutoRace/mux_ws
+source /opt/ros/humble/setup.bash
+/usr/bin/python3 -m colcon build --symlink-install
+source install/setup.bash
+export ROS_DOMAIN_ID=94 ROS_LOCALHOST_ONLY=0
+ros2 run autorace_mux mux_node
+```
+
+launch로 실행해도 기본값은 같습니다.
 
 ```bash
-sudo apt install ros-humble-ackermann-msgs python3-colcon-common-extensions python3-pytest
-source /opt/ros/humble/setup.bash
-cd /home/a/2026-AutoRace/mux_ws
-/usr/bin/colcon build --symlink-install --packages-select autorace_mux
-source install/setup.bash
 ros2 launch autorace_mux mux.launch.py
 ```
 
-실행 노드 이름은 `/mux`입니다. launch는 [mux.yaml](src/autorace_mux/config/mux.yaml)을 불러옵니다. `ros2 run autorace_mux mux_node`로도 기본 설정으로 실행할 수 있습니다.
+별도 YAML 없이 코드 기본값을 사용합니다. 모든 노드는 같은 ROS 도메인을 사용해야 합니다.
 
-## 설정
+## 입력 우선순위
 
-| 파라미터 | 기본값 | 의미 |
-| --- | --- | --- |
-| `publish_rate_hz` | 30.0 | Twist 발행 주기 Hz |
-| `input_timeout_sec` | 0.25 | 후보 수신 시간·원본 stamp 유효 시간 s |
-| `future_tolerance_sec` | 0.05 | 미래 stamp 허용 오차 s |
-| `require_stamp` | true | stamp 필수. false면 stamp=0 입력만 수신 시각으로 판단 |
-| `wheelbase_m` | 0.2 | 축간거리 m, 저장소 LIMO 드라이버 값 기준 |
-| `max_forward_speed_mps` | 0.5 | 최대 전진 속도 m/s |
-| `max_reverse_speed_mps` | 0.3 | 주차 최대 후진 속도의 크기 m/s |
-| `max_steering_angle_rad` | 0.4886921906 | 최대 조향각 크기 rad, 기본 28도 |
-| `max_yaw_rate_rps` | 1.5 | 최대 각속도 크기 rad/s |
-| `max_acceleration_mps2` | 1.0 | 속도 크기 증가 한계 m/s² |
-| `max_deceleration_mps2` | 2.0 | 속도 크기 감소 한계 m/s² |
-| `topics.<이름>` | 위 표의 입력 토픽 | 입력 이름 crosswalk/signal/parking/cone/objavoid/slow/lane |
-| `output_topic` | `/cmd_vel` | Twist 출력 토픽 |
+| 우선순위 | 입력 토픽 |
+|---|---|
+| 01 | `/mission/crosswalk/command_01` |
+| 02 | `/mission/signal/command_02` |
+| 03 | `/mission/parking/command_03` |
+| 04 | `/mission/slow/command_04` |
+| 05 | `/mission/objavoid/command_05` |
+| 06 | `/mission/cone/command_06` |
+| 기본 | `/mission/lane` |
 
-한계값은 초기 설정이며 실차에 맞게 조정합니다. 파라미터는 시작 시 읽고 실행 중 변경은 거부합니다. 사용자 YAML은 `params_file:=/절대/경로/mux.yaml`로 지정합니다. 출력 토픽만 바꿀 때는 launch 인자 `output_topic:=/다른/토픽`을 사용할 수 있습니다.
+번호가 작은 유효 미션을 선택합니다. 미션 입력이 없거나 만료되면 lane으로 돌아가고, lane도 유효하지 않으면 정지합니다.
+속도 0을 계속 발행하는 미션도 유효한 제어 명령이므로 lane에 제어권을 넘기려면 해당 미션의 발행을 멈춰야 합니다.
+기본 입력 만료 시간은 **0.25초**입니다.
 
-## 로컬 통신 확인
+## 현재 제어 주체 확인
 
-각 터미널에서 같은 ROS 환경을 불러오고 아래 domain 설정을 사용합니다. 출력은 테스트용 토픽으로 보냅니다.
-
-```bash
-source /opt/ros/humble/setup.bash
-source /home/a/2026-AutoRace/mux_ws/install/setup.bash
-export ROS_DOMAIN_ID=199
-export ROS_LOCALHOST_ONLY=1
-```
-
-첫 터미널에서 실행합니다.
+`/mux/active_source` (`std_msgs/msg/String`)에 MUX가 실제로 선택한 입력 이름을
+제어 출력과 같은 주기로 발행합니다. 기본 주기는 **30Hz**이며,
+값은 `crosswalk`, `signal`, `parking`, `cone`, `objavoid`, `slow`, `lane`, `stop`입니다.
+유효한 입력이 없거나 parking guard가 출력을 막으면 `stop`입니다.
+미션이 속도 0을 명령 중이면 해당 미션 이름을 유지합니다.
 
 ```bash
-ros2 launch autorace_mux mux.launch.py output_topic:=/mux_test/cmd_vel
+ros2 topic echo /mux/active_source
 ```
 
-다른 터미널에서 lane 명령을 계속 보냅니다. `header: auto`가 매 발행 시각을 채웁니다.
+늦게 연결한 구독자도 최신 값을 받을 수 있도록 transient-local QoS를 사용합니다.
+필요하면 `active_source_topic` 파라미터로 토픽 이름을 변경할 수 있습니다.
+로그는 제어 주체가 바뀔 때 한 번만 남기며, 같은 주체가 유지되면 반복하지 않습니다.
+선택된 입력 토픽, 출력 토픽, 실제 출력 속도와 각속도를 함께 기록합니다.
+정상 종료 시에는 최종 `stop`을 발행합니다.
 
-```bash
-ros2 topic pub --rate 20 /mission/lane ackermann_msgs/msg/AckermannDriveStamped \
-  '{header: auto, drive: {speed: 0.4, steering_angle: 0.1}}'
+```text
+Selected: lane | input=/mission/lane | output=/cmd_vel | speed=0.400 m/s, yaw_rate=0.000 rad/s
+Selected: crosswalk | input=/mission/crosswalk/command_01 | output=/cmd_vel | speed=0.000 m/s, yaw_rate=0.000 rad/s
+Selected: STOP (no fresh input) | input=none | output=/cmd_vel | speed=0.000 m/s, yaw_rate=0.000 rad/s
 ```
 
-또 다른 터미널에서 정지 미션을 보내면 lane보다 우선합니다.
+## 기본 제어값
 
-```bash
-ros2 topic pub --rate 20 /mission/crosswalk/command_01 ackermann_msgs/msg/AckermannDriveStamped \
-  '{header: auto, drive: {speed: 0.0, steering_angle: 0.1}}'
-```
+- 최대 전진 속도: **0.8m/s**, 최대 후진 속도: **0.3m/s**.
+- 조향각 제한과 각속도 제한: 기본 OFF. 비정상 수치와 ±90° 이상의 입력 조향각은 거부합니다.
+- 선택된 중앙 조향각을 `각속도 = 속도 × tan(조향각) / 축간거리`로 바꿉니다. LIMO 드라이버가 이를 차체 명령으로 변환합니다.
+- 가감속 제한과 전후진 전환 시 정지 처리는 유지합니다.
 
-`ros2 topic echo /mux_test/cmd_vel`로 확인합니다. crosswalk 발행을 멈추면 약 0.25초 후 lane으로 복귀해 가속하고, lane 발행도 멈추면 정지합니다.
+설정 기본값은 `src/autorace_mux/autorace_mux/core.py`, 토픽 연결은 `node.py`에서 확인할 수 있습니다.
 
-## 자동 검증
 
-```bash
-cd /home/a/2026-AutoRace/mux_ws
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-/usr/bin/colcon test --packages-select autorace_mux --event-handlers console_direct+
-/usr/bin/colcon test-result --verbose
-```
+## 주차 이후 lane 전용 인계
+주차 시작 상태(HOLD/APPROACH/DRIVE)를 받은 뒤에는 parking과 주차 접근용 lane만
+제어 후보로 사용한다. 곡선 후진 완료 후 `/parking/lane_handoff` 또는 정상 RELEASE를
+받으면 즉시 lane만 선택하며, 횡단보도·신호·감속·OBJ·cone 명령은 0속도 명령까지
+모두 제외한다. lane 명령도 만료되면 정지하며 다른 미션으로 넘어가지 않는다.
+새 parking 트리거가 정상 시작 상태 또는 새로운 주차 명령을 만들면 parking으로
+재진입하고, 다음 완료 때 다시 lane 전용으로 돌아간다. 오래된 주차 명령·상태·인계는
+이미 끝난 주차를 다시 켜지 못한다. MUX 재시작 또는 ROS 시간 되감기 전까지 이 정책을 유지한다.
+노드 프로세스를 종료하는 방식이 아니라 차량 출력의 제어권을 제한한다.
 
-테스트는 우선순위, lane 기본값, 정지 미션, timeout, stamp, 잘못된 수치, 후진 제한, 변환·가감속, 저장된 도면과의 토픽 일치를 확인합니다. 실제 ROS pub/sub 테스트는 별도 domain과 임시 입력·출력 토픽을 사용하고, `/clock` 없는 시뮬레이션에서도 watchdog이 동작하는지 확인합니다. 전체 계약은 [architecture.md](../docs/architecture.md)에 있습니다.
+주차 종료 후 lane 우선권을 단조 시계로 10초 유지한다. 이 시간에는 parking 시작/상태/명령 재수신도 무시하며 재시작 요청을 예약하지 않는다. 10초 후 새 parking 표지를 받고 흰 바닥선 조건을 만족하면 다시 parking으로 전환한다. lane 명령이 끊기면 정지한다. 다른 미션은 주차 이후 lane/parking 반복에서 선택하지 않는다.
