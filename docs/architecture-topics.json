@@ -4,379 +4,1307 @@
     "id": "전체-edge-01",
     "source": "sensor_camera",
     "target": "yolo_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "yolo_ws",
     "topics": [
       {
         "name": "/camera/color/image_raw/compressed",
         "type": "sensor_msgs/msg/CompressedImage"
       }
     ],
-    "source_workspace": "sensor_ws",
-    "category": "camera",
-    "color": "#1976D2"
+    "category": "runtime",
+    "color": "#0D47A1",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-02",
     "source": "sensor_camera",
-    "target": "lane_ws",
+    "target": "deep_mask",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "lane_fusion_ws",
     "topics": [
       {
         "name": "/camera/color/image_raw/compressed",
         "type": "sensor_msgs/msg/CompressedImage"
       }
     ],
-    "source_workspace": "sensor_ws",
-    "category": "camera",
-    "color": "#1976D2"
+    "category": "runtime",
+    "color": "#0D47A1",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-03",
     "source": "yolo_ws",
     "target": "crosswalk_ws",
+    "source_workspace": "yolo_ws",
+    "target_workspace": "crosswalk_ws",
     "topics": [
       {
         "name": "/yolo/crosswalk_sign",
         "type": "std_msgs/msg/Bool"
       }
     ],
-    "category": "yolo",
-    "color": "#8E44AD"
+    "category": "runtime",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-04",
     "source": "lane_ws",
     "target": "crosswalk_ws",
+    "source_workspace": "lane_ws",
+    "target_workspace": "crosswalk_ws",
     "topics": [
       {
         "name": "/mission/lane",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
-    "category": "lane",
-    "color": "#AD7A00"
+    "category": "runtime",
+    "color": "#805000",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-05",
     "source": "crosswalk_ws",
     "target": "mux_ws",
+    "source_workspace": "crosswalk_ws",
+    "target_workspace": "mux_ws",
     "topics": [
       {
         "name": "/mission/crosswalk/command_01",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
-    "category": "mission",
-    "color": "#238363"
+    "category": "runtime",
+    "color": "#00643B",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-06",
     "source": "sensor_camera",
     "target": "signal_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "signal_ws",
     "topics": [
       {
         "name": "/camera/color/image_raw/compressed",
         "type": "sensor_msgs/msg/CompressedImage"
       }
     ],
-    "source_workspace": "sensor_ws",
-    "category": "camera",
-    "color": "#1976D2"
+    "category": "runtime",
+    "color": "#0D47A1",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-07",
     "source": "yolo_ws",
     "target": "signal_ws",
+    "source_workspace": "yolo_ws",
+    "target_workspace": "signal_ws",
     "topics": [
       {
         "name": "/yolo/signal",
         "type": "std_msgs/msg/Bool"
       }
     ],
-    "category": "yolo",
-    "color": "#8E44AD"
+    "category": "runtime",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-08",
     "source": "lane_ws",
     "target": "signal_ws",
+    "source_workspace": "lane_ws",
+    "target_workspace": "signal_ws",
     "topics": [
       {
         "name": "/mission/lane",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
-    "category": "lane",
-    "color": "#AD7A00"
+    "category": "runtime",
+    "color": "#805000",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-09",
     "source": "signal_ws",
     "target": "mux_ws",
+    "source_workspace": "signal_ws",
+    "target_workspace": "mux_ws",
     "topics": [
       {
         "name": "/mission/signal/command_02",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
-    "category": "mission",
-    "color": "#238363"
+    "category": "runtime",
+    "color": "#00643B",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-10",
     "source": "sensor_camera",
     "target": "parking_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "parking_ws",
     "topics": [
       {
         "name": "/camera/color/image_raw/compressed",
         "type": "sensor_msgs/msg/CompressedImage"
       }
     ],
-    "source_workspace": "sensor_ws",
-    "category": "camera",
-    "color": "#1976D2"
-  },
-  {
-    "page": "전체 흐름",
-    "id": "전체-edge-10-lidar",
-    "source": "sensor_lidar",
-    "target": "parking_ws",
-    "topics": [
-      {
-        "name": "/scan",
-        "type": "sensor_msgs/msg/LaserScan"
-      }
-    ],
-    "source_workspace": "sensor_ws",
-    "category": "lidar",
-    "color": "#E65100"
+    "category": "runtime",
+    "color": "#0D47A1",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-11",
     "source": "yolo_ws",
     "target": "parking_ws",
+    "source_workspace": "yolo_ws",
+    "target_workspace": "parking_ws",
     "topics": [
       {
         "name": "/yolo/parking_sign",
         "type": "std_msgs/msg/Bool"
       }
     ],
-    "category": "yolo",
-    "color": "#8E44AD"
+    "category": "runtime",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-12",
     "source": "parking_ws",
     "target": "mux_ws",
+    "source_workspace": "parking_ws",
+    "target_workspace": "mux_ws",
     "topics": [
       {
         "name": "/mission/parking/command_03",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
-    "category": "mission",
-    "color": "#238363"
+    "category": "runtime",
+    "color": "#00643B",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-13",
     "source": "sensor_lidar",
     "target": "cone_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "cone_ws",
     "topics": [
       {
         "name": "/scan",
         "type": "sensor_msgs/msg/LaserScan"
       }
     ],
-    "source_workspace": "sensor_ws",
-    "category": "lidar",
-    "color": "#E65100"
+    "category": "runtime",
+    "color": "#BF360C",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-14",
     "source": "cone_ws",
     "target": "mux_ws",
+    "source_workspace": "cone_ws",
+    "target_workspace": "mux_ws",
     "topics": [
       {
-        "name": "/mission/cone/command_04",
+        "name": "/mission/cone/command_06",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
-    "category": "mission",
-    "color": "#238363"
+    "category": "runtime",
+    "color": "#00643B",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-15",
-    "source": "sensor_camera",
+    "source": "deep_mask",
     "target": "objavoid_ws",
+    "source_workspace": "lane_fusion_ws",
+    "target_workspace": "objavoid_ws",
     "topics": [
       {
-        "name": "/camera/color/image_raw/compressed",
-        "type": "sensor_msgs/msg/CompressedImage"
+        "name": "/lane_fusion/deep_mask",
+        "type": "sensor_msgs/msg/Image"
       }
     ],
-    "source_workspace": "sensor_ws",
-    "category": "camera",
-    "color": "#1976D2"
-  },
-  {
-    "page": "전체 흐름",
-    "id": "전체-edge-15-lidar",
-    "source": "sensor_lidar",
-    "target": "objavoid_ws",
-    "topics": [
-      {
-        "name": "/scan",
-        "type": "sensor_msgs/msg/LaserScan"
-      }
-    ],
-    "source_workspace": "sensor_ws",
-    "category": "lidar",
-    "color": "#E65100"
+    "category": "runtime",
+    "color": "#805000",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-16",
     "source": "objavoid_ws",
     "target": "mux_ws",
+    "source_workspace": "objavoid_ws",
+    "target_workspace": "mux_ws",
     "topics": [
       {
         "name": "/mission/objavoid/command_05",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
-    "category": "mission",
-    "color": "#238363"
-  },
-  {
-    "page": "전체 흐름",
-    "id": "전체-edge-23",
-    "source": "yolo_ws",
-    "target": "slow_ws",
-    "topics": [
-      {
-        "name": "/yolo/bump_sign",
-        "type": "std_msgs/msg/Bool"
-      }
-    ],
-    "category": "yolo",
-    "color": "#8E44AD"
+    "category": "runtime",
+    "color": "#00643B",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "yolo-slow-to-slow",
     "source": "yolo_ws",
     "target": "slow_ws",
+    "source_workspace": "yolo_ws",
+    "target_workspace": "slow_ws",
     "topics": [
       {
         "name": "/yolo/slow_sign",
         "type": "std_msgs/msg/Bool"
       }
     ],
-    "category": "yolo",
-    "color": "#8E44AD"
+    "category": "runtime",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-24",
     "source": "lane_ws",
     "target": "slow_ws",
+    "source_workspace": "lane_ws",
+    "target_workspace": "slow_ws",
     "topics": [
       {
         "name": "/mission/lane",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
-    "category": "lane",
-    "color": "#AD7A00"
+    "category": "runtime",
+    "color": "#805000",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-25",
     "source": "slow_ws",
     "target": "mux_ws",
+    "source_workspace": "slow_ws",
+    "target_workspace": "mux_ws",
     "topics": [
       {
-        "name": "/mission/slow/command_08",
+        "name": "/mission/slow/command_04",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
-    "category": "mission",
-    "color": "#238363"
+    "category": "runtime",
+    "color": "#00643B",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-26",
     "source": "yolo_ws",
-    "target": "lane_ws",
+    "target": "objavoid_ws",
+    "source_workspace": "yolo_ws",
+    "target_workspace": "objavoid_ws",
     "topics": [
       {
         "name": "/yolo/LR_sign",
         "type": "std_msgs/msg/Bool"
+      },
+      {
+        "name": "/yolo/LR_detail",
+        "type": "std_msgs/msg/Float32MultiArray"
       }
     ],
-    "category": "yolo",
-    "color": "#8E44AD"
+    "category": "runtime",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-27",
     "source": "lane_ws",
     "target": "mux_ws",
+    "source_workspace": "lane_ws",
+    "target_workspace": "mux_ws",
     "topics": [
       {
         "name": "/mission/lane",
         "type": "ackermann_msgs/msg/AckermannDriveStamped"
       }
     ],
-    "category": "lane",
-    "color": "#AD7A00"
+    "category": "runtime",
+    "color": "#805000",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "전체-edge-28",
     "source": "mux_ws",
     "target": null,
+    "source_workspace": "mux_ws",
+    "target_workspace": "vehicle",
     "topics": [
       {
         "name": "/cmd_vel",
         "type": "geometry_msgs/msg/Twist"
       }
     ],
-    "subscriber_status": "external",
-    "target_system": "LIMO base driver",
-    "category": "selected",
-    "color": "#00695C"
+    "category": "runtime",
+    "color": "#004D40",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-10-lidar",
+    "source": "sensor_lidar",
+    "target": "parking_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "parking_ws",
+    "topics": [
+      {
+        "name": "/scan",
+        "type": "sensor_msgs/msg/LaserScan"
+      }
+    ],
+    "category": "runtime",
+    "color": "#BF360C",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "전체-edge-15-lidar",
+    "source": "sensor_lidar",
+    "target": "objavoid_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "objavoid_ws",
+    "topics": [
+      {
+        "name": "/scan",
+        "type": "sensor_msgs/msg/LaserScan"
+      }
+    ],
+    "category": "runtime",
+    "color": "#BF360C",
+    "mode": "deep",
+    "observer": false
   },
   {
     "page": "전체 흐름",
     "id": "lane-current-lane-input",
-    "source": null,
+    "source": "sensor_base",
     "target": "lane_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "lane_ws",
     "topics": [
       {
-        "name": "/current_lane",
+        "name": "/odom",
+        "type": "nav_msgs/msg/Odometry"
+      }
+    ],
+    "category": "runtime",
+    "color": "#263238",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "deep-mask-to-lite",
+    "source": "deep_mask",
+    "target": "deep_lite",
+    "source_workspace": "lane_fusion_ws",
+    "target_workspace": "lane_fusion_ws",
+    "topics": [
+      {
+        "name": "/lane_fusion/deep_mask",
+        "type": "sensor_msgs/msg/Image"
+      }
+    ],
+    "category": "runtime",
+    "color": "#805000",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "deep-lite-to-pid",
+    "source": "deep_lite",
+    "target": "lane_ws",
+    "source_workspace": "lane_fusion_ws",
+    "target_workspace": "lane_ws",
+    "topics": [
+      {
+        "name": "/lane_deep/target",
+        "type": "std_msgs/msg/Float32MultiArray"
+      }
+    ],
+    "category": "runtime",
+    "color": "#805000",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "deep-zigzag",
+    "source": "deep_lite",
+    "target": "slow_ws",
+    "source_workspace": "lane_fusion_ws",
+    "target_workspace": "slow_ws",
+    "topics": [
+      {
+        "name": "/lane_deep/zigzag",
+        "type": "std_msgs/msg/UInt8"
+      }
+    ],
+    "category": "runtime",
+    "color": "#805000",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "imu-to-localization",
+    "source": "sensor_imu",
+    "target": "sensor_fusion",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "sensor_ws",
+    "topics": [
+      {
+        "name": "/imu",
+        "type": "sensor_msgs/msg/Imu"
+      }
+    ],
+    "category": "runtime",
+    "color": "#283593",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "wheel-to-localization",
+    "source": "sensor_base",
+    "target": "sensor_fusion",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "sensor_ws",
+    "topics": [
+      {
+        "name": "/odom",
+        "type": "nav_msgs/msg/Odometry"
+      }
+    ],
+    "category": "runtime",
+    "color": "#00695C",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "localization-to-ekf",
+    "source": "sensor_fusion",
+    "target": "sensor_ekf",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "sensor_ws",
+    "topics": [
+      {
+        "name": "/localization/wheel",
+        "type": "nav_msgs/msg/Odometry"
+      },
+      {
+        "name": "/localization/imu",
+        "type": "sensor_msgs/msg/Imu"
+      }
+    ],
+    "category": "runtime",
+    "color": "#1B5E20",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "odom-to-deep",
+    "source": "sensor_base",
+    "target": "deep_lite",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "lane_fusion_ws",
+    "topics": [
+      {
+        "name": "/odom",
+        "type": "nav_msgs/msg/Odometry"
+      }
+    ],
+    "category": "runtime",
+    "color": "#263238",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "yolo-to-pid",
+    "source": "yolo_ws",
+    "target": "lane_ws",
+    "source_workspace": "yolo_ws",
+    "target_workspace": "lane_ws",
+    "topics": [
+      {
+        "name": "/yolo/parking_sign",
         "type": "std_msgs/msg/Bool"
       }
     ],
-    "publisher_status": "unassigned",
-    "category": "lane_selection",
-    "color": "#455A64",
-    "default": false,
-    "values": {
-      "false": "left",
-      "true": "right"
-    }
+    "category": "runtime",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "camera-to-crosswalk",
+    "source": "sensor_camera",
+    "target": "crosswalk_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "crosswalk_ws",
+    "topics": [
+      {
+        "name": "/camera/color/image_raw/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "category": "runtime",
+    "color": "#0D47A1",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "camera-to-slow",
+    "source": "sensor_camera",
+    "target": "slow_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "slow_ws",
+    "topics": [
+      {
+        "name": "/camera/color/image_raw/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "category": "runtime",
+    "color": "#0D47A1",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "mux-feedback",
+    "source": "mux_ws",
+    "target": "objavoid_ws",
+    "source_workspace": "mux_ws",
+    "target_workspace": "objavoid_ws",
+    "topics": [
+      {
+        "name": "/mux/active_source",
+        "type": "std_msgs/msg/String"
+      }
+    ],
+    "category": "runtime",
+    "color": "#004D40",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "mux-feedback-cone",
+    "source": "mux_ws",
+    "target": "cone_ws",
+    "source_workspace": "mux_ws",
+    "target_workspace": "cone_ws",
+    "topics": [
+      {
+        "name": "/mux/active_source",
+        "type": "std_msgs/msg/String"
+      }
+    ],
+    "category": "runtime",
+    "color": "#004D40",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "mux-feedback-parking",
+    "source": "mux_ws",
+    "target": "parking_ws",
+    "source_workspace": "mux_ws",
+    "target_workspace": "parking_ws",
+    "topics": [
+      {
+        "name": "/mux/active_source",
+        "type": "std_msgs/msg/String"
+      }
+    ],
+    "category": "runtime",
+    "color": "#004D40",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "lane-to-cone",
+    "source": "lane_ws",
+    "target": "cone_ws",
+    "source_workspace": "lane_ws",
+    "target_workspace": "cone_ws",
+    "topics": [
+      {
+        "name": "/mission/lane",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "runtime",
+    "color": "#805000",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "slow-to-obj",
+    "source": "slow_ws",
+    "target": "objavoid_ws",
+    "source_workspace": "slow_ws",
+    "target_workspace": "objavoid_ws",
+    "topics": [
+      {
+        "name": "/slow/mission_active",
+        "type": "std_msgs/msg/Bool"
+      },
+      {
+        "name": "/mission/slow/command_04",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      }
+    ],
+    "category": "runtime",
+    "color": "#00643B",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "parking-lane-handshake",
+    "source": "parking_ws",
+    "target": "lane_ws",
+    "source_workspace": "parking_ws",
+    "target_workspace": "lane_ws",
+    "topics": [
+      {
+        "name": "/parking/approach_ready",
+        "type": "std_msgs/msg/Header"
+      },
+      {
+        "name": "/parking/control_state",
+        "type": "std_msgs/msg/String"
+      },
+      {
+        "name": "/parking/active",
+        "type": "std_msgs/msg/Bool"
+      },
+      {
+        "name": "/parking/approach_start",
+        "type": "std_msgs/msg/Header"
+      }
+    ],
+    "category": "runtime",
+    "color": "#263238",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "parking-mux-handshake",
+    "source": "parking_ws",
+    "target": "mux_ws",
+    "source_workspace": "parking_ws",
+    "target_workspace": "mux_ws",
+    "topics": [
+      {
+        "name": "/parking/control_state",
+        "type": "std_msgs/msg/String"
+      },
+      {
+        "name": "/parking/lane_handoff",
+        "type": "std_msgs/msg/Header"
+      }
+    ],
+    "category": "runtime",
+    "color": "#263238",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "localization-parking",
+    "source": "sensor_ekf",
+    "target": "parking_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "parking_ws",
+    "topics": [
+      {
+        "name": "/odometry/filtered",
+        "type": "nav_msgs/msg/Odometry"
+      }
+    ],
+    "category": "runtime",
+    "color": "#1B5E20",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "odom-to-missions",
+    "source": "sensor_base",
+    "target": "objavoid_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "objavoid_ws",
+    "topics": [
+      {
+        "name": "/odom",
+        "type": "nav_msgs/msg/Odometry"
+      },
+      {
+        "name": "/limo_status",
+        "type": "limo_msgs/msg/LimoStatus"
+      }
+    ],
+    "category": "runtime",
+    "color": "#263238",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "imu-to-obj",
+    "source": "sensor_imu",
+    "target": "objavoid_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "objavoid_ws",
+    "topics": [
+      {
+        "name": "/imu",
+        "type": "sensor_msgs/msg/Imu"
+      }
+    ],
+    "category": "runtime",
+    "color": "#283593",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "fusion-to-parking",
+    "source": "sensor_fusion",
+    "target": "parking_ws",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "parking_ws",
+    "topics": [
+      {
+        "name": "/localization/imu",
+        "type": "sensor_msgs/msg/Imu"
+      },
+      {
+        "name": "/localization/health",
+        "type": "std_msgs/msg/String"
+      }
+    ],
+    "category": "runtime",
+    "color": "#1B5E20",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "crosswalk-to-slow",
+    "source": "crosswalk_ws",
+    "target": "slow_ws",
+    "source_workspace": "crosswalk_ws",
+    "target_workspace": "slow_ws",
+    "topics": [
+      {
+        "name": "/start_crosswalk",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "runtime",
+    "color": "#263238",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "signal-to-slow",
+    "source": "signal_ws",
+    "target": "slow_ws",
+    "source_workspace": "signal_ws",
+    "target_workspace": "slow_ws",
+    "topics": [
+      {
+        "name": "/start_signal",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "runtime",
+    "color": "#263238",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "yolo-crosswalk-to-slow",
+    "source": "yolo_ws",
+    "target": "slow_ws",
+    "source_workspace": "yolo_ws",
+    "target_workspace": "slow_ws",
+    "topics": [
+      {
+        "name": "/yolo/crosswalk_sign",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "runtime",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "pid-to-mux-approach",
+    "source": "lane_ws",
+    "target": "mux_ws",
+    "source_workspace": "lane_ws",
+    "target_workspace": "mux_ws",
+    "topics": [
+      {
+        "name": "/parking/approach_start",
+        "type": "std_msgs/msg/Header"
+      }
+    ],
+    "category": "runtime",
+    "color": "#263238",
+    "mode": "deep",
+    "observer": false
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-camera",
+    "source": "sensor_camera",
+    "target": "vis_images",
+    "source_workspace": "sensor_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/camera/color/image_raw",
+        "type": "sensor_msgs/msg/Image"
+      },
+      {
+        "name": "/camera/color/image_raw/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-yolo",
+    "source": "yolo_ws",
+    "target": "vis_images",
+    "source_workspace": "yolo_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/yolo/debug/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-deep",
+    "source": "deep_lite",
+    "target": "vis_images",
+    "source_workspace": "lane_fusion_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/lane_deep/debug",
+        "type": "sensor_msgs/msg/Image"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-parking",
+    "source": "parking_ws",
+    "target": "vis_parking",
+    "source_workspace": "parking_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/parking/obstacles",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/parking/target",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/parking/slot_map",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/parking/candidate_roi",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/parking/lookahead",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/parking/path",
+        "type": "nav_msgs/msg/Path"
+      },
+      {
+        "name": "/parking/obstacle_memory",
+        "type": "sensor_msgs/msg/PointCloud2"
+      },
+      {
+        "name": "/parking/ldf",
+        "type": "std_msgs/msg/Float32"
+      },
+      {
+        "name": "/parking/localization/odometry",
+        "type": "nav_msgs/msg/Odometry"
+      },
+      {
+        "name": "/parking/approach_odometry",
+        "type": "nav_msgs/msg/Odometry"
+      },
+      {
+        "name": "/parking/status",
+        "type": "std_msgs/msg/String"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-cone",
+    "source": "cone_ws",
+    "target": "vis_cone",
+    "source_workspace": "cone_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/cone_lane/roi_marker",
+        "type": "visualization_msgs/msg/Marker"
+      },
+      {
+        "name": "/cone_lane/roi_points",
+        "type": "visualization_msgs/msg/Marker"
+      },
+      {
+        "name": "/cone_lane/clusters",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/cone_lane/cone_centers",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/cone_lane/boundaries",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/cone_lane/control_points",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/cone_lane/center_path",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/cone_lane/center_spot",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/cone_lane/backup_path",
+        "type": "visualization_msgs/msg/MarkerArray"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-objavoid",
+    "source": "objavoid_ws",
+    "target": "vis_state",
+    "source_workspace": "objavoid_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/objavoid_v3/markers",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/objavoid_v3/path",
+        "type": "nav_msgs/msg/Path"
+      },
+      {
+        "name": "/objavoid_v3/state",
+        "type": "std_msgs/msg/String"
+      },
+      {
+        "name": "/objavoid_v3/active",
+        "type": "std_msgs/msg/Bool"
+      },
+      {
+        "name": "/objavoid_v3/done",
+        "type": "std_msgs/msg/Bool"
+      },
+      {
+        "name": "/objavoid_v3/entrance_armed",
+        "type": "std_msgs/msg/Bool"
+      },
+      {
+        "name": "/objavoid_v3/has_control",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-pid",
+    "source": "lane_ws",
+    "target": "vis_state",
+    "source_workspace": "lane_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/lane_pid/command",
+        "type": "ackermann_msgs/msg/AckermannDriveStamped"
+      },
+      {
+        "name": "/lane_pid/state",
+        "type": "std_msgs/msg/Float32MultiArray"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-mux",
+    "source": "mux_ws",
+    "target": "vis_consumers",
+    "source_workspace": "mux_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/cmd_vel",
+        "type": "geometry_msgs/msg/Twist"
+      },
+      {
+        "name": "/mux/active_source",
+        "type": "std_msgs/msg/String"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-crosswalk",
+    "source": "crosswalk_ws",
+    "target": "vis_images",
+    "source_workspace": "crosswalk_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/crosswalk/white_roi/debug/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      },
+      {
+        "name": "/crosswalk/white_roi/ratio",
+        "type": "std_msgs/msg/Float32"
+      },
+      {
+        "name": "/crosswalk/white_roi/detected",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-signal",
+    "source": "signal_ws",
+    "target": "vis_images",
+    "source_workspace": "signal_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/signal/white_roi/debug/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      },
+      {
+        "name": "/signal/white_roi/ratio",
+        "type": "std_msgs/msg/Float32"
+      },
+      {
+        "name": "/signal/white_roi/detected",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-slow",
+    "source": "slow_ws",
+    "target": "vis_images",
+    "source_workspace": "slow_ws",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/slow/white_roi/debug/compressed",
+        "type": "sensor_msgs/msg/CompressedImage"
+      },
+      {
+        "name": "/slow/white_roi/ratio",
+        "type": "std_msgs/msg/Float32"
+      },
+      {
+        "name": "/slow/white_roi/detected",
+        "type": "std_msgs/msg/Bool"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
+  },
+  {
+    "page": "전체 흐름",
+    "id": "vis-forwarding",
+    "source": "vis_parking",
+    "target": "vis_consumers",
+    "source_workspace": "visualization",
+    "target_workspace": "visualization",
+    "topics": [
+      {
+        "name": "/parking/candidate_roi",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/parking/obstacles",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/parking/target",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/parking/slot_map",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/parking/lookahead",
+        "type": "visualization_msgs/msg/MarkerArray"
+      },
+      {
+        "name": "/parking/path",
+        "type": "nav_msgs/msg/Path"
+      },
+      {
+        "name": "/parking/obstacle_memory",
+        "type": "sensor_msgs/msg/PointCloud2"
+      }
+    ],
+    "category": "visualization",
+    "color": "#6A1B9A",
+    "mode": "deep",
+    "observer": true
   }
 ]
