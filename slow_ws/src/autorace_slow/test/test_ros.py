@@ -26,7 +26,7 @@ from autorace_mux.node import MuxNode
 
 
 class Harness:
-    def __init__(self, hold=2., sim=False, white_gate=False):
+    def __init__(self, hold=2., sim=False, white_gate=False, start_delay=0.):
         self.context = Context()
         rclpy.init(context=self.context, domain_id=180+os.getpid()%20,
                    signal_handler_options=SignalHandlerOptions.NO)
@@ -34,12 +34,15 @@ class Harness:
         self.topics = {key: prefix+'/'+key for key, _ in INPUTS}
         self.sim = sim
         common = [Parameter('use_sim_time', value=sim)]
+        if start_delay is not None:
+            common.append(Parameter('start_delay_sec', value=start_delay))
+            common.append(Parameter('bump_start_delay_sec', value=start_delay))
         clock_args = ['--ros-args', '-r', '/clock:='+prefix+'/clock']
         self.node = SlowNode(context=self.context, parameter_overrides=common+[
             Parameter('hold_sec', value=hold),
             Parameter('white_roi_enabled', value=white_gate)], cli_args=clock_args+[
                 '-r', '/mission/lane:='+self.topics['lane'],
-                '-r', '/mission/slow/command_08:='+self.topics['slow'],
+                '-r', '/mission/slow/command_04:='+self.topics['slow'],
                 '-r', '/yolo/slow_sign:='+prefix+'/sign',
                 '-r', '/yolo/bump_sign:='+prefix+'/bump',
                 '-r', '/camera/color/image_raw/compressed:='+prefix+'/image'])
@@ -267,3 +270,65 @@ def test_missing_stale_invalid_lane_stops_and_first_fresh_lane_resumes_tracking(
             assert h.node.lane is None
     finally:
         h.close()
+
+
+def test_default_white_start_waits_one_tenth_second_and_repeated_white_does_not_postpone():
+    h=Harness(white_gate=True,start_delay=None)
+    try:
+        assert h.node.start_delay_sec==.1
+        assert h.node.bump_start_delay_sec==.5
+        h.lane_enabled=True
+        h.detect('slow')
+        frame=np.full((240,320,3),255,dtype=np.uint8)
+        ok,encoded=cv2.imencode('.jpg',frame)
+        assert ok
+        message=CompressedImage(format='jpeg',data=encoded.tobytes())
+        message.header.stamp=h.probe.get_clock().now().to_msg()
+        first=time.monotonic()
+        h.node.on_white_image(message)
+        start=h.node.state.missions['slow'].start_at
+        assert start>=first+.1
+        assert start<first+.2
+        assert not h.commands
+        h.node.on_white_image(message)
+        assert h.node.state.missions['slow'].start_at==start
+        h.pump(max(0.,start-time.monotonic()-.04))
+        assert not h.commands
+        h.pump(.15)
+        assert h.commands and h.commands[0].drive.speed==pytest.approx(.2)
+    finally:
+        h.close()
+
+
+def test_signal_stop_event_cancels_scheduled_slow_before_it_starts():
+    h=Harness(white_gate=True,start_delay=.5)
+    try:
+        h.lane_enabled=True
+        h.detect('slow')
+        h.floor(True)
+        assert h.node.state.missions['slow'].start_at is not None
+        h.node.on_signal_stop(Bool(data=True))
+        h.pump(1.15)
+        assert not h.commands and h.node.state.selected(time.monotonic()) is None
+    finally:
+        h.close()
+
+@pytest.mark.parametrize('kind',['slow','bump'])
+def test_mission_activity_covers_floor_wait_active_hold_and_completion(kind):
+    from rclpy.qos import QoSProfile,DurabilityPolicy
+    h=Harness(white_gate=True)
+    try:
+        values=[]
+        h.subs.append(h.probe.create_subscription(Bool,'/slow/mission_active',lambda m:values.append(m.data),QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)))
+        h.pump(.1);assert values and values[-1] is False
+        h.node.on_sign(kind,Bool(data=True));h.node.on_sign(kind,Bool(data=True));h.pump(.1)
+        assert h.node.state.missions[kind].armed and values[-1] is True
+        assert not h.commands
+        late=[]
+        h.subs.append(h.probe.create_subscription(Bool,'/slow/mission_active',lambda m:late.append(m.data),QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)))
+        h.pump(.1);assert late and late[-1] is True
+        h.node.state.receive_white(True,time.monotonic(),[kind]);h.node.publish();h.pump(.05)
+        assert values[-1] is True
+        h.node.state.missions[kind].deadline=time.monotonic()-1
+        h.node.publish();h.pump(.1);assert values[-1] is False
+    finally:h.close()

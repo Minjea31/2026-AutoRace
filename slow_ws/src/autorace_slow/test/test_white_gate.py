@@ -19,9 +19,9 @@ def test_yolo_quorum_only_arms_and_one_later_white_observation_starts(kind):
     assert state.receive_white(False, .4) == ()
     assert state.receive_white(True, .5) == (kind,)
     assert state.selected(.5) == kind
-    assert state.missions[kind].deadline == 8.5
+    assert state.missions[kind].deadline == (15.5 if kind == 'slow' else 10.5)
     assert state.receive_white(True, .6) == ()
-    assert state.missions[kind].deadline == 8.5
+    assert state.missions[kind].deadline == (15.5 if kind == 'slow' else 10.5)
 
 
 def test_confirmed_sign_stays_armed_after_sign_disappears_and_each_kind_is_independent():
@@ -59,13 +59,13 @@ def test_after_expiry_both_yolo_quorum_and_new_white_are_required_again():
 
 
 def test_white_ratio_uses_whole_roi_and_ignores_white_outside_it():
-    roi = WhiteROI(left=.2, right=.8, top=.86, bottom=.92, minimum_ratio=.08)
+    roi = WhiteROI()
     frame = np.full((200, 400, 3), 255, dtype=np.uint8)
-    frame[172:184, 80:320] = 0
+    frame[192:200, 20:380] = 0
     ratio, bounds, mask = roi.measure(frame, 70, 120)
-    assert bounds == (80, 172, 320, 184)
-    assert ratio == 0 and mask.size == 240 * 12
-    frame[172:184, 80:200] = 255
+    assert bounds == (20, 192, 380, 200)
+    assert ratio == 0 and mask.size == 360 * 8
+    frame[192:200, 20:200] = 255
     ratio, _, _ = roi.measure(frame, 70, 120)
     assert ratio == pytest.approx(.5, abs=.02)
 

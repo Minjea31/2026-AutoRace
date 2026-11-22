@@ -12,7 +12,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
-  <exec_depend>autorace_lane_fusion</exec_depend>
+  <exec_depend>autorace_lane_deep_lite</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
